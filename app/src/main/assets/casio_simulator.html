@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CASIO fx-991EX ClassWiz / CalcES Interactive Simulator</title>
+
+    <!-- Local Offline Math & Algebra Libraries -->
+    <script src="js/math.js"></script>
+    <script src="js/nerdamer.core.js"></script>
+    <script src="js/Algebra.js"></script>
+    <script src="js/Calculus.js"></script>
+    <script src="js/Solve.js"></script>
+
+    <style>
+        :root {
+            --bg-body: #0a0d14;
+            --calc-bg: #141724;
+            --screen-bg: #b9cad8;
+            --screen-text: #050d1a;
+            --btn-dark: #1e2436;
+            --btn-num: #2d354d;
+            --btn-orange: #ea580c;
+            --btn-shift: #d97706;
+            --btn-alpha: #9333ea;
+            --btn-blue: #0284c7;
+            --sub-shift: #fbbf24;
+            --sub-alpha: #c084fc;
+            --border-color: #27304a;
+        }
+
+        body.light-mode {
+            --bg-body: #f1f5f9;
+            --calc-bg: #ffffff;
+            --screen-bg: #9ab4c7;
+            --screen-text: #040914;
+            --btn-dark: #cbd5e1;
+            --btn-num: #e2e8f0;
+            --sub-shift: #b45309;
+            --sub-alpha: #7e22ce;
+            --border-color: #cbd5e1;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background: var(--bg-body);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 4px;
+            color: #f8fafc;
+        }
+
+        .calc-container {
+            width: 100%;
+            max-width: 480px;
+            background: var(--calc-bg);
+            border-radius: 20px;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.8);
+            border: 1px solid var(--border-color);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Bar */
+        .status-header {
+            background: #090c14;
+            padding: 6px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #94a3b8;
+            font-size: 0.72rem;
+            font-weight: bold;
+            border-bottom: 1px solid #1a2030;
+        }
+
+        .status-badges span {
+            margin-right: 4px;
+            font-weight: 800;
+        }
+
+        /* Top Action Bar */
+        .top-action-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #101422;
+            padding: 6px 8px;
+            border-bottom: 1px solid #1e2538;
+            gap: 4px;
+        }
+
+        .icon-btn {
+            background: #1b2133;
+            border: 1px solid #28324d;
+            color: #94a3b8;
+            padding: 4px 8px;
+            height: 32px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            transition: transform 0.05s;
+        }
+
+        .icon-btn:active {
+            transform: scale(0.92);
+            background: #0284c7;
+            color: #fff;
+        }
+
+        .pro-badge {
+            background: linear-gradient(135deg, #a855f7, #6366f1);
+            color: #fff;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.68rem;
+            font-weight: 800;
+            box-shadow: 0 2px 6px rgba(168, 85, 247, 0.4);
+        }
+
+        /* Screen Area (Interactive LCD) */
+        .screen-box {
+            background: var(--screen-bg);
+            margin: 8px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            direction: ltr;
+            box-shadow: inset 0 3px 10px rgba(0,0,0,0.55), 0 1px 2px rgba(255,255,255,0.05);
+            position: relative;
+            cursor: text;
+            border: 1px solid rgba(0,0,0,0.3);
+        }
+
+        .expr-area {
+            font-size: 1.25rem;
+            font-family: 'Courier New', Courier, monospace;
+            color: var(--screen-text);
+            min-height: 48px;
+            word-break: break-all;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            line-height: 1.35;
+            font-weight: 600;
+        }
+
+        .char-span {
+            position: relative;
+            cursor: pointer;
+            padding: 0 1px;
+            border-radius: 2px;
+        }
+
+        .char-span:active {
+            background: rgba(37, 99, 235, 0.35);
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 2.5px;
+            height: 1.25rem;
+            background: #1d4ed8;
+            margin: 0 1px;
+            animation: blink 0.8s infinite;
+            border-radius: 1px;
+        }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        .res-area {
+            font-size: 1.75rem;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: 800;
+            color: var(--screen-text);
+            text-align: right;
+            min-height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            word-break: break-all;
+        }
+
+        /* Quick Variables Row */
+        .var-bar {
+            display: flex;
+            gap: 4px;
+            padding: 0 8px 4px 8px;
+            overflow-x: auto;
+        }
+
+        .var-btn {
+            flex: 1;
+            min-width: 38px;
+            height: 28px;
+            background: #182033;
+            border: 1px solid #2a3654;
+            color: #c084fc;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 0.78rem;
+            cursor: pointer;
+        }
+
+        .var-btn:active {
+            background: #a855f7;
+            color: #fff;
+        }
+
+        /* Keypad Grid */
+        .keypad {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 4px;
+            padding: 6px 8px 12px 8px;
+        }
+
+        .key-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .sub-labels {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            padding: 0 1px;
+            font-size: 0.58rem;
+            font-weight: 800;
+            height: 12px;
+            line-height: 12px;
+            overflow: hidden;
+        }
+
+        .sub-shift { color: var(--sub-shift); }
+        .sub-alpha { color: var(--sub-alpha); }
+
+        button.kbtn {
+            width: 100%;
+            height: 38px;
+            border: none;
+            border-radius: 7px;
+            font-size: 0.82rem;
+            font-weight: bold;
+            color: #f8fafc;
+            background: var(--btn-dark);
+            cursor: pointer;
+            box-shadow: 0 2.5px 0 rgba(0,0,0,0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.05s ease;
+        }
+
+        body.light-mode button.kbtn { color: #0f172a; }
+
+        button.kbtn:active {
+            transform: translateY(2px);
+            box-shadow: 0 0.5px 0 rgba(0,0,0,0.4);
+            filter: brightness(1.2);
+        }
+
+        .kbtn-shift { background: var(--btn-shift) !important; color: #000 !important; }
+        .kbtn-alpha { background: var(--btn-alpha) !important; color: #fff !important; }
+        .kbtn-num { background: var(--btn-num) !important; font-size: 1.05rem; }
+        .kbtn-orange { background: var(--btn-orange) !important; color: #fff !important; }
+        .kbtn-blue { background: var(--btn-blue) !important; color: #fff !important; font-size: 1.15rem; }
+
+        /* Interactive D-Pad Navigation */
+        .dpad-container {
+            grid-column: span 2;
+            grid-row: span 2;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            background: #171d2e;
+            border-radius: 50%;
+            padding: 3px;
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.4);
+            border: 1px solid #2d3855;
+            align-self: center;
+            height: 84px;
+        }
+
+        .dpad-btn {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            font-size: 0.85rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 50%;
+        }
+
+        .dpad-btn:active {
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.2);
+        }
+
+        /* Modals Overlay */
+        .modal-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10, 14, 22, 0.96);
+            z-index: 200;
+            padding: 16px;
+            color: #f8fafc;
+            backdrop-filter: blur(8px);
+            overflow-y: auto;
+        }
+
+        .modal-title {
+            font-size: 1.05rem;
+            font-weight: bold;
+            color: #38bdf8;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 8px;
+        }
+
+        .modal-close { cursor: pointer; color: #f43f5e; font-size: 1.3rem; font-weight: bold; padding: 2px 8px; }
+
+        .modal-option {
+            background: #1e293b;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.88rem;
+            cursor: pointer;
+            border: 1px solid #334155;
+        }
+
+        .modal-option:active { background: #334155; }
+
+        .sample-eq-btn {
+            background: #232d42;
+            border: 1px solid #3b4866;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 7px;
+            margin: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: 0.15s;
+        }
+
+        .sample-eq-btn:active { background: #0284c7; }
+    </style>
+</head>
+<body>
+
+<div class="calc-container" id="calcApp">
+    <!-- Status Header -->
+    <div class="status-header">
+        <div>CASIO fx-991EX / CalcES</div>
+        <div class="status-badges">
+            <span id="badge-shift" style="display:none; color:#fbbf24;">S</span>
+            <span id="badge-alpha" style="display:none; color:#c084fc;">A</span>
+            <span id="badge-angle" style="color:#38bdf8;">RAD</span>
+            <span style="color:#a3e635;">NORM1</span>
+            <span style="color:#f472b6;">MATH</span>
+        </div>
+    </div>
+
+    <!-- Top Action Bar -->
+    <div class="top-action-bar">
+        <button class="icon-btn" onclick="toggleModal('historyModal')" title="السجل">☰ السجل</button>
+        <span class="pro-badge">PRO v2.0</span>
+        <button class="icon-btn" onclick="toggleModal('mathToolsModal')" title="الأدوات الرياضية">Σ أدوات</button>
+        <button class="icon-btn" onclick="toggleModal('settingsModal')" title="الإعدادات">⚙ ضبط</button>
+        <button class="icon-btn" onclick="toggleTheme()" title="الوضع الليلي">🌗</button>
+        <button class="icon-btn" onclick="toggleModal('cameraModal')" title="ماسح المعادلات">📷 كاميرا</button>
+        <button class="icon-btn" onclick="toggleModal('moreModal')" title="المزيد">MORE</button>
+    </div>
+
+    <!-- Interactive LCD Screen -->
+    <div class="screen-box" id="screenBox" onclick="handleScreenClick(event)">
+        <div class="expr-area" id="exprArea"></div>
+        <div class="res-area" id="resText">0</div>
+    </div>
+
+    <!-- Quick Access Variable Bar -->
+    <div class="var-bar">
+        <button class="var-btn" onclick="onKey('x')">x</button>
+        <button class="var-btn" onclick="onKey('y')">y</button>
+        <button class="var-btn" onclick="onKey('=')">=</button>
+        <button class="var-btn" onclick="onKey('+')">+</button>
+        <button class="var-btn" onclick="onKey('-')">−</button>
+        <button class="var-btn" onclick="onKey('^2')">x²</button>
+        <button class="var-btn" onclick="onKey('d/dx(')">d/dx</button>
+        <button class="var-btn" onclick="onKey('integrate(')">∫</button>
+        <button class="var-btn" onclick="onKey('sqrt(')">√</button>
+        <button class="var-btn" onclick="onKey('Ans')">Ans</button>
+    </div>
+
+    <!-- Keypad Grid -->
+    <div class="keypad">
+
+        <!-- Row 1: SHIFT, ALPHA, D-Pad (spans 2x2), MODE, 2nd -->
+        <div class="key-wrapper">
+            <div class="sub-labels"></div>
+            <button class="kbtn kbtn-shift" onclick="pressShift()">SHIFT</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"></div>
+            <button class="kbtn kbtn-alpha" onclick="pressAlpha()">ALPHA</button>
+        </div>
+
+        <!-- D-Pad Navigation Control -->
+        <div class="dpad-container">
+            <div></div>
+            <button class="dpad-btn" onclick="moveCursor('up')">▲</button>
+            <div></div>
+            <button class="dpad-btn" onclick="moveCursor('left')">◄</button>
+            <button class="dpad-btn" onclick="executeEval()" style="color:#38bdf8; font-size:0.75rem; font-weight:bold;">●</button>
+            <button class="dpad-btn" onclick="moveCursor('right')">►</button>
+            <div></div>
+            <button class="dpad-btn" onclick="moveCursor('down')">▼</button>
+            <div></div>
+        </div>
+
+        <div class="key-wrapper">
+            <div class="sub-labels"></div>
+            <button class="kbtn" onclick="toggleModal('mathToolsModal')">MODE</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"></div>
+            <button class="kbtn" onclick="toggleModal('moreModal')">2nd</button>
+        </div>
+
+        <!-- Row 2: CALC/SOLVE, d/dx, x^-1/x!, Log_x y -->
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">SOLVE</span><span class="sub-alpha">=</span></div>
+            <button class="kbtn" onclick="onKey('CALC')">CALC</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">d/dx</span><span class="sub-alpha">:</span></div>
+            <button class="kbtn" onclick="onKey('INT')">∫dx</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">x!</span><span class="sub-alpha"></span></div>
+            <button class="kbtn" onclick="onKey('INV')">x⁻¹</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">Σ</span><span class="sub-alpha">Π</span></div>
+            <button class="kbtn" onclick="onKey('LOG_XY')">Logₓy</button>
+        </div>
+
+        <!-- Row 3: Math operations & powers -->
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">⬛/⬛</span><span class="sub-alpha"></span></div>
+            <button class="kbtn" onclick="onKey('/')">÷</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">³√</span><span class="sub-alpha"></span></div>
+            <button class="kbtn" onclick="onKey('SQRT')">√</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">x³</span><span class="sub-alpha"></span></div>
+            <button class="kbtn" onclick="onKey('SQR')">x²</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">ⁿ√</span><span class="sub-alpha"></span></div>
+            <button class="kbtn" onclick="onKey('POW')">xⁿ</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">10ˣ</span><span class="sub-alpha"></span></div>
+            <button class="kbtn" onclick="onKey('LOG')">Log</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">eˣ</span><span class="sub-alpha">t</span></div>
+            <button class="kbtn" onclick="onKey('LN')">Ln</button>
+        </div>
+
+        <!-- Row 4: Trigonometry & Functions -->
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">∠</span><span class="sub-alpha">a</span></div>
+            <button class="kbtn" onclick="onKey('NEG')">(-)</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">FACT</span><span class="sub-alpha">b</span></div>
+            <button class="kbtn" onclick="onKey('DEG_SYM')">° ' ''</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">|x|</span><span class="sub-alpha">c</span></div>
+            <button class="kbtn" onclick="onKey('HYP')">hyp</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">sin⁻¹</span><span class="sub-alpha">d</span></div>
+            <button class="kbtn" onclick="onKey('SIN')">Sin</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">cos⁻¹</span><span class="sub-alpha">e</span></div>
+            <button class="kbtn" onclick="onKey('COS')">Cos</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">tan⁻¹</span><span class="sub-alpha">f</span></div>
+            <button class="kbtn" onclick="onKey('TAN')">Tan</button>
+        </div>
+
+        <!-- Row 5: Numbers (7, 8, 9, DEL, AC) -->
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">CONST</span><span class="sub-alpha"></span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('7')">7</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">CONV</span><span class="sub-alpha"></span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('8')">8</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">SI</span><span class="sub-alpha"></span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('9')">9</button>
+        </div>
+        <div class="key-wrapper" style="grid-column: span 2;">
+            <div class="sub-labels"><span class="sub-shift">CLR ALL</span></div>
+            <button class="kbtn kbtn-orange" onclick="onKey('DEL')">DEL</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">OFF</span></div>
+            <button class="kbtn kbtn-orange" onclick="onKey('AC')">AC</button>
+        </div>
+
+        <!-- Row 6: Numbers (4, 5, 6, *, /) -->
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">MATRIX</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('4')">4</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">VECTOR</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('5')">5</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">FUNC</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('6')">6</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">nPr</span></div>
+            <button class="kbtn" onclick="onKey('*')">×</button>
+        </div>
+        <div class="key-wrapper" style="grid-column: span 2;">
+            <div class="sub-labels"><span class="sub-shift">nCr</span></div>
+            <button class="kbtn" onclick="onKey('/')">÷</button>
+        </div>
+
+        <!-- Row 7: Numbers (1, 2, 3, +, -) -->
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">STAT</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('1')">1</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">CMPLX</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('2')">2</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">DISTR</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('3')">3</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">Pol</span></div>
+            <button class="kbtn" onclick="onKey('+')">+</button>
+        </div>
+        <div class="key-wrapper" style="grid-column: span 2;">
+            <div class="sub-labels"><span class="sub-shift">Rec</span></div>
+            <button class="kbtn" onclick="onKey('-')">−</button>
+        </div>
+
+        <!-- Row 8: 0, ., Exp, Ans, = -->
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">COPY</span><span class="sub-alpha">x</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('0')">0</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">Ran#</span><span class="sub-alpha">y</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('.')">.</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">π</span><span class="sub-alpha">e</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('EXP')">Exp</button>
+        </div>
+        <div class="key-wrapper">
+            <div class="sub-labels"><span class="sub-shift">PreAns</span></div>
+            <button class="kbtn kbtn-num" onclick="onKey('Ans')">Ans</button>
+        </div>
+        <div class="key-wrapper" style="grid-column: span 2;">
+            <div class="sub-labels"><span class="sub-shift">History</span></div>
+            <button class="kbtn kbtn-blue" onclick="onKey('=')">=</button>
+        </div>
+
+    </div>
+
+    <!-- Modals Section -->
+
+    <!-- Settings Modal (⚙) -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-title">
+            <span>إعدادات الآلة (Settings)</span>
+            <span class="modal-close" onclick="toggleModal('settingsModal')">✕</span>
+        </div>
+        <div class="modal-option" style="cursor:default;">
+            <span>وحدة الزوايا (Angle Unit)</span>
+            <select id="angleSelect" onchange="changeAngleUnit(this.value)" style="padding:6px; border-radius:6px; background:#0f172a; color:#fff; border:1px solid #334155; font-weight:bold;">
+                <option value="RAD">التقدير الدائري (RAD)</option>
+                <option value="DEG">التقدير الستيني (DEG)</option>
+            </select>
+        </div>
+        <div class="modal-option" style="cursor:default;">
+            <span>صيغة الأرقام (Format)</span>
+            <span style="color:#38bdf8; font-weight:bold;">NORM1 / Standard</span>
+        </div>
+        <div class="modal-option" style="cursor:default;">
+            <span>الاهتزاز عند الضغط (Haptic)</span>
+            <input type="checkbox" id="hapticCheck" checked style="width:18px; height:18px;">
+        </div>
+        <div class="modal-option" onclick="toggleTheme(); toggleModal('settingsModal');">
+            <span>تبديل المظهر (Dark / Light)</span>
+            <span>🌗 تغيير</span>
+        </div>
+    </div>
+
+    <!-- Camera / Photo Scan Modal (📷) -->
+    <div class="modal-overlay" id="cameraModal">
+        <div class="modal-title">
+            <span>الماسح الضوئي للمعادلات (Math Camera)</span>
+            <span class="modal-close" onclick="toggleModal('cameraModal')">✕</span>
+        </div>
+        <p style="font-size:0.82rem; color:#94a3b8; margin-bottom:12px;">قم بالتقاط صورة للمسألة أو اختر إحدى المسائل النموذجية من الصور لحلها فوراً وبأدق النتائج:</p>
+        
+        <div style="background:#1e293b; padding:14px; border-radius:10px; text-align:center; margin-bottom:14px;">
+            <input type="file" id="camInput" accept="image/*" style="display:none;" onchange="simCamUpload()">
+            <button onclick="document.getElementById('camInput').click()" style="background:#0284c7; color:#fff; border:none; padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:0.9rem;">
+                📸 التقاط صورة أو اختيار صورة
+            </button>
+        </div>
+
+        <p style="font-size:0.85rem; color:#38bdf8; margin-bottom:8px; font-weight:bold;">معادلات سريعة من الصور (Sample OCR):</p>
+        <div>
+            <button class="sample-eq-btn" onclick="loadSampleEq('7 + 6 = 4x')">7 + 6 = 4x</button>
+            <button class="sample-eq-btn" onclick="loadSampleEq('x^2 - 5x + 6 = 0')">x² - 5x + 6 = 0</button>
+            <button class="sample-eq-btn" onclick="loadSampleEq('2x + 10 = 20')">2x + 10 = 20</button>
+            <button class="sample-eq-btn" onclick="loadSampleEq('d/dx(x^3 + 2x)')">d/dx(x³ + 2x)</button>
+            <button class="sample-eq-btn" onclick="loadSampleEq('integrate(2x, x)')">∫ 2x dx</button>
+            <button class="sample-eq-btn" onclick="loadSampleEq('sqrt(144) + 5^2')">√144 + 5²</button>
+            <button class="sample-eq-btn" onclick="loadSampleEq('sin(30) + cos(60)')">sin(30) + cos(60)</button>
+        </div>
+    </div>
+
+    <!-- History Modal (☰) -->
+    <div class="modal-overlay" id="historyModal">
+        <div class="modal-title">
+            <span>سجل الحسابات (History)</span>
+            <span class="modal-close" onclick="toggleModal('historyModal')">✕</span>
+        </div>
+        <div style="margin-bottom:8px; display:flex; justify-content:flex-end;">
+            <button onclick="clearHistory()" style="background:#ef4444; color:#fff; border:none; padding:4px 10px; border-radius:6px; font-size:0.75rem; cursor:pointer;">مسح السجل</button>
+        </div>
+        <div id="historyList" style="font-size:0.88rem; color:#cbd5e1;">
+            لا توجد حسابات سابقة.
+        </div>
+    </div>
+
+    <!-- Math Tools Modal (Σ) -->
+    <div class="modal-overlay" id="mathToolsModal">
+        <div class="modal-title">
+            <span>الأدوات الرياضية (Math Tools)</span>
+            <span class="modal-close" onclick="toggleModal('mathToolsModal')">✕</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('d/dx('); toggleModal('mathToolsModal');">
+            <span>المشتقات والتفاضل (d/dx)</span><span style="color:#38bdf8;">d/dx(f(x))</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('integrate('); toggleModal('mathToolsModal');">
+            <span>التكامل غير المحدد (Integral ∫)</span><span style="color:#38bdf8;">integrate(f(x), x)</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('x^2 - 5x + 6 = 0'); toggleModal('mathToolsModal');">
+            <span>حل المعادلات التربيعية</span><span style="color:#38bdf8;">ax² + bx + c = 0</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('gcd('); toggleModal('mathToolsModal');">
+            <span>القاسم المشترك الأكبر (GCD)</span><span style="color:#38bdf8;">gcd(a, b)</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('lcm('); toggleModal('mathToolsModal');">
+            <span>المضاعف المشترك الأصغر (LCM)</span><span style="color:#38bdf8;">lcm(a, b)</span>
+        </div>
+    </div>
+
+    <!-- More Modal -->
+    <div class="modal-overlay" id="moreModal">
+        <div class="modal-title">
+            <span>المزيد من الميزات (MORE)</span>
+            <span class="modal-close" onclick="toggleModal('moreModal')">✕</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('det([[1,2],[3,4]])'); toggleModal('moreModal');">
+            <span>محدد المصفوفة (Matrix Det)</span><span style="color:#38bdf8;">det([[...]])</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('inv([[1,2],[3,4]])'); toggleModal('moreModal');">
+            <span>معكوس المصفوفة (Matrix Inv)</span><span style="color:#38bdf8;">inv([[...]])</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('cross([1,2,3],[4,5,6])'); toggleModal('moreModal');">
+            <span>ضرب المتجهات الاتجاهي (Vector Cross)</span><span style="color:#38bdf8;">cross(A, B)</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('dot([1,2,3],[4,5,6])'); toggleModal('moreModal');">
+            <span>الضرب القياسي للمتجهات (Vector Dot)</span><span style="color:#38bdf8;">dot(A, B)</span>
+        </div>
+        <div class="modal-option" onclick="insertRawText('abs(3 + 4i)'); toggleModal('moreModal');">
+            <span>مقياس العدد المركب (CMPLX Mag)</span><span style="color:#38bdf8;">abs(a + bi)</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    let expr = '';
+    let cursorIdx = 0;
+    let isShift = false;
+    let isAlpha = false;
+    let history = [];
+    let angleUnit = 'RAD';
+    let lastAns = '0';
+
+    const exprArea = document.getElementById('exprArea');
+    const resEl = document.getElementById('resText');
+
+    function renderDisplay() {
+        exprArea.innerHTML = '';
+        
+        for (let i = 0; i <= expr.length; i++) {
+            if (i === cursorIdx) {
+                const cur = document.createElement('span');
+                cur.className = 'cursor';
+                exprArea.appendChild(cur);
+            }
+            if (i < expr.length) {
+                const charSpan = document.createElement('span');
+                charSpan.className = 'char-span';
+                charSpan.innerText = expr[i];
+                const targetIdx = i;
+                charSpan.onclick = (e) => {
+                    e.stopPropagation();
+                    cursorIdx = targetIdx + 1;
+                    renderDisplay();
+                };
+                exprArea.appendChild(charSpan);
+            }
+        }
+    }
+
+    function triggerHaptic() {
+        const checkbox = document.getElementById('hapticCheck');
+        if (checkbox && checkbox.checked) {
+            if (window.Android && typeof window.Android.vibrate === 'function') {
+                window.Android.vibrate();
+            } else if (navigator.vibrate) {
+                navigator.vibrate(20);
+            }
+        }
+    }
+
+    function insertRawText(text) {
+        expr = expr.slice(0, cursorIdx) + text + expr.slice(cursorIdx);
+        cursorIdx += text.length;
+        renderDisplay();
+    }
+
+    function onKey(keyName) {
+        triggerHaptic();
+
+        // 1. If SHIFT is active
+        if (isShift) {
+            handleShiftKey(keyName);
+            pressShift(false);
+            return;
+        }
+
+        // 2. If ALPHA is active
+        if (isAlpha) {
+            handleAlphaKey(keyName);
+            pressAlpha(false);
+            return;
+        }
+
+        // 3. Normal Key Handling
+        switch (keyName) {
+            case 'CALC':
+                handleCalcOrSolve();
+                break;
+            case 'INT':
+                insertRawText('integrate(');
+                break;
+            case 'INV':
+                insertRawText('^-1');
+                break;
+            case 'LOG_XY':
+                insertRawText('log(');
+                break;
+            case 'SQRT':
+                insertRawText('sqrt(');
+                break;
+            case 'SQR':
+                insertRawText('^2');
+                break;
+            case 'POW':
+                insertRawText('^');
+                break;
+            case 'LOG':
+                insertRawText('log10(');
+                break;
+            case 'LN':
+                insertRawText('ln(');
+                break;
+            case 'NEG':
+                insertRawText('(-)');
+                break;
+            case 'DEG_SYM':
+                insertRawText('°');
+                break;
+            case 'HYP':
+                insertRawText('abs(');
+                break;
+            case 'SIN':
+                insertRawText('sin(');
+                break;
+            case 'COS':
+                insertRawText('cos(');
+                break;
+            case 'TAN':
+                insertRawText('tan(');
+                break;
+            case 'EXP':
+                insertRawText('*10^');
+                break;
+            case 'DEL':
+                delChar();
+                break;
+            case 'AC':
+                clearScreen();
+                break;
+            case '=':
+                executeEval();
+                break;
+            default:
+                insertRawText(keyName);
+                break;
+        }
+    }
+
+    function handleShiftKey(keyName) {
+        switch (keyName) {
+            case 'CALC':
+                // SOLVE
+                executeEval();
+                break;
+            case 'INT':
+                // d/dx
+                insertRawText('d/dx(');
+                break;
+            case 'INV':
+                // x!
+                insertRawText('!');
+                break;
+            case 'LOG_XY':
+                // Summation Σ
+                insertRawText('sum(');
+                break;
+            case 'SQRT':
+                // Cube root
+                insertRawText('cbrt(');
+                break;
+            case 'SQR':
+                // x^3
+                insertRawText('^3');
+                break;
+            case 'POW':
+                // Nth root
+                insertRawText('^(1/');
+                break;
+            case 'LOG':
+                // 10^x
+                insertRawText('10^(');
+                break;
+            case 'LN':
+                // e^x
+                insertRawText('e^(');
+                break;
+            case 'NEG':
+                insertRawText('∠');
+                break;
+            case 'DEG_SYM':
+                // FACT
+                factorizeNumber();
+                break;
+            case 'HYP':
+                insertRawText('sinh(');
+                break;
+            case 'SIN':
+                insertRawText('asin(');
+                break;
+            case 'COS':
+                insertRawText('acos(');
+                break;
+            case 'TAN':
+                insertRawText('atan(');
+                break;
+            case '7':
+                // CONST (speed of light, gravity, etc.)
+                insertRawText('299792458');
+                break;
+            case '8':
+                // CONV
+                insertRawText(' * (pi / 180)');
+                break;
+            case '9':
+                insertRawText(' * 1000');
+                break;
+            case 'DEL':
+                clearScreen();
+                break;
+            case 'AC':
+                clearScreen();
+                break;
+            case '4':
+                toggleModal('moreModal');
+                break;
+            case '5':
+                toggleModal('moreModal');
+                break;
+            case '6':
+                toggleModal('mathToolsModal');
+                break;
+            case '*':
+                // Permutation nPr
+                insertRawText(' nPr ');
+                break;
+            case '/':
+                // Combination nCr
+                insertRawText(' nCr ');
+                break;
+            case '1':
+                toggleModal('mathToolsModal');
+                break;
+            case '2':
+                insertRawText('i');
+                break;
+            case '3':
+                toggleModal('mathToolsModal');
+                break;
+            case '+':
+                insertRawText('Pol(');
+                break;
+            case '-':
+                insertRawText('Rec(');
+                break;
+            case '0':
+                // COPY result to clipboard / expr
+                if (resEl.innerText && resEl.innerText !== '0') {
+                    insertRawText(resEl.innerText.replace(/\[\s*x=/, '').replace(/\]/, '').trim());
+                }
+                break;
+            case '.':
+                // Ran#
+                insertRawText((Math.random()).toFixed(3));
+                break;
+            case 'EXP':
+                // pi
+                insertRawText('pi');
+                break;
+            case 'Ans':
+                insertRawText(lastAns);
+                break;
+            case '=':
+                toggleModal('historyModal');
+                break;
+            default:
+                insertRawText(keyName);
+                break;
+        }
+    }
+
+    function handleAlphaKey(keyName) {
+        switch (keyName) {
+            case 'CALC':
+                insertRawText('=');
+                break;
+            case 'INT':
+                insertRawText(':');
+                break;
+            case 'NEG':
+                insertRawText('a');
+                break;
+            case 'DEG_SYM':
+                insertRawText('b');
+                break;
+            case 'HYP':
+                insertRawText('c');
+                break;
+            case 'SIN':
+                insertRawText('d');
+                break;
+            case 'COS':
+                insertRawText('e');
+                break;
+            case 'TAN':
+                insertRawText('f');
+                break;
+            case 'LN':
+                insertRawText('t');
+                break;
+            case '0':
+                insertRawText('x');
+                break;
+            case '.':
+                insertRawText('y');
+                break;
+            case 'EXP':
+                insertRawText('e');
+                break;
+            default:
+                insertRawText(keyName);
+                break;
+        }
+    }
+
+    function pressShift(forceVal) {
+        isShift = (typeof forceVal === 'boolean') ? forceVal : !isShift;
+        if (isShift) isAlpha = false;
+        document.getElementById('badge-shift').style.display = isShift ? 'inline' : 'none';
+        document.getElementById('badge-alpha').style.display = isAlpha ? 'inline' : 'none';
+    }
+
+    function pressAlpha(forceVal) {
+        isAlpha = (typeof forceVal === 'boolean') ? forceVal : !isAlpha;
+        if (isAlpha) isShift = false;
+        document.getElementById('badge-alpha').style.display = isAlpha ? 'inline' : 'none';
+        document.getElementById('badge-shift').style.display = isShift ? 'none' : 'none';
+    }
+
+    function moveCursor(dir) {
+        triggerHaptic();
+        if (dir === 'left' && cursorIdx > 0) cursorIdx--;
+        if (dir === 'right' && cursorIdx < expr.length) cursorIdx++;
+        if (dir === 'up') cursorIdx = 0;
+        if (dir === 'down') cursorIdx = expr.length;
+        renderDisplay();
+    }
+
+    function delChar() {
+        if (cursorIdx > 0) {
+            expr = expr.slice(0, cursorIdx - 1) + expr.slice(cursorIdx);
+            cursorIdx--;
+            renderDisplay();
+        }
+    }
+
+    function clearScreen() {
+        expr = '';
+        cursorIdx = 0;
+        resEl.innerText = '0';
+        renderDisplay();
+    }
+
+    function handleScreenClick(e) {
+        if (e.target === exprArea || e.target.id === 'screenBox') {
+            cursorIdx = expr.length;
+            renderDisplay();
+        }
+    }
+
+    /* Smart Mathematical Evaluation & Symbolic Equation Solver */
+    function executeEval() {
+        if (!expr.trim()) return;
+
+        try {
+            let raw = expr;
+
+            // 1. Preprocess symbols
+            let clean = raw
+                .replace(/Ans/g, lastAns)
+                .replace(/\(-\)/g, '-')
+                .replace(/°/g, '')
+                .replace(/×/g, '*')
+                .replace(/÷/g, '/');
+
+            // Handle d/dx(f(x)) derivative using nerdamer Calculus
+            if (clean.includes('d/dx(')) {
+                let inner = clean.replace(/d\/dx\((.*)\)/, '$1');
+                let diffRes = nerdamer.diff(inner, 'x').toString();
+                resEl.innerText = diffRes;
+                addToHistory(raw, diffRes);
+                lastAns = diffRes;
+                return;
+            }
+
+            // Handle integrate(f(x)) integral
+            if (clean.includes('integrate(')) {
+                let inner = clean.replace(/integrate\((.*)\)/, '$1');
+                let intRes = nerdamer.integrate(inner, 'x').toString() + ' + C';
+                resEl.innerText = intRes;
+                addToHistory(raw, intRes);
+                lastAns = intRes;
+                return;
+            }
+
+            // 2. Handle Equations containing '='
+            if (clean.includes('=')) {
+                let parts = clean.split('=');
+                let lhs = parts[0].trim();
+                let rhs = parts[1].trim();
+
+                let hasVars = /[a-zA-Z]/.test(lhs) || /[a-zA-Z]/.test(rhs);
+
+                if (hasVars) {
+                    // Normalize implicit multiplication: e.g., 4x -> 4*x
+                    let normEq = clean.replace(/(\d)([a-zA-Z])/g, '$1*$2');
+                    
+                    let sol = nerdamer.solve(normEq, 'x');
+                    let solStr = sol.toString();
+
+                    if (solStr.startsWith('[') && solStr.endsWith(']')) {
+                        solStr = solStr.slice(1, -1);
+                    }
+
+                    let solPieces = solStr.split(',').map(s => s.trim()).filter(Boolean);
+
+                    if (solPieces.length > 0) {
+                        let formattedSol = solPieces.map(s => {
+                            try {
+                                let val = math.evaluate(s);
+                                if (typeof val === 'number' && !isNaN(val)) {
+                                    return Number.isInteger(val) ? val.toString() : parseFloat(val.toFixed(6)).toString();
+                                }
+                                return s;
+                            } catch (e) {
+                                return s;
+                            }
+                        }).join(', ');
+
+                        let finalResult = `[ x=${formattedSol} ]`;
+                        resEl.innerText = finalResult;
+                        addToHistory(raw, finalResult);
+                        lastAns = formattedSol;
+                        return;
+                    } else {
+                        resEl.innerText = 'No Solution';
+                        return;
+                    }
+                } else {
+                    // Equality check e.g., 7 + 6 = 13 -> True
+                    let lhsVal = math.evaluate(lhs);
+                    let rhsVal = math.evaluate(rhs);
+
+                    let isTrue = Math.abs(lhsVal - rhsVal) < 1e-9;
+                    let resultText = isTrue ? 'True' : 'False';
+
+                    resEl.innerText = resultText;
+                    addToHistory(raw, resultText);
+                    return;
+                }
+            }
+
+            // 3. Permutations nPr & Combinations nCr
+            if (clean.includes('nPr')) {
+                let pParts = clean.split('nPr');
+                let n = parseInt(math.evaluate(pParts[0]));
+                let r = parseInt(math.evaluate(pParts[1]));
+                let nPrVal = math.permutations(n, r);
+                resEl.innerText = nPrVal.toString();
+                addToHistory(raw, nPrVal.toString());
+                lastAns = nPrVal.toString();
+                return;
+            }
+
+            if (clean.includes('nCr')) {
+                let cParts = clean.split('nCr');
+                let n = parseInt(math.evaluate(cParts[0]));
+                let r = parseInt(math.evaluate(cParts[1]));
+                let nCrVal = math.combinations(n, r);
+                resEl.innerText = nCrVal.toString();
+                addToHistory(raw, nCrVal.toString());
+                lastAns = nCrVal.toString();
+                return;
+            }
+
+            // 4. Standard Math.js Evaluation with angle unit support
+            let scope = {};
+            if (angleUnit === 'DEG') {
+                scope = {
+                    sin: function(x) { return Math.sin(x * Math.PI / 180); },
+                    cos: function(x) { return Math.cos(x * Math.PI / 180); },
+                    tan: function(x) { return Math.tan(x * Math.PI / 180); },
+                    asin: function(x) { return Math.asin(x) * 180 / Math.PI; },
+                    acos: function(x) { return Math.acos(x) * 180 / Math.PI; },
+                    atan: function(x) { return Math.atan(x) * 180 / Math.PI; }
+                };
+            }
+
+            let result = math.evaluate(clean, scope);
+            let formattedRes;
+
+            if (typeof result === 'number') {
+                if (Number.isInteger(result)) {
+                    formattedRes = result.toString();
+                } else {
+                    formattedRes = parseFloat(result.toFixed(8)).toString();
+                }
+            } else if (result && typeof result.toString === 'function') {
+                formattedRes = result.toString();
+            } else {
+                formattedRes = String(result);
+            }
+
+            resEl.innerText = formattedRes;
+            addToHistory(raw, formattedRes);
+            lastAns = formattedRes;
+
+        } catch (err) {
+            console.error(err);
+            resEl.innerText = 'Syntax ERROR';
+        }
+    }
+
+    function handleCalcOrSolve() {
+        if (expr.includes('x') || expr.includes('=')) {
+            executeEval();
+        } else {
+            let xVal = prompt('أدخل قيمة x للتعويض في التعبير:', '2');
+            if (xVal !== null) {
+                try {
+                    let clean = expr.replace(/Ans/g, lastAns);
+                    let res = math.evaluate(clean, { x: parseFloat(xVal) });
+                    resEl.innerText = res;
+                    lastAns = res.toString();
+                } catch (e) {
+                    resEl.innerText = 'ERROR';
+                }
+            }
+        }
+    }
+
+    function factorizeNumber() {
+        try {
+            let val = parseInt(resEl.innerText || expr);
+            if (!isNaN(val) && val > 1) {
+                let factors = [];
+                let d = 2;
+                let num = val;
+                while (num >= 2) {
+                    if (num % d === 0) {
+                        factors.push(d);
+                        num /= d;
+                    } else {
+                        d++;
+                    }
+                }
+                let factStr = factors.join(' × ');
+                resEl.innerText = factStr;
+                addToHistory(val.toString() + ' (FACT)', factStr);
+            }
+        } catch (e) {}
+    }
+
+    function toggleModal(id) {
+        triggerHaptic();
+        let m = document.getElementById(id);
+        m.style.display = (m.style.display === 'block') ? 'none' : 'block';
+    }
+
+    function toggleTheme() {
+        triggerHaptic();
+        document.body.classList.toggle('light-mode');
+    }
+
+    function changeAngleUnit(unit) {
+        angleUnit = unit;
+        document.getElementById('badge-angle').innerText = unit;
+    }
+
+    function simCamUpload() {
+        alert('جاري تحليل المعادلة الرياضية من الصورة...');
+        setTimeout(() => {
+            expr = '7 + 6 = 4x';
+            cursorIdx = expr.length;
+            renderDisplay();
+            toggleModal('cameraModal');
+            executeEval();
+        }, 600);
+    }
+
+    function loadSampleEq(eq) {
+        triggerHaptic();
+        expr = eq;
+        cursorIdx = expr.length;
+        renderDisplay();
+        toggleModal('cameraModal');
+        executeEval();
+    }
+
+    function addToHistory(expression, result) {
+        history.unshift({ expr: expression, res: result });
+        if (history.length > 50) history.pop();
+        renderHistoryList();
+    }
+
+    function clearHistory() {
+        history = [];
+        renderHistoryList();
+    }
+
+    function renderHistoryList() {
+        if (history.length === 0) {
+            document.getElementById('historyList').innerHTML = 'لا توجد حسابات سابقة.';
+            return;
+        }
+        let html = '';
+        history.forEach((item, idx) => {
+            html += `<div onclick="loadFromHistory(${idx})" style="padding:10px; border-bottom:1px solid #334155; cursor:pointer;">
+                        <div style="color:#94a3b8; font-size:0.85rem; font-family:monospace;">${item.expr}</div>
+                        <div style="color:#38bdf8; font-weight:bold; font-size:1.05rem; text-align:right; font-family:monospace;">${item.res}</div>
+                     </div>`;
+        });
+        document.getElementById('historyList').innerHTML = html;
+    }
+
+    function loadFromHistory(idx) {
+        if (history[idx]) {
+            expr = history[idx].expr;
+            cursorIdx = expr.length;
+            renderDisplay();
+            resEl.innerText = history[idx].res;
+            toggleModal('historyModal');
+        }
+    }
+
+    renderDisplay();
+</script>
+
+</body>
+</html>

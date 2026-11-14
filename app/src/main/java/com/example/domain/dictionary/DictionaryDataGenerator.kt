@@ -1,0 +1,2060 @@
+package com.example.domain.dictionary
+
+import com.example.data.database.DictionaryWordEntity
+
+object DictionaryDataGenerator {
+
+    fun generateAllWords(): List<DictionaryWordEntity> {
+        val list = mutableListOf<DictionaryWordEntity>()
+
+        val originalWords = getOriginalWords()
+        list.addAll(originalWords)
+
+        val academicTerms = getAcademicTerms()
+        list.addAll(academicTerms)
+
+        val commonWords = getCommonWords()
+        list.addAll(commonWords)
+
+        val numbersWords = getNumbersWords()
+        list.addAll(numbersWords)
+
+        val passages = getPassagesAndParagraphs()
+        list.addAll(passages)
+
+        val promptWords = getPromptCsvWords()
+        list.addAll(promptWords)
+
+        val baseMap = mutableMapOf<String, DictionaryWordEntity>()
+        for (item in originalWords + academicTerms + commonWords + promptWords) {
+            val key = item.wordEnglish.lowercase().trim()
+            if (!baseMap.containsKey(key)) {
+                baseMap[key] = item
+            }
+        }
+
+        val derivedList = mutableListOf<DictionaryWordEntity>()
+        for ((en, entity) in baseMap) {
+            if (en.length > 2 && !en.contains(" ")) {
+                val ar = entity.wordArabic
+                val cat = "اشتقاق"
+                derivedList.add(
+                    DictionaryWordEntity(
+                        wordEnglish = "${en}s",
+                        wordArabic = "$ar (جمع/مضارع)",
+                        phonetic = if (entity.phonetic.isNotBlank()) "${entity.phonetic}s" else "",
+                        partOfSpeech = entity.partOfSpeech,
+                        exampleSentence = entity.exampleSentence,
+                        emoji = "➕",
+                        category = cat
+                    )
+                )
+                derivedList.add(
+                    DictionaryWordEntity(
+                        wordEnglish = "${en}ed",
+                        wordArabic = "$ar (ماضٍ)",
+                        phonetic = if (entity.phonetic.isNotBlank()) "${entity.phonetic}d" else "",
+                        partOfSpeech = entity.partOfSpeech,
+                        exampleSentence = entity.exampleSentence,
+                        emoji = "⏳",
+                        category = cat
+                    )
+                )
+                derivedList.add(
+                    DictionaryWordEntity(
+                        wordEnglish = "${en}ing",
+                        wordArabic = "$ar (مستمر)",
+                        phonetic = if (entity.phonetic.isNotBlank()) "${entity.phonetic}ing" else "",
+                        partOfSpeech = entity.partOfSpeech,
+                        exampleSentence = entity.exampleSentence,
+                        emoji = "🔄",
+                        category = cat
+                    )
+                )
+                if (en.length > 3) {
+                    derivedList.add(
+                        DictionaryWordEntity(
+                            wordEnglish = "${en}er",
+                            wordArabic = "$ar (فاعل)",
+                            phonetic = "",
+                            partOfSpeech = entity.partOfSpeech,
+                            exampleSentence = entity.exampleSentence,
+                            emoji = "🧑",
+                            category = cat
+                        )
+                    )
+                    derivedList.add(
+                        DictionaryWordEntity(
+                            wordEnglish = "${en}est",
+                            wordArabic = "أكثر $ar",
+                            phonetic = "",
+                            partOfSpeech = entity.partOfSpeech,
+                            exampleSentence = entity.exampleSentence,
+                            emoji = "🏆",
+                            category = cat
+                        )
+                    )
+                }
+            }
+        }
+
+        list.addAll(derivedList)
+        return list.distinctBy { it.wordEnglish.lowercase().trim() }
+            .sortedBy { it.wordEnglish.lowercase().trim() }
+    }
+
+    private fun getOriginalWords(): List<DictionaryWordEntity> {
+        return listOf(
+            // ---- المهن (Jobs) ----
+            w("doctor", "طبيب", "دوكتور", "🩺", "مهن"),
+            w("teacher", "معلّم", "تيتشر", "👨‍🏫", "مهن"),
+            w("driver", "سائق", "درايفر", "🚖", "مهن"),
+            w("farmer", "مزارع", "فارمر", "🌾", "مهن"),
+            w("police", "شرطي", "بوليس", "👮", "مهن"),
+            w("chef", "طباخ", "شيف", "👨‍🍳", "مهن"),
+
+            // ---- المكتب (Office) ----
+            w("office", "مكتب", "أوفِس", "🏢", "مكتب"),
+            w("paper", "ورق", "بيبر", "📄", "مكتب"),
+            w("file", "ملف", "فايل", "📁", "مكتب"),
+            w("printer", "طابعة", "برِنتر", "🖨️", "مكتب"),
+            w("meeting", "اجتماع", "ميتِنغ", "🤝", "مكتب"),
+            w("manager", "مدير", "مانجر", "👨‍💼", "مكتب"),
+
+            // ---- التفكير ----
+            w("wonder", "يتساءل", "وندر", "🤔", "تفكير"),
+            w("guess", "يخمّن", "گِس", "🎲", "تفكير"),
+            w("notice", "يلاحظ", "نوتِس", "👀", "تفكير"),
+            w("reflect", "يتأمّل", "رفلكت", "🌙", "تفكير"),
+            w("doubt", "يشك", "داوت", "❓", "تفكير"),
+            w("decide", "يقرّر", "دِسايد", "⚖️", "تفكير"),
+
+            // ---- الأفعال الخفية ----
+            w("hide", "يختبئ", "هايد", "🙈", "أفعال"),
+            w("reveal", "يكشف", "رفيل", "🔍", "أفعال"),
+            w("escape", "يهرب", "إسكيب", "🏃", "أفعال"),
+            w("approach", "يقترب", "أبروتش", "🚶", "أفعال"),
+            w("observe", "يراقب", "أبزِرف", "👁️", "أفعال"),
+            w("disappear", "يختفي", "دِسَبير", "🌫️", "أفعال"),
+
+            // ---- الحواس ----
+            w("see", "يرى", "سي", "👁️", "حواس"),
+            w("hear", "يسمع", "هير", "👂", "حواس"),
+            w("smell", "يشم", "سمِل", "👃", "حواس"),
+            w("taste", "يتذوّق", "تيست", "👅", "حواس"),
+            w("touch", "يلمس", "تتش", "✋", "حواس"),
+            w("feel", "يشعر", "فيل", "💫", "حواس"),
+
+            // ---- أفعال يومية ----
+            w("open", "يفتح", "أوبن", "🔓", "أفعال"),
+            w("close", "يغلق", "كلوز", "🔒", "أفعال"),
+            w("carry", "يحمل", "كاري", "🎒", "أفعال"),
+            w("push", "يدفع", "بوش", "👉", "أفعال"),
+            w("pull", "يسحب", "بول", "👈", "أفعال"),
+            w("drop", "يسقط", "دروب", "⬇️", "أفعال"),
+
+            // ---- الرياضة ----
+            w("football", "كرة القدم", "فوتبول", "⚽", "رياضة"),
+            w("basketball", "كرة السلة", "باسكتبول", "🏀", "رياضة"),
+            w("tennis", "تنس", "تِنس", "🎾", "رياضة"),
+            w("run", "يركض", "رَن", "🏃", "رياضة"),
+            w("swim", "يسبح", "سْوِم", "🏊", "رياضة"),
+            w("win", "يفوز", "وِن", "🏆", "رياضة"),
+
+            // ---- المطار ----
+            w("flight", "رحلة", "فلايت", "✈️", "سفر"),
+            w("gate", "بوابة", "غيت", "🛫", "سفر"),
+            w("luggage", "أمتعة", "لَغِج", "🧳", "سفر"),
+            w("boarding", "صعود الطائرة", "بوردنغ", "🛬", "سفر"),
+            w("delay", "تأخير", "دِلاي", "⏳", "سفر"),
+            w("arrival", "وصول", "أرايفل", "🛩️", "سفر"),
+
+            // ---- الصحة ----
+            w("medicine", "دواء", "مدسن", "💊", "صحة"),
+            w("pain", "ألم", "بين", "🤕", "صحة"),
+            w("healthy", "صحي", "هيلثي", "🥗", "صحة"),
+            w("rest", "راحة", "رِست", "🛌", "صحة"),
+            w("exercise", "رياضة", "إكسرسايز", "🏃‍♀️", "صحة"),
+
+            // ---- الطعام ----
+            w("bread", "خبز", "بريد", "🍞", "طعام"),
+            w("rice", "رز", "رايس", "🍚", "طعام"),
+            w("fruit", "فاكهة", "فروت", "🍎", "طعام"),
+            w("vegetable", "خضار", "فِجتبل", "🥕", "طعام"),
+            w("sugar", "سكر", "شوكر", "🍬", "طعام"),
+            w("salt", "ملح", "سولت", "🧂", "طعام"),
+
+            // ---- الصفات ----
+            w("fast", "سريع", "فاست", "⚡", "صفات"),
+            w("slow", "بطيء", "سلو", "🐢", "صفات"),
+            w("easy", "سهل", "إيزي", "👍", "صفات"),
+            w("hard", "صعب", "هارد", "💪", "صفات"),
+            w("new", "جديد", "نيو", "✨", "صفات"),
+            w("old", "قديم", "أولد", "🏛️", "صفات"),
+
+            // ---- كلمات السؤال ----
+            w("what", "ماذا", "وات", "❓", "أسئلة"),
+            w("who", "من", "هو", "👤", "أسئلة"),
+            w("where", "أين", "وير", "📍", "أسئلة"),
+            w("when", "متى", "وين", "⏰", "أسئلة"),
+            w("why", "لماذا", "واي", "🤔", "أسئلة"),
+            w("how", "كيف", "هاو", "⚙️", "أسئلة"),
+
+            // ---- الحركة ----
+            w("walk", "يمشي", "ووك", "🚶", "حركة"),
+            w("jump", "يقفز", "جمب", "🤾", "حركة"),
+            w("sit", "يجلس", "سِت", "🪑", "حركة"),
+            w("stand", "يقف", "ستاند", "🧍", "حركة"),
+            w("move", "يتحرّك", "موف", "🔄", "حركة"),
+
+            // ---- أماكن ----
+            w("home", "منزل", "هوم", "🏠", "أماكن"),
+            w("school", "مدرسة", "سكول", "🏫", "أماكن"),
+            w("shop", "متجر", "شوب", "🛒", "أماكن"),
+            w("park", "حديقة", "بارك", "🌳", "أماكن"),
+            w("street", "شارع", "ستريت", "🛣️", "أماكن"),
+
+            // ---- الطبخ ----
+            w("cook", "يطبخ", "كوك", "👩‍🍳", "طبخ"),
+            w("kitchen", "مطبخ", "كتشن", "🍳", "طبخ"),
+            w("knife", "سكين", "نايف", "🔪", "طبخ"),
+            w("cut", "يقطع", "كَت", "✂️", "طبخ"),
+            w("mix", "يخلط", "مِكس", "🥣", "طبخ"),
+            w("boil", "يغلي", "بويل", "♨️", "طبخ"),
+            w("fry", "يقلي", "فراي", "🍳", "طبخ"),
+            w("bake", "يخبز", "بيك", "🥖", "طبخ"),
+            w("oil", "زيت", "أويل", "🫒", "طبخ"),
+            w("recipe", "وصفة", "رِسِبي", "📖", "طبخ"),
+
+            // ---- الفندق ----
+            w("hotel", "فندق", "هوتيل", "🏨", "سفر"),
+            w("room", "غرفة", "روم", "🛏️", "منزل"),
+            w("key", "مفتاح", "كي", "🔑", "منزل"),
+            w("reception", "استقبال", "رِسبشن", "🧑‍💼", "سفر"),
+            w("service", "خدمة", "سيرفِس", "🛎️", "سفر"),
+            w("booking", "حجز", "بوكنغ", "📋", "سفر"),
+
+            // ---- الحديقة ----
+            w("tree", "شجرة", "تري", "🌲", "طبيعة"),
+            w("grass", "عشب", "غراس", "🌱", "طبيعة"),
+            w("bench", "مقعد", "بِنش", "🪑", "طبيعة"),
+            w("relax", "يسترخي", "ريلاكس", "😌", "مشاعر"),
+
+            // ---- الطقس ----
+            w("weather", "طقس", "وِذر", "🌤️", "طقس"),
+            w("sunny", "مشمس", "سَني", "☀️", "طقس"),
+            w("rain", "مطر", "رين", "🌧️", "طقس"),
+            w("cloud", "غيمة", "كلاود", "☁️", "طقس"),
+            w("wind", "رياح", "ويند", "💨", "طقس"),
+            w("storm", "عاصفة", "ستورم", "⛈️", "طقس"),
+            w("hot", "حار", "هوت", "🔥", "طقس"),
+            w("cold", "بارد", "كولد", "❄️", "طقس"),
+            w("warm", "دافئ", "وورم", "🌤️", "طقس"),
+            w("cool", "معتدل", "كول", "🍃", "طقس"),
+            w("fog", "ضباب", "فوگ", "🌫️", "طقس"),
+            w("snow", "ثلج", "سنو", "❄️", "طقس"),
+
+            // ---- عبارات مهذبة ----
+            w("please", "لو سمحت", "بليز", "🙏", "عبارات"),
+            w("thank you", "شكراً", "ثانك يو", "💛", "عبارات"),
+            w("you're welcome", "العفو", "يور ولكم", "🤝", "عبارات"),
+            w("excuse me", "عفواً", "إكسكيوز مي", "🙋‍♀️", "عبارات"),
+            w("sorry", "آسف", "سوري", "😔", "عبارات"),
+            w("my pleasure", "بكل سرور", "ماي بليجر", "😊", "عبارات"),
+
+            // ---- أفعال مركبة ----
+            w("wake up", "يستيقظ", "ويك أب", "🌅", "أفعال"),
+            w("get up", "ينهض من السرير", "جيت أب", "🛏️", "أفعال"),
+            w("go out", "يخرج", "جو آوت", "🚪", "أفعال"),
+            w("come in", "يدخل", "كام إن", "🏠", "أفعال"),
+
+            // ---- حرف U الصامت ----
+            w("guilty", "مذنب", "قيلتي", "⚖️", "صفات"),
+            w("guest", "ضيف", "قِست", "🧑‍🤝‍🧑", "أشخاص"),
+            w("guard", "حارس", "قارد", "🛡️", "مهن"),
+            w("guitar", "غيتار", "قيتار", "🎸", "آلات"),
+            w("guys", "رفاق", "قايس", "👥", "أشخاص"),
+            w("guide", "يرشد", "قايد", "🧭", "أفعال"),
+            w("guilt", "ذنب", "قيلْت", "😔", "مشاعر"),
+            w("guild", "نقابة", "قيلْد", "🏛️", "مؤسسات"),
+            w("build", "يبني", "بيلْد", "🏗️", "أفعال"),
+
+            // ---- أماكن يومية ----
+            w("cafe", "مقهى", "كافيه", "☕", "أماكن"),
+            w("map", "خريطة", "ماب", "🗺️", "أدوات"),
+            w("card", "بطاقة", "كارد", "💳", "أدوات"),
+            w("box", "صندوق", "بوكس", "📦", "أدوات"),
+            w("lock", "قفل", "لوك", "🔒", "أدوات"),
+            w("chain", "سلسلة", "تشين", "⛓️", "أدوات"),
+
+            // ---- أفعال سريعة ----
+            w("look", "ينظر", "لوك", "👀", "أفعال"),
+            w("listen", "يستمع", "لِسن", "👂", "أفعال"),
+
+            // ---- أوصاف ----
+            w("clean", "نظيف", "كلين", "🧼", "صفات"),
+            w("dirty", "متسخ", "دِرتي", "🧹", "صفات"),
+            w("full", "ممتلئ", "فُل", "🥤", "صفات"),
+            w("empty", "فارغ", "إمبتي", "📭", "صفات"),
+
+            // ---- كلمات تركية ----
+            w("ayna", "مرآة", "آينا", "🪞", "تركية"),
+            w("saat", "ساعة", "ساعت", "🕐", "تركية"),
+            w("çanta", "حقيبة", "تشانتا", "👜", "تركية"),
+            w("deniz", "بحر", "دينيز", "🌊", "تركية"),
+            w("göl", "بحيرة", "جول", "🏞️", "تركية"),
+            w("balık", "سمكة", "بالِك", "🐟", "تركية"),
+            w("yol", "طريق", "يول", "🛤️", "تركية"),
+            w("köprü", "جسر", "كوبرو", "🌉", "تركية"),
+            w("araba", "سيارة", "أرابا", "🚗", "تركية"),
+            w("tren", "قطار", "ترين", "🚆", "تركية"),
+            w("uçak", "طائرة", "أوتشاك", "✈️", "تركية"),
+            w("gemi", "سفينة", "جمى", "🚢", "تركية"),
+            w("defter", "دفتر", "دفترل", "📓", "تركية"),
+            w("kalem", "قلم", "كالم", "🖊️", "تركية"),
+            w("ev", "بيت", "إف", "🏠", "تركية"),
+            w("oda", "غرفة", "أودا", "🚪", "تركية"),
+
+            // ---- موقف حافلات ----
+            w("bus stop", "موقف حافلات", "بَس ستوب", "🚌", "مواصلات"),
+            w("wait", "ينتظر", "ويت", "⏳", "أفعال"),
+            w("line", "طابور", "لاين", "👥", "أماكن"),
+            w("ticket", "تذكرة", "تِكت", "🎫", "سفر"),
+
+            // ---- المصعد ----
+            w("elevator", "مصعد", "إليفِيتَر", "🛗", "أماكن"),
+            w("button", "زر", "بَتن", "🔘", "أدوات"),
+            w("floor", "طابق", "فلور", "🏢", "أماكن"),
+            w("up", "فوق/يصعد", "أب", "⬆️", "اتجاهات"),
+            w("down", "تحت/ينزل", "داون", "⬇️", "اتجاهات"),
+            w("door", "باب", "دور", "🚪", "منزل"),
+
+            // ---- النادي الرياضي ----
+            w("lift", "يرفع", "لِفت", "💪", "رياضة"),
+            w("stretch", "يتمدّد", "ستريتش", "🤸", "رياضة"),
+            w("train", "يتدرّب", "ترين", "🏋️", "رياضة"),
+
+            // ---- طبيب الأسنان ----
+            w("dentist", "طبيب أسنان", "دينتِست", "🦷", "مهن"),
+            w("tooth", "سن", "توث", "🦷", "جسم"),
+            w("teeth", "أسنان", "تيث", "😁", "جسم"),
+            w("brush", "يفرش", "برَش", "🪥", "أفعال"),
+            w("cavity", "تسوس", "كافِتي", "🕳️", "صحة"),
+
+            // ---- أفعال إضافية ----
+            w("climb", "يتسلّق", "كلايم", "🧗", "أفعال"),
+            w("throw", "يرمي", "ثرو", "⚾", "أفعال"),
+            w("catch", "يمسك", "كاتش", "🧤", "أفعال"),
+            w("kick", "يركل", "كِك", "⚽", "أفعال"),
+            w("fall", "يسقط", "فول", "⬇️", "أفعال"),
+
+            // ---- الظروف ----
+            w("certainly", "من المؤكد", "سِرتِنلي", "✅", "ظروف"),
+            w("seriously", "جديّاً", "سِريَسلي", "😐", "ظروف"),
+            w("directly", "مباشرةً", "دايركتلي", "➡️", "ظروف"),
+            w("equally", "بالتساوي", "إكوالي", "⚖️", "ظروف"),
+            w("exactly", "بالضبط", "إقزاكتلي", "🎯", "ظروف"),
+            w("quickly", "بسرعة", "كويكلي", "🏃", "ظروف"),
+            w("surely", "بالتأكيد", "شورلي", "👍", "ظروف"),
+            w("clearly", "بوضوح", "كليرلي", "🔍", "ظروف"),
+            w("easily", "بسهولة", "إيزِلي", "😌", "ظروف"),
+            w("finally", "أخيراً", "فاينَلي", "🏁", "ظروف"),
+
+            // ---- حولك ----
+            w("near", "قريب", "نير", "📍", "أماكن"),
+            w("far", "بعيد", "فار", "🌍", "أماكن"),
+            w("inside", "داخل", "إنسايد", "🏠", "أماكن"),
+            w("outside", "خارج", "أوتسايد", "🌳", "أماكن"),
+            w("top", "فوق", "توب", "⬆️", "اتجاهات"),
+            w("bottom", "تحت", "بوتوم", "⬇️", "اتجاهات"),
+
+            // ---- أفعال إضافية 2 ----
+            w("hold", "يمسك", "هولد", "✋", "أفعال"),
+            w("send", "يرسل", "سِند", "📤", "أفعال"),
+            w("bring", "يجلب", "برنگ", "📥", "أفعال"),
+            w("call", "يتصل", "كول", "📞", "أفعال"),
+            w("help", "يساعد", "هلب", "🤝", "أفعال"),
+
+            // ---- أجزاء المنزل ----
+            w("bathroom", "حمام", "بَاثْروُمْ", "🛁", "منزل"),
+            w("living room", "غرفة معيشة", "لِفْنْجْ رُومْ", "🛋️", "منزل"),
+            w("bedroom", "غرفة نوم", "بِدْرُومْ", "🛏️", "منزل"),
+            w("hallway", "صالة", "هَالْوايْ", "🚪", "منزل"),
+            w("upstairs", "طابق علوي", "أَبْ ستَيرْزْ", "🏢", "منزل"),
+            w("roof", "سطح", "رُوفْ", "🏠", "منزل"),
+            w("garage", "مرآب", "غَارَاجْ", "🚗", "منزل"),
+            w("balcony", "شرفة", "بَلْكُونْيْ", "🌆", "منزل"),
+            w("dining room", "غرفة طعام", "دَايْنِنْجْ رُومْ", "🍽️", "منزل"),
+            w("entrance", "مدخل", "إنْتْرَانْسْ", "🚪", "منزل"),
+            w("stairs", "سلم", "سْتِيرْزْ", "🌟", "منزل"),
+            w("backyard", "فناء خلفي", "بَاكْ يَارْدْ", "🌳", "منزل"),
+            w("attic", "غرفة علوية", "أَتْيَكْ", "🏠", "منزل"),
+            w("courtyard", "ساحة", "كُورْتْيَارْدْ", "🏞️", "منزل"),
+
+            // ---- تصليح سيارات ----
+            w("mechanic", "ميكانيكي", "ميكانيك", "🔧", "مهن"),
+            w("repair", "يصلح", "ريبير", "🛠️", "أفعال"),
+            w("tire", "إطار", "تاير", "🚗", "سيارات"),
+            w("change", "يغير", "تشينج", "🔄", "أفعال"),
+            w("problem", "مشكلة", "بروبلم", "⚠️", "عام"),
+
+            // ---- أدوات حديقة ----
+            w("shovel", "مجرفة", "شوفل", "🪏", "أدوات"),
+            w("rake", "مشط حديقة", "ريك", "🍂", "أدوات"),
+            w("hose", "خرطوم", "هوز", "💧", "أدوات"),
+            w("seed", "بذرة", "سيد", "🌱", "طبيعة"),
+            w("plant", "نبتة", "بلانت", "🌿", "طبيعة"),
+            w("soil", "تربة", "سويل", "🪨", "طبيعة"),
+
+            // ---- كلمات متنوعة مهمة ----
+            w("smart", "ذكي", "سمارت", "🧠", "صفات"),
+            w("wise", "حكيم", "وايز", "🦉", "صفات"),
+            w("kind", "طيب", "كايند", "❤️", "صفات"),
+            w("fair", "عادل", "فَير", "⚖️", "صفات"),
+            w("entry", "دخول", "انتري", "🚪", "عام"),
+            w("broken", "مكسور", "بروكِن", "💔", "صفات"),
+            w("picture", "صورة", "بيكتشر", "🖼️", "عام"),
+            w("care", "عناية", "كير", "💖", "عام"),
+            w("careful", "حريص", "كيرفُل", "⚠️", "صفات"),
+            w("growth", "نمو", "قروث", "📈", "عام"),
+            w("meaning", "معنى", "مينينغ", "📖", "عام"),
+            w("compare", "يقارن", "كومبير", "⚖️", "أفعال"),
+            w("complete", "يكمل", "كومبليت", "✅", "أفعال"),
+            w("law", "قانون", "لو", "📜", "عام"),
+            w("bear", "يتحمّل", "بيير", "🐻", "أفعال"),
+            w("break", "يكسر", "بريك", "💥", "أفعال"),
+            w("recession", "ركود", "ريسيشن", "📉", "اقتصاد"),
+            w("talk", "يتكلم", "توك", "💬", "أفعال"),
+            w("effect", "تأثير", "افيكت", "🎯", "عام"),
+            w("income", "الدخل", "انكم", "💰", "اقتصاد"),
+            w("bankruptcy", "إفلاس", "بانكربسي", "💸", "اقتصاد"),
+            w("cancel", "يلغي", "كانسل", "❌", "أفعال"),
+            w("random", "عشوائي", "راندم", "🎲", "صفات"),
+            w("season", "موسم", "سيزون", "🌸", "طقس"),
+            w("wedding", "زفاف", "ويدنق", "💍", "مناسبات"),
+            w("people", "شعب/ناس", "بيبول", "👥", "عام"),
+            w("information", "معلومة", "انفورميشن", "ℹ️", "عام"),
+            w("news", "أخبار", "نيوز", "📰", "عام"),
+            w("quality", "نوعية", "كواليتي", "⭐", "صفات"),
+            w("power", "قوة", "باور", "⚡", "عام"),
+            w("launch", "إطلاق", "لانش", "🚀", "أفعال"),
+            w("educational", "تعليمي", "اديوكيشونال", "📚", "صفات"),
+            w("join", "ينضم", "جوين", "🤝", "أفعال"),
+            w("general", "عام", "جينيرال", "📋", "صفات"),
+            w("effectiveness", "فعالية", "ايفيكتفنس", "💪", "صفات"),
+            w("recently", "حديثاً", "ريسنتلي", "🆕", "ظروف"),
+            w("past", "ماضي", "باست", "⏪", "زمن"),
+            w("safety", "سلامة", "سيفتي", "🛡️", "عام"),
+            w("peace", "سلام", "بيس", "🕊️", "مشاعر"),
+            w("end", "نهاية", "إيند", "🏁", "عام"),
+
+            // ---- جمل I don't ----
+            w("I don't remember", "لا أتذكر", "آي دُنت رِمِمبَر", "🧠", "جمل"),
+            w("I don't believe", "لا أصدق", "آي دُنت بلِيف", "🤨", "جمل"),
+            w("I don't mind", "لا أبالي", "آي دُنت مايند", "😐", "جمل"),
+            w("I don't need", "لا أحتاج", "آي دُنت نِيد", "🙅", "جمل"),
+            w("I don't care", "لا أهتم", "آي دُنت كَير", "😒", "جمل"),
+            w("I don't know", "لا أدري", "آي دُنت ناو", "🤷", "جمل"),
+            w("I strive", "أسعى", "آي سترايف", "🎯", "جمل"),
+
+            // ---- أساسيات المنزل ----
+            w("house", "منزل", "هاوس", "🏠", "منزل"),
+            w("window", "نافذة", "ويندو", "🪟", "منزل"),
+            w("bed", "سرير", "بِد", "🛏️", "منزل"),
+            w("chair", "كرسي", "تشير", "🪑", "منزل"),
+
+            // ---- أشخاص ----
+            w("man", "رجل", "مان", "👨", "أشخاص"),
+            w("woman", "امرأة", "وومن", "👩", "أشخاص"),
+            w("boy", "ولد", "بوي", "👦", "أشخاص"),
+            w("girl", "بنت", "گرل", "👧", "أشخاص"),
+            w("baby", "طفل", "بيبي", "👶", "أشخاص"),
+            w("friend", "صديق", "فرند", "🧑‍🤝‍🧑", "أشخاص"),
+
+            // ---- أفعال أساسية ----
+            w("eat", "يأكل", "إيت", "🍽️", "أفعال"),
+            w("drink", "يشرب", "درنك", "🥤", "أفعال"),
+            w("sleep", "ينام", "سليب", "😴", "أفعال"),
+            w("play", "يلعب", "بلاي", "⚽", "أفعال"),
+
+            // ---- السيارة ----
+            w("wheel", "عجلة", "ويل", "🛞", "سيارات"),
+            w("seat", "مقعد", "سيت", "💺", "سيارات"),
+            w("mirror", "مرآة", "ميرر", "🪞", "سيارات"),
+            w("engine", "محرك", "إنجن", "⚙️", "سيارات"),
+            w("drive", "يقود", "درايف", "🚗", "أفعال"),
+            w("start", "يشغل/يبدأ", "ستارت", "▶️", "أفعال"),
+            w("stop", "يتوقف", "ستوب", "🛑", "أفعال"),
+            w("turn", "ينعطف", "ترن", "↪️", "أفعال"),
+            w("fix", "يصلح", "فكس", "🔧", "أفعال"),
+
+            // ---- أجزاء الجسم ----
+            w("shoulder", "كتف", "شولدر", "💪", "جسم"),
+            w("finger", "إصبع", "فنكر", "☝️", "جسم"),
+            w("knee", "ركبة", "ني", "🦵", "جسم"),
+            w("face", "وجه", "فيس", "🙂", "جسم"),
+            w("hair", "شعر", "هير", "💇", "جسم"),
+            w("back", "ظهر", "باك", "🔙", "جسم"),
+            w("blink", "يرمش", "بلنك", "👀", "أفعال"),
+            w("point", "يشير", "بوينت", "👉", "أفعال"),
+
+            // ---- الطبيعة ----
+            w("sun", "شمس", "سن", "☀️", "طبيعة"),
+            w("moon", "قمر", "مون", "🌙", "طبيعة"),
+            w("star", "نجمة", "ستار", "⭐", "طبيعة"),
+            w("flower", "زهرة", "فلاور", "🌸", "طبيعة"),
+            w("sky", "سماء", "سكاي", "🌌", "طبيعة"),
+            w("clap", "يصفق", "كلاب", "👏", "أفعال"),
+            w("laugh", "يضحك", "لاف", "😂", "أفعال"),
+            w("cry", "يبكي", "كراي", "😢", "أفعال"),
+            w("wave", "يلوح", "ويف", "👋", "أفعال"),
+
+            // ---- الملابس ----
+            w("shirt", "قميص", "شيرت", "👕", "ملابس"),
+            w("pants", "بنطلون", "بانتس", "👖", "ملابس"),
+            w("shoes", "حذاء", "شوز", "👟", "ملابس"),
+            w("hat", "قبعة", "هات", "🧢", "ملابس"),
+            w("socks", "جوارب", "سوكس", "🧦", "ملابس"),
+            w("coat", "معطف", "كوت", "🧥", "ملابس"),
+
+            // ---- المشاعر ----
+            w("happy", "سعيد", "هابي", "😊", "مشاعر"),
+            w("sad", "حزين", "ساد", "😢", "مشاعر"),
+            w("angry", "غاضب", "أنكري", "😡", "مشاعر"),
+            w("tired", "متعب", "تايرد", "😴", "مشاعر"),
+            w("scared", "خائف", "سكيرد", "😨", "مشاعر"),
+
+            // ---- العائلة ----
+            w("father", "أب", "فاذر", "👨", "عائلة"),
+            w("mother", "أم", "مذر", "👩", "عائلة"),
+            w("brother", "أخ", "برذر", "👦", "عائلة"),
+            w("sister", "أخت", "سِستر", "👧", "عائلة"),
+            w("family", "عائلة", "فاملي", "👨‍👩‍👧", "عائلة"),
+            w("love", "يحب", "لوف", "❤️", "مشاعر"),
+            w("visit", "يزور", "ڤزت", "🏠", "أفعال"),
+            w("hug", "يعانق", "هَگ", "🤗", "أفعال"),
+
+            // ---- الشاطئ ----
+            w("towel", "منشفة", "تاول", "🏖️", "شاطئ"),
+            w("sunglasses", "نظارات شمسية", "سنكلاسز", "🕶️", "شاطئ"),
+            w("bucket", "سطل", "بَكت", "🪣", "شاطئ"),
+            w("sandcastle", "قلعة رمل", "ساندكاسل", "🏰", "شاطئ"),
+            w("flip-flops", "نعال", "فلب فلوبس", "👡", "شاطئ"),
+            w("ball", "كرة", "بول", "⚽", "شاطئ"),
+            w("collect", "يجمع", "كلكت", "🐚", "أفعال"),
+
+            // ---- أدوات المطبخ ----
+            w("fork", "شوكة", "فورك", "🍴", "مطبخ"),
+            w("pan", "مقلاة", "بان", "🍳", "مطبخ"),
+            w("cup", "كوب", "كب", "☕", "مطبخ"),
+            w("pot", "قدر", "بوت", "🍲", "مطبخ"),
+            w("fridge", "ثلاجة", "فريج", "🧊", "مطبخ"),
+            w("wash", "يغسل", "واش", "🚿", "أفعال"),
+
+            // ---- روتين الصباح ----
+            w("alarm", "منبه", "ألارم", "⏰", "روتين"),
+            w("toothpaste", "معجون أسنان", "توثبيست", "🪥", "روتين"),
+            w("comb", "مشط", "كومب", "💇", "روتين"),
+            w("uniform", "زي", "يونيفورم", "👔", "روتين"),
+            w("breakfast", "فطور", "بريكفاست", "🍳", "روتين"),
+            w("bottle", "قنينة", "بوتل", "🍼", "روتين"),
+            w("dress", "يلبس", "دِرس", "👕", "أفعال"),
+            w("prepare", "يجّهز", "بريبير", "🎒", "أفعال"),
+            w("leave", "يغادر", "ليف", "🚪", "أفعال"),
+
+            // ---- العمل والرواتب ----
+            w("salaries", "رواتب", "سالاريز", "💰", "عمل"),
+            w("bonuses", "علاوات", "بونسز", "🎁", "عمل"),
+            w("allowances", "بدلات", "الاونسز", "🧧", "عمل"),
+            w("full-time", "دوام كامل", "فل تايم", "🕘", "عمل"),
+            w("part-time", "دوام جزئي", "بارت تايم", "🕜", "عمل"),
+            w("decision", "قرار", "ديسيجن", "📝", "عمل"),
+            w("postpone", "يؤجل", "بوست بون", "⏰", "أفعال"),
+            w("conference", "مؤتمر", "كونفرنس", "🎤", "عمل"),
+            w("work", "يعمل", "وُرك", "💼", "أفعال"),
+
+            // ---- جمل I was ----
+            w("I was happy", "كنت سعيداً", "آي واز هابي", "😊", "جمل"),
+            w("I was hungry", "كنت جائعاً", "آي واز هنْقرِي", "🍽️", "جمل"),
+            w("I was angry", "كنت غاضباً", "آي واز أنْقرِي", "😡", "جمل"),
+            w("I was lucky", "كنت محظوظاً", "آي واز لَكِي", "🍀", "جمل"),
+            w("I was wrong", "كنت مخطئاً", "آي واز رونْق", "❌", "جمل"),
+            w("I was late", "كنت متأخراً", "آي واز لَيت", "⏰", "جمل"),
+
+            // ---- الدراسة ----
+            w("notebook", "دفتر", "نوتبوك", "📓", "مدرسة"),
+            w("pen", "قلم", "بن", "✍️", "مدرسة"),
+            w("marker", "قلم تعليم", "ماركر", "🖍️", "مدرسة"),
+            w("bag", "حقيبة", "باگ", "🎒", "مدرسة"),
+            w("calculator", "آلة حاسبة", "كالكليتر", "🧮", "مدرسة"),
+            w("study", "يدرس", "ستدي", "📚", "أفعال"),
+            w("read", "يقرأ", "ريد", "📖", "أفعال"),
+            w("write", "يكتب", "رايت", "✍️", "أفعال"),
+            w("solve", "يحل", "سولف", "✔️", "أفعال"),
+            w("focus", "يركز", "فوكس", "🎯", "أفعال"),
+            w("memorize", "يحفظ", "ميمورايز", "🧠", "أفعال"),
+
+            // ---- ملابس التسوق ----
+            w("t-shirt", "تيشيرت", "تي شيرت", "👕", "ملابس"),
+            w("jeans", "جينز", "جينز", "👖", "ملابس"),
+            w("cap", "قبعة", "كاب", "🧢", "ملابس"),
+            w("pajamas", "ملابس نوم", "بجامز", "😴", "ملابس"),
+            w("wear", "يلبس", "وير", "👕", "أفعال"),
+            w("fold", "يطوي", "فولد", "👚", "أفعال"),
+            w("choose", "يختار", "تشوز", "✔️", "أفعال"),
+            w("buy", "يشتري", "باي", "🛍️", "أفعال"),
+
+            // ---- المطر ----
+            w("raincoat", "معطف مطر", "رينكوت", "🧥", "ملابس"),
+            w("boots", "جزمة", "بوتس", "👢", "ملابس"),
+            w("umbrella", "مظلة", "أمبريلا", "☔", "أدوات"),
+            w("puddle", "بركة ماء", "بدل", "💧", "طبيعة"),
+            w("thunder", "رعد", "ثندر", "⚡", "طقس"),
+            w("cover", "يغطي", "كفر", "☂️", "أفعال"),
+            w("splash", "يرش ماء", "سبلاش", "💦", "أفعال"),
+
+            // ---- المطار إضافي ----
+            w("airport", "مطار", "إيربورت", "✈️", "سفر"),
+            w("plane", "طائرة", "بلين", "🛫", "سفر"),
+            w("passport", "جواز سفر", "باسبورت", "🛂", "سفر"),
+            w("suitcase", "حقيبة سفر", "سوتكيس", "🧳", "سفر"),
+            w("travel", "يسافر", "ترافل", "✈️", "أفعال"),
+            w("check in", "يسجل (في المطار)", "تشيك إن", "🛂", "أفعال"),
+            w("board", "يصعد للطائرة", "بورد", "🛫", "أفعال"),
+            w("arrive", "يصل", "أرايف", "📍", "أفعال"),
+
+            // ---- طبخ إضافي ----
+            w("stove", "موقد", "ستوف", "🔥", "مطبخ"),
+            w("spoon", "ملعقة", "سبون", "🥄", "مطبخ"),
+            w("plate", "صحن", "بليت", "🍽️", "مطبخ"),
+            w("serve", "يقدّم", "سيرف", "🍴", "أفعال"),
+
+            // ---- عبارات يومية مهمة ----
+            w("take your time", "خذ وقتك", "تيك يور تايم", "⏳", "عبارات"),
+            w("listen to me", "اسمع لي", "لِسِن تو مي", "👂", "عبارات"),
+            w("wait a moment", "انتظر لحظة", "ويت أ مومنت", "⏸️", "عبارات"),
+            w("come quickly", "تعال بسرعة", "كَم كويكلي", "🏃", "عبارات"),
+            w("stay here", "ابق هنا", "ستاي هير", "📍", "عبارات"),
+            w("go now", "اذهب الآن", "غو ناو", "🚶", "عبارات"),
+            w("don't worry", "لا تقلق", "دونت ووري", "😌", "عبارات"),
+            w("trust me", "ثق بي", "تراست مي", "🤝", "عبارات"),
+            w("try again", "جرّب مرة أخرى", "تراي أگين", "🔄", "عبارات"),
+            w("I understand you", "أفهمك", "آي أندِرستاند يو", "🧠", "عبارات"),
+            w("don't lie", "لا تكذب", "دونت لاي", "🙊", "عبارات"),
+            w("be patient", "كن صبوراً", "بي بيشِنت", "🧘", "عبارات"),
+            w("follow me", "اتبعني", "فولو مي", "🚶", "عبارات"),
+            w("let's start", "دعنا نبدأ", "لِتس ستارت", "🚀", "عبارات"),
+            w("stop that", "أوقف ذلك", "ستوب ذات", "✋", "عبارات"),
+
+            // ---- ظروف زمانية ----
+            w("now", "الآن", "ناو", "🕐", "زمن"),
+            w("often", "غالباً", "أوفِن", "🔁", "زمن"),
+            w("today", "اليوم", "تودَي", "📅", "زمن"),
+            w("rarely", "نادراً", "رَيرلي", "🔹", "زمن"),
+            w("always", "دائماً", "أولوَيز", "♾️", "زمن"),
+            w("tomorrow", "غداً", "تومورو", "📅", "زمن"),
+            w("usually", "عادةً", "يوجوالي", "🔸", "زمن"),
+            w("right now", "حالاً", "رايت ناو", "⏰", "زمن"),
+            w("yesterday", "أمس", "يَستَردَي", "📅", "زمن"),
+            w("sometimes", "أحياناً", "سَم تايمز", "🔹", "زمن"),
+
+            // ---- وقت وأحداث ----
+            w("birthday", "عيد ميلاد", "بيرثداي", "🎂", "مناسبات"),
+            w("holiday", "عطلة", "هوليدي", "🏖️", "مناسبات"),
+            w("party", "حفلة", "بارتي", "🎉", "مناسبات"),
+            w("exam", "امتحان", "إكزام", "📝", "مدرسة"),
+            w("break", "استراحة", "بريك", "⏰", "روتين"),
+            w("celebrate", "يحتفل", "سليبريت", "🎊", "أفعال"),
+            w("attend", "يحضر", "أتنِد", "📍", "أفعال"),
+            w("plan", "يخطط", "بلان", "🧠", "أفعال"),
+
+            // ---- أدوات الصف ----
+            w("blackboard", "سبورة", "بلاكبورد", "📚", "مدرسة"),
+            w("eraser", "ممحاة", "إريزر", "🧽", "مدرسة"),
+            w("school desk", "رحّالة مدرسية", "سكول دِسك", "🪑", "مدرسة"),
+            w("school bell", "جرس المدرسة", "سكول بيل", "🔔", "مدرسة"),
+            w("answer", "يجيب", "آنسر", "🙋", "أفعال"),
+            w("learn", "يتعلم", "ليرن", "📚", "أفعال")
+        )
+    }
+
+    private fun getCommonWords(): List<DictionaryWordEntity> {
+        val commonEn = listOf(
+            "ability", "able", "abroad", "accept", "accident", "account", "achieve",
+            "across", "act", "active", "actual", "add", "address", "admit", "adult",
+            "advance", "advice", "afford", "afraid", "afternoon", "agree", "ahead",
+            "airplane", "airport", "alarm", "album", "alive", "allow", "almost",
+            "alone", "along", "already", "also", "altogether", "always", "amazing",
+            "ambition", "amount", "amuse", "anchor", "ancient", "anger", "animal",
+            "announce", "annoy", "annual", "another", "answer", "anxious", "anybody",
+            "anymore", "anyone", "anything", "anyway", "anywhere", "apartment",
+            "apologize", "apparent", "appear", "apple", "applicant", "apply", "appoint",
+            "appreciate", "approach", "approval", "approve", "approximate", "architect",
+            "argument", "arise", "arm", "army", "around", "arrange", "arrest",
+            "arrival", "arrive", "arrow", "art", "article", "artist", "ash", "ashamed",
+            "aside", "ask", "asleep", "aspect", "assist", "associate", "assume", "assure",
+            "athlete", "atmosphere", "attach", "attack", "attempt", "attend", "attitude",
+            "attract", "audience", "author", "authority", "automatic", "available", "avenue",
+            "average", "avoid", "awake", "award", "aware", "awesome", "awful", "awkward",
+            "background", "backward", "bacon", "bacterium", "badge", "baggage", "bake",
+            "balance", "balcony", "ballot", "bamboo", "banana", "band", "bandage",
+            "bang", "bankrupt", "banner", "barbecue", "barely", "bargain", "bark",
+            "barrel", "barrier", "basement", "basic", "basin", "basket", "bat",
+            "bath", "battery", "battle", "beacon", "beak", "beam", "bean", "bear",
+            "beard", "beast", "beat", "beautiful", "beauty", "because", "become",
+            "bedroom", "bee", "beef", "beer", "beetle", "before", "beg", "begin",
+            "behave", "behavior", "behind", "belief", "believe", "bell", "belong",
+            "below", "belt", "bench", "bend", "beneath", "benefit", "beside",
+            "besides", "best", "bet", "betray", "better", "between", "beyond", "bicycle",
+            "bill", "billion", "bin", "bind", "biography", "biology", "bird", "birth",
+            "biscuit", "bishop", "bitter", "bizarre", "blade", "blame", "blank",
+            "blanket", "blast", "bleed", "blend", "bless", "blind", "blink", "block",
+            "blond", "blood", "bloom", "blossom", "blouse", "blow", "blush", "board",
+            "boast", "boat", "boil", "bold", "bolt", "bomb", "bond", "bone", "bonus",
+            "book", "bookcase", "boom", "boost", "boot", "border", "bore", "bored",
+            "boring", "borrow", "boss", "bother", "bottle", "bottom", "bounce", "bound",
+            "boundary", "bowl", "bracelet", "bracket", "brain", "brake", "branch",
+            "brand", "brave", "breadth", "break", "breast", "breath", "breathe",
+            "breeze", "brick", "bride", "bridge", "brief", "bright", "brilliant",
+            "broad", "broadcast", "broom", "brown", "browse", "bruise", "brush",
+            "bubble", "bucket", "budget", "buffer", "bug", "builder", "bullet",
+            "bulletin", "bunch", "bundle", "burden", "bureau", "burglar", "burn",
+            "burst", "bury", "bus", "bush", "business", "busy", "butterfly", "button",
+            "cabinet", "cable", "cactus", "cage", "calculate", "calendar", "calm",
+            "camera", "camp", "campaign", "campus", "canal", "cancel", "cancer",
+            "candidate", "candle", "candy", "cannon", "canteen", "canvas", "canyon",
+            "capable", "capacity", "capital", "captain", "caption", "capture", "caravan",
+            "carbon", "career", "careless", "cargo", "carpenter", "carpet", "carrot",
+            "cart", "carton", "cartoon", "carve", "cascade", "castle", "casual",
+            "catalogue", "catastrophe", "catch", "category", "cater", "cathedral",
+            "cattle", "cause", "caution", "cave", "cease", "ceiling", "celebrate",
+            "cell", "cellar", "cement", "cemetery", "censor", "census", "center",
+            "central", "century", "cereal", "ceremony", "certain", "certificate",
+            "chain", "chair", "chairman", "chalk", "challenge", "chamber", "champion",
+            "chance", "chancellor", "change", "channel", "chaos", "chapel", "chapter",
+            "character", "characteristic", "charge", "charity", "charm", "chart",
+            "charter", "chase", "chat", "cheap", "cheat", "check", "cheek", "cheerful",
+            "cheese", "chef", "chemical", "chemistry", "cheque", "cherry", "chess",
+            "chest", "chew", "chicken", "chief", "childhood", "chimney", "chin",
+            "chip", "chocolate", "choice", "choir", "choke", "cholesterol", "choose",
+            "chop", "chord", "chorus", "chronic", "chunk", "church", "cigar", "cigarette",
+            "cinema", "circle", "circuit", "circulate", "circumstance", "circus",
+            "cite", "citizen", "city", "civil", "civilian", "civilization", "claim",
+            "clap", "clarify", "clarity", "clasp", "classic", "classify", "classroom",
+            "clause", "claw", "clay", "cleaner", "clearance", "clever", "client",
+            "cliff", "climate", "climb", "cling", "clinic", "clinical", "clip",
+            "cloak", "clock", "closet", "cloth", "clothes", "cloudy", "clove", "clown",
+            "club", "clue", "clumsy", "cluster", "clutch", "coach", "coal", "coarse",
+            "coast", "coat", "cobra", "cockpit", "cocoa", "coconut", "code", "coffee",
+            "coffin", "cognition", "coherent", "coil", "coin", "coincide", "colleague",
+            "collect", "college", "collide", "colony", "color", "column", "comb",
+            "combat", "combine", "comeback", "comedy", "comet", "comfort", "comic",
+            "comma", "command", "commence", "commend", "comment", "commerce", "commission",
+            "commit", "committee", "commodity", "common", "commotion", "communicate",
+            "community", "commute", "compact", "companion", "company", "comparable",
+            "compass", "compatible", "compel", "compensate", "compete", "competent",
+            "compile", "complain", "complement", "complete", "complex", "complicate",
+            "compliment", "comply", "component", "compose", "compost", "compound",
+            "comprehend", "compress", "comprise", "compromise", "compute", "conceal",
+            "concede", "conceive", "concentrate", "concept", "concern", "concert",
+            "conclude", "concrete", "concur", "condemn", "condense", "condition",
+            "conduct", "cone", "confer", "confess", "confide", "confident", "confine",
+            "confirm", "conflict", "conform", "confuse", "congratulate", "congress",
+            "connect", "conquer", "conscience", "conscious", "consecutive", "consensus",
+            "consent", "consequence", "conserve", "consider", "consist", "consistent",
+            "console", "consolidate", "consonant", "conspire", "constant", "constitute",
+            "constrain", "construct", "consult", "consume", "contact", "contain",
+            "contemplate", "contemporary", "contend", "content", "contest", "context",
+            "continent", "continue", "contract", "contradict", "contrast", "contribute",
+            "control", "controversy", "convene", "convenient", "convention", "converge",
+            "converse", "convert", "convey", "convict", "convince", "cook", "cookie",
+            "cooler", "cooperate", "coordinate", "cop", "cope", "copper", "copy",
+            "coral", "cord", "core", "cork", "corn", "corner", "corridor", "corrupt",
+            "cost", "costume", "cottage", "cotton", "couch", "cough", "council",
+            "counsel", "count", "counter", "countless", "country", "countryside",
+            "county", "couple", "courage", "courier", "course", "court", "courtesy",
+            "cousin", "cover", "cow", "coward", "cozy", "crack", "cradle", "craft",
+            "crane", "crash", "crater", "crave", "crawl", "crayon", "crazy", "cream",
+            "create", "creature", "credibility", "credit", "creed", "creek", "creep",
+            "crest", "crew", "cricket", "crime", "criminal", "crisis", "crisp",
+            "criterion", "critic", "critical", "criticize", "crop", "cross",
+            "crouch", "crowd", "crown", "crucial", "crude", "cruel", "cruise", "crumb",
+            "crumble", "crush", "crust", "crutch", "cry", "crystal", "cube", "cuckoo",
+            "cucumber", "cuddle", "cue", "cuff", "cuisine", "culprit", "cultivate",
+            "culture", "cumulative", "cupboard", "curative", "curb", "cure", "curiosity",
+            "curious", "curl", "currency", "current", "curriculum", "curtain", "curve",
+            "cushion", "custody", "custom", "customer", "customs", "cut", "cute",
+            "cutter", "cyber", "cycle", "cyclone", "cylinder"
+        )
+
+        val arCommon = listOf(
+            "قدرة", "قادر", "في الخارج", "يقبل", "حادث", "حساب", "يحقق",
+            "عبر", "فعل", "نشط", "فعلي", "يضيف", "عنوان", "يعترف", "بالغ",
+            "يتقدم", "نصيحة", "يستطيع", "خائف", "بعد الظهر", "يوافق", "مقدماً",
+            "طائرة", "مطار", "منبه", "ألبوم", "حي", "يسمح", "تقريباً",
+            "بمفرده", "على طول", "بالفعل", "أيضاً", "معاً", "دائماً", "مذهل",
+            "طموح", "كمية", "يمتع", "مرساة", "قديم", "غضب", "حيوان", "يعلن",
+            "يزعج", "سنوي", "آخر", "إجابة", "قلق", "أي شخص", "بعد الآن", "أي شخص",
+            "أي شيء", "على أي حال", "في أي مكان", "شقة", "يعتذر", "ظاهر", "يظهر",
+            "تفاحة", "متقدم بالطلب", "يطبق", "يعين", "يقدر", "يقترب", "موافقة",
+            "يوافق", "تقريبي", "مهندس معماري", "جدال", "ينشأ", "ذراع", "جيش",
+            "حول", "يرتب", "يعتقل", "وصول", "يصل", "سهم", "فن", "مقال", "فنان",
+            "رماد", "خجلان", "جانباً", "يسأل", "نائم", "جانب", "يساعد", "يرتبط",
+            "يفترض", "يطمئن", "رياضي", "غلاف جوي", "يرفق", "يهاجم", "يحاول",
+            "يحضر", "موقف", "يجذب", "جمهور", "مؤلف", "سلطة", "تلقائي", "متاح",
+            "شارع", "متوسط", "يتجنب", "مستيقظ", "جائزة", "مدرك", "رائع", "فظيع",
+            "مخرج", "خلفية", "إلى الخلف", "لحم خنزير", "بكتيريا", "شارة",
+            "أمتعة", "يخبز", "توازن", "شرفة", "اقتراع", "خيزران", "موز", "فرقة",
+            "ضمادة", "ضمادة", "مفلس", "راية", "شواء", "بالكاد", "صفقة", "نباح",
+            "برميل", "حاجز", "قباء", "أساسي", "حوض", "سلة", "خفاش", "حمام",
+            "بطارية", "معركة", "منارة", "منقار", "شعاع", "فاصوليا", "دب",
+            "لحية", "وحش", "يضرب", "جميل", "جمال", "لأن", "يصبح", "غرفة نوم",
+            "نحلة", "لحم بقر", "بيرة", "خنفساء", "قبل", "يتوسل", "يبدأ", "يتصرف",
+            "سلوك", "خلف", "إيمان", "يعتقد", "جرس", "ينتمي", "تحت", "حزام",
+            "مقعد", "ينحني", "تحت", "فائدة", "بجانب", "بالإضافة إلى", "الأفضل",
+            "يراهن", "يخون", "أفضل", "بين", "وراء", "دراجة", "فاتورة", "مليار",
+            "سلة", "يربط", "سيرة ذاتية", "أحياء", "طائر", "ولادة", "بسكويت",
+            "أسقف", "مر", "غريب", "شفرة", "يلوم", "فارغ", "بطانية", "انفجار",
+            "ينزف", "يمزج", "يبارك", "أعمى", "يرمش", "كتلة", "أشقر", "دم",
+            "يقتطع", "زهرة", "بلوزة", "ينفخ", "يخجل", "لوحة", "يفتخر", "قارب",
+            "يغلي", "جريء", "مسمار", "قنبلة", "رابطة", "عظم", "مكافأة", "كتاب",
+            "خزانة كتب", "طفرة", "تعزيز", "حذاء", "حدود", "تجويف", "ضجر",
+            "ممل", "يقترض", "رئيس", "يزعج", "زجاجة", "قاع", "يرتد", "ملزم",
+            "حدود", "وعاء", "سوار", "قوس", "دماغ", "فرامل", "فرع", "علامة تجارية",
+            "شجاع", "عرض", "يكسر", "ثدي", "نفس", "يتنفس", "نسيم", "طوب",
+            "عروس", "جسر", "موجز", "مشرق", "رائع", "واسع", "بث", "مكنسة",
+            "بني", "يتصفح", "كدمة", "فرشاة", "فقاعة", "دلو", "ميزانية", "مصد",
+            "حشرة", "بناء", "رصاصة", "نشرة", "حزمة", "حزمة", "عبء", "مكتب",
+            "لص", "يحرق", "ينفجر", "يدفن", "حافلة", "شجيرة", "عمل", "مشغول",
+            "فراشة", "زر", "خزانة", "كابل", "صبار", "قفس", "يحسب", "تقويم",
+            "هادئ", "كاميرا", "مخيم", "حملة", "حرم جامعي", "قناة", "يلغي",
+            "سرطان", "مرشح", "شمعة", "حلوى", "مدفع", "مقصف", "قماش", "أخدود",
+            "قادر", "سعة", "عاصمة", "قائد", "تسمية توضيحية", "يلتقط", "قافلة",
+            "كربون", "مهنة", "مهمل", "حمولة", "نجار", "سجادة", "جزر", "عربة",
+            "كرتون", "كرتون", "ينحت", "شلال", "قلعة", "عادي", "كتالوج",
+            "كارثة", "يمسك", "فئة", "يلبي", "كاتدرائية", "ماشية", "سبب",
+            "حذر", "كهف", "يتوقف", "سقف", "يحتفل", "خلية", "قبو", "أسمنت",
+            "مقبرة", "رقيب", "تعداد", "مركز", "مركزي", "قرن", "حبوب", "حفل",
+            "معين", "شهادة", "سلسلة", "كرسي", "رئيس", "طبشور", "تحدي",
+            "غرفة", "بطل", "فرصة", "مستشار", "تغيير", "قناة", "فوضى", "كنيسة",
+            "فصل", "شخصية", "خاصية", "تلكفة", "جمعية خيرية", "سحر", "رسم بياني",
+            "ميثاق", "يطارد", "دردشة", "رخيص", "يغش", "يفحص", "خد", "مبتهج",
+            "جبن", "طباخ", "كيميائي", "كيمياء", "شيك", "كرز", "شطرنج", "صدر",
+            "يمضغ", "دجاج", "رئيس", "طفولة", "مدخنة", "ذقن", "رقاقة", "شوكولاتة",
+            "خيار", "جوقة", "يختنق", "كولسترول", "يختار", "يقطع", "وتر",
+            "جوقة", "مزمن", "قطعة", "كنيسة", "سيجار", "سيجارة", "سينما", "دائرة",
+            "دائرة", "يدور", "ظرف", "سيرك", "يقتبس", "مواطن", "مدينة", "مدني",
+            "مدني", "حضارة", "يدعي", "يصفق", "يوضح", "وضوح", "مشبك", "كلاسيكي",
+            "يصنف", "فصل دراسي", "بند", "مخلب", "طين", "منظف", "تصفية", "ذكي",
+            "عميل", "منحدر", "مناخ", "يتسلق", "يتشبث", "عيادة", "سريري", "مشبك",
+            "عباءة", "ساعة", "خزانة", "قماش", "ملابس", "غائم", "قرنفل", "مهرج",
+            "نادي", "دليل", "أخرق", "عنقود", "قابض", "مدرب", "فحم", "خشن",
+            "ساحل", "معطف", "كوبرا", "قمرة قيادة", "كاكاو", "جوز هند", "رمز",
+            "قهوة", "تابوت", "إدراك", "متماسك", "ملف", "عملة", "يتصادف",
+            "زميل", "يجمع", "كلية", "يصطدم", "مستعمرة", "لون", "عمود", "مشط",
+            "قتال", "يجمع", "عودة", "كوميديا", "مذنب", "راحة", "كوميدي",
+            "فاصلة", "أمر", "يبدأ", "يثني", "تعليق", "تجارة", "عمولة", "يرتكب",
+            "لجنة", "سلعة", "شائع", "جلبة", "يتواصل", "مجتمع", "يتنقل", "مدمج",
+            "رفيق", "شركة", "قابل للمقارنة", "بوصلة", "متوافق", "يجبر", "يعوض",
+            "يتنافس", "كفء", "يجلب", "يشكو", "يكمل", "كامل", "معقد", "يعقد",
+            "مجاملة", "يمتثل", "مكون", "يشكل", "سماد", "مركب", "يفهم", "يضغط",
+            "يشمل", "يتوصل إلى حل", "يحسب", "يخفي", "يعترف", "يتصور", "يركز",
+            "مفهوم", "قلق", "حفلة", "يستنتج", "خرسانة", "يتفق", "يدين",
+            "كثف", "حالة", "يجري", "مخروط", "يمنح", "يعترف", "يثق", "واثق",
+            "يحصر", "يؤكد", "صراع", "يتوافق", "يربك", "يهنئ", "مؤتمر", "يتصل",
+            "يقهر", "ضمير", "واعي", "متتالي", "إجماع", "موافقة", "نتيجة",
+            "يحافظ", "يعتبر", "يتكون", "متسق", "واسي", "يدمج", "حرف ساكن",
+            "يتآمر", "ثابت", "يشكل", "يقيد", "يبني", "يستشير", "يستهلك",
+            "يتصل", "يحتوي", "يتأمل", "معاصر", "ينافس", "محتوى", "مسابقة",
+            "سياق", "قارة", "يستمر", "عقد", "يناقض", "تباين", "يساهم", "يتحكم",
+            "جدل", "يجتمع", "مريح", "اتفاقية", "يتقارب", "يتحدث", "يحول",
+            "ينقل", "يدين", "يقنع", "يطبخ", "كعكة", "مبرد", "يتعاون", "ينسق",
+            "شرطي", "يتأقلم", "نحاس", "نسخة", "مرجان", "حبل", "جوهر", "فلين",
+            "ذرة", "زاوية", "ممر", "فاسد", "تكلفة", "زي", "كوخ", "قطن",
+            "أريكة", "سعال", "مجلس", "مستشار", "يحسب", "عداد", "لا يحصى",
+            "بلد", "ريف", "مقاطعة", "زوجين", "شجاعة", "ساعي", "دورة", "محكمة",
+            "مجاملة", "ابن عم", "يغطي", "بقرة", "جبان", "مريح", "شق", "مهد",
+            "حرفة", "رافع", "تحطم", "فوهة", "يشتهي", "يزحف", "قلم شمع", "مجنون",
+            "كريمة", "يخلق", "مخلوق", "مصداقية", "ائتمان", "عقيدة", "جدول",
+            "يزحف", "قمة", "طاقم", "كريكت", "جريمة", "مجرم", "أزمة", "مقرمش",
+            "معيار", "ناقد", "حاسم", "ينتقد", "محصول", "صليب", "ينحني",
+            "حشد", "تاج", "حاسم", "خام", "قاسي", "رحلة بحرية", "فتات", "يتفتت",
+            "يسحق", "قشرة", "عكاز", "يبكي", "بلورة", "مكعب", "وقواق", "خيار",
+            "حضن", "إشارة", "صفدة", "مطبخ", "جاني", "يزرع", "ثقافة", "تراكمي",
+            "خزانة", "شاقي", "كبح", "علاج", "فضول", "فضولي", "تجعد", "عملة",
+            "حالي", "منهج", "ستارة", "منحنى", "وسادة", "حضانة", "عادة",
+            "زبون", "جمارك", "يقطع", "جذاب", "قاطع", "سيبراني", "دورة",
+            "إعصار", "أسطوانة"
+        )
+
+        val list = mutableListOf<DictionaryWordEntity>()
+        for (i in commonEn.indices) {
+            val en = commonEn[i]
+            val ar = if (i < arCommon.size) arCommon[i] else en
+            list.add(
+                w(en, ar, en, "📌", "شائع")
+            )
+        }
+        return list
+    }
+
+    private fun getAcademicTerms(): List<DictionaryWordEntity> {
+        return listOf(
+            w("photosynthesis", "البناء الضوئي", "فوتوسينثسيز", "🌿", "مصطلحات دراسية", "أحياء", "Plants perform photosynthesis to convert light energy into glucose."),
+            w("thermodynamics", "الديناميكا الحرارية", "ثيرموداينامكس", "🔥", "مصطلحات دراسية", "فيزياء", "Thermodynamics governs heat, work, and internal energy conversion."),
+            w("differentiation", "التفاضل الرياضي", "ديفرنشياشن", "📐", "مصطلحات دراسية", "رياضيات", "Differentiation calculates the instantaneous rate of change."),
+            w("integration", "التكامل الرياضي", "إنتقريشن", "∫", "مصطلحات دراسية", "رياضيات", "Integration calculates the total area accumulated under a curve."),
+            w("electromagnetism", "الكهرومغناطيسية", "إلكتروماغنتزم", "⚡", "مصطلحات دراسية", "فيزياء", "Electromagnetism studies interactions between charged particles."),
+            w("algorithm", "خوارزمية", "ألغورثم", "💻", "مصطلحات دراسية", "حاسب", "An algorithm is a step-by-step computational procedure."),
+            w("metabolism", "التمثيل الغذائي / الأيض", "ميتابوليزم", "🧪", "مصطلحات دراسية", "أحياء وطب", "Metabolism sustains life by converting food into cellular energy."),
+            w("hypothesis", "فرضية علمية", "هايبوثيسيس", "💡", "مصطلحات دراسية", "مناهج البحث", "A hypothesis is a testable explanation for a observed phenomenon."),
+            w("catalyst", "عامل حفاز / محفز", "كاتاليست", "⚗️", "مصطلحات دراسية", "كيمياء", "A catalyst accelerates chemical reactions without being consumed."),
+            w("quantum mechanics", "ميكانيكا الكم", "كوانتم ميكانكس", "⚛️", "مصطلحات دراسية", "فيزياء", "Quantum mechanics explains particle behavior at subatomic scales."),
+            w("matrix", "مصفوفة رياضية", "ماتريكس", "📊", "مصطلحات دراسية", "رياضيات", "A matrix is a rectangular array of numbers used in linear algebra."),
+            w("derivative", "المشتقة الرياضية", "ديريفاتيف", "📈", "مصطلحات دراسية", "رياضيات", "The derivative gives the slope of a curve at any point."),
+            w("chromosome", "كروموسوم / صبغي", "كروموسوم", "🧬", "مصطلحات دراسية", "أحياء وطب", "Chromosomes carry cellular genetic DNA information."),
+            w("mitochondria", "الميتوكندريا (مصنع الطاقة)", "مايتوكوندريا", "🔬", "مصطلحات دراسية", "أحياء وطب", "Mitochondria produce ATP energy inside eukaryotic cells."),
+            w("encryption", "التشفير الرقمي", "إنكريپشن", "🔐", "مصطلحات دراسية", "حاسب", "Encryption transforms plaintext into unreadable ciphertext."),
+            w("recursion", "الاستدعاء الذاتي / العودية", "ريكرجن", "🔄", "مصطلحات دراسية", "حاسب", "Recursion occurs when a programming function calls itself."),
+            w("inflation", "التضخم الاقتصادي", "إنفليشن", "📈", "مصطلحات دراسية", "اقتصاد", "Inflation measures the rate at which purchasing power decreases."),
+            w("metaphor", "استعارة / مجاز أدبي", "ميتافور", "📚", "مصطلحات دراسية", "أدب", "A metaphor asserts one thing is symbolically another thing."),
+            w("osmosis", "الخاصية الأسموزية", "أوزموزيس", "💧", "مصطلحات دراسية", "كيمياء وأحياء", "Osmosis moves water solvent across semipermeable membranes."),
+            w("equilibrium", "الاتزان الفيزيائي / الكيميائي", "إيكويليبريام", "⚖️", "مصطلحات دراسية", "علوم عامة", "Chemical equilibrium occurs when forward and reverse rates balance."),
+            w("friction", "قوة الاحتكاك", "فريكشن", "🛞", "مصطلحات دراسية", "فيزياء", "Friction resists the relative motion of solid surfaces sliding."),
+            w("velocity", "السرعة المتجهة", "فيلوستي", "🏎️", "مصطلحات دراسية", "فيزياء", "Velocity is speed in a specific directional vector."),
+            w("viscosity", "اللزوجة", "فيسكوستي", "🍯", "مصطلحات دراسية", "كيمياء", "Viscosity measures fluid resistance to gradual deformation."),
+            w("biodiversity", "التنوع البيولوجي", "بايودايفرستي", "🌍", "مصطلحات دراسية", "علوم البيئة", "Biodiversity encompasses ecosystem, species, and genetic variety.")
+        )
+    }
+
+    private fun getNumbersWords(): List<DictionaryWordEntity> {
+        val list = mutableListOf<DictionaryWordEntity>()
+        val units = arrayOf("", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+            "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
+        val unitsAr = arrayOf("", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة",
+            "عشرة", "أحد عشر", "اثنا عشر", "ثلاثة عشر", "أربعة عشر", "خمسة عشر", "ستة عشر", "سبعة عشر", "ثمانية عشر", "تسعة عشر")
+        val tens = arrayOf("", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+        val tensAr = arrayOf("", "", "عشرون", "ثلاثون", "أربعون", "خمسون", "ستون", "سبعون", "ثمانون", "تسعون")
+
+        // 1 to 99
+        for (i in 1..99) {
+            val enName: String
+            val arName: String
+            if (i < 20) {
+                enName = units[i]
+                arName = unitsAr[i]
+            } else {
+                val t = i / 10
+                val u = i % 10
+                enName = if (u == 0) tens[t] else "${tens[t]}-$u"
+                arName = if (u == 0) tensAr[t] else "${unitsAr[u]} و${tensAr[t]}"
+            }
+            list.add(w(enName, arName, "$i", "🔢", "الأرقام (Numbers)", "عدد", "Number $i is written as $enName."))
+        }
+
+        // 100 to 1000 milestones
+        for (h in 1..10) {
+            val valNum = h * 100
+            val enName = if (h == 10) "one thousand" else "${units[h]} hundred"
+            val arName = if (h == 10) "ألف" else "مائة × $h"
+            list.add(w(enName, arName, "$valNum", "💯", "الأرقام (Numbers)", "عدد", "Number $valNum is $enName."))
+        }
+        return list
+    }
+
+    private fun getPassagesAndParagraphs(): List<DictionaryWordEntity> {
+        return listOf(
+            w(
+                "Factors of Motivation in My Life (Introduction)",
+                "عوامل التحفيز في حياتي (المقدمة)",
+                "موضوع تعبير",
+                "📝",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Life is full of various challenges and obstacles that everyone must face. These difficulties are not just problems, but they are tests for our patience. Motivation is the secret engine that helps us move forward and never give up."
+            ),
+            w(
+                "Factors of Motivation in My Life (Body)",
+                "عوامل التحفيز في حياتي (العرض)",
+                "موضوع تعبير",
+                "📝",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "First of all, my main motivation is the desire to achieve my future goals and make my family proud of me. Hard work and persistence are the keys that help me stay focused when things get difficult."
+            ),
+            w(
+                "Factors of Motivation in My Life (Conclusion)",
+                "عوامل التحفيز في حياتي (الخاتمة)",
+                "موضوع تعبير",
+                "📝",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "To sum up, overcoming challenges is the only way to grow and succeed in this life. Success is not the end, but the courage to continue is what really counts."
+            ),
+            w(
+                "The Role of Technology in Modern Communication",
+                "دور التكنولوجيا في الاتصال الحديث",
+                "موضوع تعبير",
+                "📱",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Nowadays, technology plays a vital role in our daily communication. The world has become a small village thanks to the internet, smartphones, and social media."
+            ),
+            w(
+                "The Benefits of Learning a Second Language",
+                "فوائد تعلم لغة ثانية",
+                "موضوع تعبير",
+                "🌐",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Learning a second language offers many great benefits. It helps people communicate with different cultures, improves brain power, and leads to better job opportunities."
+            ),
+            w(
+                "The Impact of Global Warming on Coastal Cities",
+                "تأثير الانحباس الحراري على المدن الساحلية",
+                "موضوع تعبير",
+                "🌊",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Global warming poses a serious threat to coastal cities worldwide. Rising sea levels and extreme weather conditions require urgent environmental protection."
+            ),
+            w(
+                "The Advantages of Remote Work for Employees",
+                "مزايا العمل عن بعد للموظفين",
+                "موضوع تعبير",
+                "💻",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Remote work offers flexibility, saves travel time and expenses, and allows employees to balance professional duties with personal life effectively."
+            ),
+            w(
+                "Reflecting on the Future of Space Exploration",
+                "مستقبل استكشاف الفضاء",
+                "موضوع تعبير",
+                "🚀",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "New technologies are making it possible to reach distant planets. Space exploration inspires scientific progress and expands human knowledge."
+            ),
+            w(
+                "The Evolution of Traditional Education",
+                "تطور التعليم التقليدي",
+                "موضوع تعبير",
+                "🎓",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Education has evolved from traditional classrooms relying solely on books to modern interactive digital platforms that prepare students for the future."
+            ),
+            w(
+                "Explaining the Necessity of Renewable Energy Sources",
+                "ضرورة مصادر الطاقة المتجددة",
+                "موضوع تعبير",
+                "☀️",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Using solar and wind power reduces pollution and preserves finite natural resources, protecting our planet for future generations."
+            ),
+            w(
+                "The Long-term Effects of Social Media on Society",
+                "تأثير وسائل التواصل الاجتماعي على المجتمع",
+                "موضوع تعبير",
+                "📲",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Social media connects people globally, but requires mindful usage to balance online presence with real-life relationships and well-being."
+            ),
+            w(
+                "The Significance of Cultural Diversity",
+                "أهمية التنوع الثقافي",
+                "موضوع تعبير",
+                "🤝",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Cultural diversity enriches societies through shared ideas, mutual respect, and international cooperation, fostering global harmony."
+            ),
+            w(
+                "The Challenges of Urban Overpopulation",
+                "تحديات الاكتظاظ السكاني في المدن",
+                "موضوع تعبير",
+                "🏙️",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Rapid urban growth creates traffic congestion, housing demands, and strain on public infrastructure, requiring smart city planning."
+            ),
+            w(
+                "The Necessity of Wildlife Conservation",
+                "ضرورة حماية الحياة البرية",
+                "موضوع تعبير",
+                "🦁",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Protecting endangered wildlife and habitats is essential to maintain ecological balance and preserve natural biodiversity."
+            ),
+            w(
+                "The History of the Industrial Revolution",
+                "تاريخ الثورة الصناعية",
+                "موضوع تعبير",
+                "🏭",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "The Industrial Revolution transformed production through mechanized innovation, shifting societies into modern industrial economies."
+            ),
+            w(
+                "The Impact of Fast Food on Public Health",
+                "تأثير الوجبات السريعة على الصحة العامة",
+                "موضوع تعبير",
+                "🍔",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Frequent fast food consumption leads to health issues due to excess fats and sugars; adopting balanced nutrition promotes longevity."
+            ),
+            w(
+                "The Importance of Ethical Leadership in Business",
+                "أهمية القيادة الأخلاقية في الأعمال",
+                "موضوع تعبير",
+                "💼",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Ethical leadership builds trust, integrity, and long-term success by prioritizing fairness and social responsibility over mere short-term profit."
+            ),
+            w(
+                "The Rise of E-commerce in the 21st Century",
+                "نمو التجارة الإلكترونية في القرن الحادي والعشرين",
+                "موضوع تعبير",
+                "🛒",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "E-commerce provides convenient global shopping access from home, reshaping retail businesses and modern consumer habits."
+            ),
+            w(
+                "The Influence of Peer Pressure on Teenagers",
+                "تأثير ضغط الأقران على المراهقين",
+                "موضوع تعبير",
+                "👥",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Teenagers need positive guidance and self-confidence to make independent, wise decisions despite pressure from peers."
+            ),
+            w(
+                "The Benefits of Regular Physical Exercise",
+                "فوائد التمرين البدني المنتظم",
+                "موضوع تعبير",
+                "🏋️",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Daily exercise strengthens cardiovascular health, boosts energy, reduces stress, and fosters overall mental and physical well-being."
+            ),
+            w(
+                "The Value of Critical Thinking in the Workplace",
+                "قيمة التفكير النقدي في بيئة العمل",
+                "موضوع تعبير",
+                "🧠",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Critical thinking enables professional problem solving, objective evaluation, and effective decision-making in modern careers."
+            ),
+            w(
+                "Explaining the Causes of Economic Inflation",
+                "أسباب التضخم الاقتصادي",
+                "موضوع تعبير",
+                "📈",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Economic inflation stems from high product demand, increased production costs, and monetary fluctuations affecting purchasing power."
+            ),
+            w(
+                "Regarding the Future of Artificial Intelligence",
+                "مستقبل الذكاء الاصطناعي",
+                "موضوع تعبير",
+                "🤖",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Artificial intelligence enhances efficiency across healthcare, education, and industry, requiring responsible implementation for human benefit."
+            ),
+            w(
+                "The Role of Women in Modern Science",
+                "دور المرأة في العلوم الحديثة",
+                "موضوع تعبير",
+                "👩‍🔬",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Female scientists contribute significantly to space research, medicine, and engineering, inspiring future generations of innovators."
+            ),
+            w(
+                "Discussing the Importance of Time Management",
+                "أهمية إدارة الوقت",
+                "موضوع تعبير",
+                "⏰",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Organizing daily schedules balances work, learning, and leisure, reducing stress and helping individuals achieve personal goals."
+            ),
+            w(
+                "The Impact of Tourism on Local Economies",
+                "تأثير السياحة على الاقتصاد المحلي",
+                "موضوع تعبير",
+                "🏞️",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Tourism generates employment, supports local businesses, and promotes cultural exchange while requiring sustainable landmark protection."
+            ),
+            w(
+                "Concerning the Global Water Scarcity Crisis",
+                "أزمة أزمة ندرة المياه العالمية",
+                "موضوع تعبير",
+                "💧",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Water conservation and efficient resource management are essential to address global water scarcity and ensure environmental survival."
+            ),
+            w(
+                "Technology in Our Life",
+                "التكنولوجيا في حياتنا",
+                "موضوع تعبير قصير",
+                "💻",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Technology makes life easier and faster. Phones, computers, and the internet help people communicate and learn when used wisely."
+            ),
+            w(
+                "Pollution",
+                "التلوث",
+                "موضوع تعبير قصير",
+                "🌫️",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Pollution affects air, water, and land. Recycling, planting trees, and reducing plastic help keep our planet safe and clean."
+            ),
+            w(
+                "Water Conservation",
+                "الحفاظ على المياه",
+                "موضوع تعبير قصير",
+                "🚰",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Water is essential for life and farming. Saving water today through careful usage ensures a sustainable future for everyone."
+            ),
+            w(
+                "Global Warming",
+                "الانحباس الحراري",
+                "موضوع تعبير قصير",
+                "🌍",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Global warming causes climate changes. Using clean energy, driving less, and planting trees mitigate environmental impact."
+            ),
+            w(
+                "Importance of Education",
+                "أهمية التعليم",
+                "موضوع تعبير قصير",
+                "📚",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Education empowers individuals, unlocks job opportunities, and fosters knowledge needed to build stronger societies."
+            ),
+            w(
+                "Healthy Food",
+                "الطعام الصحي",
+                "موضوع تعبير قصير",
+                "🥗",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Eating fresh fruits, vegetables, and drinking water nourishes the body, boosts immunity, and promotes lifelong health."
+            ),
+            w(
+                "Helping Poor People",
+                "مساعدة الفقراء",
+                "موضوع تعبير قصير",
+                "🤝",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Providing food, clothing, and opportunities to those in need demonstrates empathy and makes communities stronger and kinder."
+            ),
+            w(
+                "Sports and Health",
+                "الرياضة والصحة",
+                "موضوع تعبير قصير",
+                "⚽",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Regular sports participation builds physical fitness, teamwork, discipline, and reduces daily stress."
+            ),
+            w(
+                "Family",
+                "العائلة",
+                "موضوع تعبير قصير",
+                "👨‍👩‍👧",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Family provides unconditional love, support, and moral guidance through life's challenges, forming the core of a happy life."
+            ),
+            w(
+                "Road Safety",
+                "السلامة على الطريق",
+                "موضوع تعبير قصير",
+                "🚦",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Following traffic regulations, wearing seatbelts, and avoiding distractions prevent accidents and save lives."
+            ),
+            w(
+                "Hard Work",
+                "العمل الجاد",
+                "موضوع تعبير قصير",
+                "💪",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Dedicating effort and perseverance pays off over time, turning ambitions into achievable life achievements."
+            ),
+            w(
+                "Saving Animals",
+                "إنقاذ الحيوانات",
+                "موضوع تعبير قصير",
+                "🐾",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Protecting endangered animals and natural habitats preserves ecological harmony and protects biodiversity."
+            ),
+            w(
+                "Honesty",
+                "الصدق",
+                "موضوع تعبير قصير",
+                "✨",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Honesty builds trust and mutual respect in relationships, fostering personal peace and moral integrity."
+            ),
+            w(
+                "Friendship",
+                "الصداقة",
+                "موضوع تعبير قصير",
+                "💛",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "True friendship is founded on mutual trust, kindness, and support during difficult and joyous times alike."
+            ),
+            w(
+                "Respecting Others",
+                "احترام الآخرين",
+                "موضوع تعبير قصير",
+                "🤝",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Listening attentively and speaking kindly demonstrates respect, creating harmonious relationships in society."
+            ),
+            w(
+                "Time Management",
+                "إدارة الوقت",
+                "موضوع تعبير قصير",
+                "⏳",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Planning tasks efficiently helps balance study, work, and relaxation, achieving productivity without stress."
+            ),
+            w(
+                "Self-Confidence",
+                "الثقة بالنفس",
+                "موضوع تعبير قصير",
+                "🌟",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Believing in your abilities and learning from mistakes builds resilience and empowers you to accomplish goals."
+            ),
+            w(
+                "Recycling",
+                "إعادة التدوير",
+                "موضوع تعبير قصير",
+                "♻️",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Recycling paper, glass, and plastic conserves natural resources, reduces landfill waste, and keeps the environment clean."
+            ),
+            w(
+                "Internet Safety",
+                "الأمان عبر الإنترنت",
+                "موضوع تعبير قصير",
+                "🔒",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Protecting personal information and using strong passwords ensures safe navigation in the digital world."
+            ),
+            w(
+                "Teamwork",
+                "العمل الجماعي",
+                "موضوع تعبير قصير",
+                "🤝",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Collaborating effectively combines diverse skills, making complex projects easier and more successful."
+            ),
+            w(
+                "Climate Change",
+                "تغير المناخ",
+                "موضوع تعبير قصير",
+                "🌦️",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Taking sustainable action against climate change protects communities and ecosystems worldwide."
+            ),
+            w(
+                "Reading Books",
+                "قراءة الكتب",
+                "موضوع تعبير قصير",
+                "📖",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Reading expands vocabulary, stimulates imagination, and deepens knowledge across diverse topics."
+            ),
+            w(
+                "Happiness",
+                "السعادة",
+                "موضوع تعبير قصير",
+                "😊",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "True happiness flourishes from meaningful relationships, gratitude, helping others, and inner peace."
+            ),
+            w(
+                "Protecting Nature",
+                "حماية الطبيعة",
+                "موضوع تعبير قصير",
+                "🌿",
+                "تعبير وبراجرافات (Passages)",
+                "فقرة",
+                "Preserving trees, clean air, and water resources guarantees a healthy and vibrant planet for all."
+            )
+        )
+    }
+
+    private fun generateDefaultExample(en: String, ar: String, cat: String): String {
+        val word = en.lowercase().trim()
+        return when {
+            cat == "مهن" -> "The $word helps people in their daily work."
+            cat == "مكتب" -> "Please keep the $word organized on the desk."
+            cat == "تفكير" -> "I always $word about the best solution."
+            cat == "حواس" -> "We can $word the world around us."
+            cat == "رياضة" -> "Playing $word keeps us active and healthy."
+            cat == "سفر" -> "The $word was scheduled for departure."
+            cat == "صحة" -> "Good habits lead to better $word."
+            cat == "طعام" || cat == "طبخ" -> "Fresh $word is good for your health."
+            cat == "صفات" -> "This task is very $word to understand."
+            cat == "أسئلة" -> "Can you tell me $word happened today?"
+            cat == "حركة" -> "Let's $word carefully together."
+            cat == "أماكن" || cat == "منزل" -> "We visited a beautiful $word yesterday."
+            cat == "طقس" -> "The $word today is very pleasant."
+            cat == "عبارات" || cat == "جمل" -> "\"$en\" is a useful expression in daily conversation."
+            cat == "أشخاص" || cat == "عائلة" -> "The $word is very kind and helpful."
+            cat == "مدرسة" -> "Students learn about $word in class."
+            cat == "سيارات" -> "The $word requires regular maintenance."
+            cat == "جسم" -> "Exercise keeps your $word strong."
+            cat == "طبيعة" -> "We observed the beautiful $word in nature."
+            cat == "ملابس" -> "He wore a comfortable $word today."
+            cat == "مشاعر" -> "She felt very $word after hearing the news."
+            cat == "شاطئ" -> "They brought a $word to the beach."
+            cat == "روتين" -> "Following a daily $word improves efficiency."
+            cat == "عمل" || cat == "اقتصاد" -> "Hard work leads to professional $word."
+            word.endsWith("s") -> "There are many ${word} in the student guide."
+            word.endsWith("ed") -> "They $word their lesson thoroughly."
+            word.endsWith("ing") -> "Learning and $word expands knowledge."
+            else -> "It is important to learn the word '$word' ($ar)."
+        }
+    }
+
+    private fun getPromptCsvWords(): List<DictionaryWordEntity> {
+        return listOf(
+            w("the", "الـ", "ذ", "🔹", "أدوات"),
+            w("be", "يكون", "بي", "✨", "أفعال"),
+            w("to", "إلى", "تو", "➡️", "حروف"),
+            w("of", "من", "أوف", "📍", "حروف"),
+            w("and", "و", "أند", "➕", "حروف"),
+            w("a", "أ", "ا", "🔹", "حروف"),
+            w("in", "في", "إن", "📍", "حروف"),
+            w("that", "ذلك", "ذات", "👉", "ضمائر"),
+            w("have", "يملك", "هاف", "🧠", "أفعال"),
+            w("I", "أنا", "آي", "👤", "ضمائر"),
+            w("it", "هو/هي (غير عاقل)", "إت", "🔹", "ضمائر"),
+            w("for", "لـ", "فور", "🎯", "حروف"),
+            w("not", "ليس", "نوت", "🚫", "نفي"),
+            w("on", "على", "أون", "⬆️", "حروف"),
+            w("with", "مع", "وِذ", "🤝", "حروف"),
+            w("he", "هو", "هي", "👨", "ضمائر"),
+            w("as", "مثل", "آز", "🔹", "حروف"),
+            w("you", "أنت", "يو", "👤", "ضمائر"),
+            w("do", "يفعل", "دو", "⚡", "أفعال"),
+            w("at", "في (مكان)", "أت", "📍", "حروف"),
+            w("this", "هذا", "ذِس", "👉", "ضمائر"),
+            w("but", "لكن", "بات", "🔄", "حروف"),
+            w("his", "له", "هيز", "👤", "ضمائر"),
+            w("by", "بواسطة", "باي", "✍️", "حروف"),
+            w("from", "من", "فروم", "➡️", "حروف"),
+            w("they", "هم", "دِي", "👥", "ضمائر"),
+            w("we", "نحن", "وي", "👥", "ضمائر"),
+            w("say", "يقول", "سَي", "💬", "أفعال"),
+            w("her", "لها", "هَر", "👩", "ضمائر"),
+            w("she", "هي", "شي", "👩", "ضمائر"),
+            w("or", "أو", "أور", "🔀", "حروف"),
+            w("an", "أ (قبل حرف علة)", "أن", "🔹", "حروف"),
+            w("will", "سـ (مستقبل)", "ويل", "⏳", "أفعال"),
+            w("my", "لي", "ماي", "🙋", "ضمائر"),
+            w("one", "واحد", "ون", "1️⃣", "أرقام"),
+            w("all", "كل", "أول", "♾️", "صفات"),
+            w("would", "سـ (شرط)", "وُود", "⏳", "أفعال"),
+            w("there", "هناك", "ذير", "📍", "ظروف"),
+            w("their", "لهم", "ذير", "👥", "ضمائر"),
+            w("what", "ماذا", "وات", "❓", "أسئلة"),
+            w("so", "لذلك", "سو", "🧠", "حروف"),
+            w("up", "فوق", "أب", "⬆️", "اتجاهات"),
+            w("out", "خارج", "آوت", "🚪", "اتجاهات"),
+            w("if", "إذا", "إف", "🔀", "حروف"),
+            w("about", "عن", "أباوت", "ℹ️", "حروف"),
+            w("who", "من", "هو", "❓", "أسئلة"),
+            w("get", "يحصل", "جت", "🤲", "أفعال"),
+            w("which", "الذي", "ويتش", "🔀", "ضمائر"),
+            w("go", "يذهب", "غو", "🚶", "أفعال"),
+            w("me", "أنا (مفعول)", "مي", "🙋", "ضمائر"),
+            w("when", "متى", "وين", "⏰", "أسئلة"),
+            w("make", "يفعل/يصنع", "ميك", "🛠️", "أفعال"),
+            w("can", "يستطيع", "كان", "💪", "أفعال"),
+            w("like", "يحب/مثل", "لايك", "❤️", "أفعال"),
+            w("time", "وقت", "تايم", "🕐", "عام"),
+            w("no", "لا", "نو", "🚫", "نفي"),
+            w("just", "فقط", "جاست", "🔹", "ظروف"),
+            w("him", "له (مفعول)", "هيم", "👤", "ضمائر"),
+            w("know", "يعرف", "نو", "🧠", "أفعال"),
+            w("take", "يأخذ", "تيك", "✋", "أفعال"),
+            w("people", "ناس", "بيبول", "👥", "أشخاص"),
+            w("into", "إلى داخل", "إن تو", "➡️", "حروف"),
+            w("year", "سنة", "يير", "📅", "وقت"),
+            w("your", "لك", "يور", "🙋", "ضمائر"),
+            w("good", "جيد", "جود", "👍", "صفات"),
+            w("some", "بعض", "سام", "🔹", "صفات"),
+            w("could", "استطاع", "كود", "💪", "أفعال"),
+            w("them", "هم (مفعول)", "ذيم", "👥", "ضمائر"),
+            w("see", "يرى", "سي", "👁️", "أفعال"),
+            w("other", "آخر", "أذر", "🔄", "صفات"),
+            w("than", "من (مقارنة)", "ذان", "⚖️", "حروف"),
+            w("then", "ثم", "ذين", "⏳", "ظروف"),
+            w("now", "الآن", "ناو", "🕐", "ظروف"),
+            w("look", "ينظر", "لوك", "👀", "أفعال"),
+            w("only", "فقط", "أونلي", "🔹", "ظروف"),
+            w("come", "يأتي", "كام", "🚶", "أفعال"),
+            w("its", "له (غير عاقل)", "إتس", "🔹", "ضمائر"),
+            w("over", "فوق", "أوفر", "⬆️", "حروف"),
+            w("think", "يفكر", "ثينك", "🧠", "أفعال"),
+            w("also", "أيضاً", "ألسو", "➕", "ظروف"),
+            w("back", "ظهر/خلف", "باك", "🔙", "أسماء"),
+            w("after", "بعد", "أفتر", "⏳", "حروف"),
+            w("use", "يستخدم", "يوز", "🛠️", "أفعال"),
+            w("two", "اثنان", "تو", "2️⃣", "أرقام"),
+            w("how", "كيف", "هاو", "❓", "أسئلة"),
+            w("our", "لنا", "آور", "👥", "ضمائر"),
+            w("work", "يعمل/عمل", "وُرك", "💼", "أفعال"),
+            w("first", "أول", "فيرست", "1️⃣", "صفات"),
+            w("well", "حسناً", "ويل", "👍", "ظروف"),
+            w("way", "طريق", "وي", "🛤️", "أسماء"),
+            w("even", "حتى", "إيفن", "➡️", "ظروف"),
+            w("new", "جديد", "نيو", "✨", "صفات"),
+            w("want", "يريد", "وُنت", "🤔", "أفعال"),
+            w("because", "لأن", "بيكوز", "🔀", "حروف"),
+            w("any", "أي", "إني", "❓", "صفات"),
+            w("these", "هؤلاء", "ذيز", "👥", "ضمائر"),
+            w("give", "يعطي", "قيف", "🎁", "أفعال"),
+            w("day", "يوم", "دي", "☀️", "وقت"),
+            w("most", "معظم", "موست", "♾️", "صفات"),
+            w("us", "نحن (مفعول)", "آس", "👥", "ضمائر"),
+            w("find", "يجد", "فايند", "🔍", "أفعال"),
+            w("things", "أشياء", "ثينجز", "📦", "أسماء"),
+            w("many", "كثير", "ماني", "🔢", "صفات"),
+            w("world", "عالم", "وُورلد", "🌍", "أماكن"),
+            w("life", "حياة", "لايف", "🌱", "عام"),
+            w("great", "عظيم", "قريت", "🏆", "صفات"),
+            w("own", "ملك", "أون", "🔑", "صفات"),
+            w("same", "نفسه", "سيم", "🔄", "صفات"),
+            w("little", "صغير", "ليتل", "🐣", "صفات"),
+            w("different", "مختلف", "ديفرنت", "🔄", "صفات"),
+            w("important", "مهم", "إمبورتنت", "⭐", "صفات"),
+            w("high", "عالي", "هاي", "⬆️", "صفات"),
+            w("old", "قديم", "أولد", "🏛️", "صفات"),
+            w("small", "صغير", "سمول", "🔹", "صفات"),
+            w("large", "كبير", "لارج", "🔹", "صفات"),
+            w("long", "طويل", "لونج", "📏", "صفات"),
+            w("short", "قصير", "شورت", "📏", "صفات"),
+            w("young", "شاب", "يانج", "🧑", "صفات"),
+            w("big", "كبير", "بيج", "🔹", "صفات"),
+            w("real", "حقيقي", "ريل", "🔹", "صفات"),
+            w("right", "يمين/صحيح", "رايت", "👉", "صفات"),
+            w("left", "يسار", "ليفت", "👈", "صفات"),
+            w("white", "أبيض", "وايت", "⚪", "ألوان"),
+            w("black", "أسود", "بلاك", "⚫", "ألوان"),
+            w("red", "أحمر", "ريد", "🔴", "ألوان"),
+            w("blue", "أزرق", "بلو", "🔵", "ألوان"),
+            w("green", "أخضر", "جرين", "🟢", "ألوان"),
+            w("yellow", "أصفر", "يلو", "🟡", "ألوان"),
+            w("happy", "سعيد", "هابي", "😊", "مشاعر"),
+            w("sad", "حزين", "ساد", "😢", "مشاعر"),
+            w("angry", "غاضب", "أنغري", "😡", "مشاعر"),
+            w("tired", "متعب", "تايرد", "😴", "مشاعر"),
+            w("hungry", "جائع", "هنغري", "🍽️", "مشاعر"),
+            w("thirsty", "عطشان", "ثيرستي", "🥤", "مشاعر"),
+            w("scared", "خائف", "سكايرد", "😨", "مشاعر"),
+            w("excited", "متحمس", "إكسايتد", "🤩", "مشاعر"),
+            w("bored", "ضجر", "بورد", "😑", "مشاعر"),
+            w("confused", "حائر", "كنفيوزد", "😕", "مشاعر"),
+            w("love", "حب", "لوف", "❤️", "مشاعر"),
+            w("hate", "كراهية", "هيت", "💢", "مشاعر"),
+            w("hope", "أمل", "هوب", "🌟", "مشاعر"),
+            w("fear", "خوف", "فير", "😰", "مشاعر"),
+            w("joy", "فرح", "جوي", "🎉", "مشاعر"),
+            w("peace", "سلام", "بيس", "🕊️", "مشاعر"),
+            w("war", "حرب", "وور", "⚔️", "عام"),
+            w("power", "قوة", "باور", "💪", "عام"),
+            w("money", "مال", "ماني", "💰", "اقتصاد"),
+            w("health", "صحة", "هيلث", "🏥", "صحة"),
+            w("family", "عائلة", "فاملي", "👨‍👩‍👧", "أشخاص"),
+            w("house", "منزل", "هاوس", "🏠", "منزل"),
+            w("home", "بيت", "هوم", "🏡", "منزل"),
+            w("city", "مدينة", "سيتي", "🏙️", "أماكن"),
+            w("town", "بلدة", "تاون", "🏘️", "أماكن"),
+            w("village", "قرية", "فيليدج", "🏡", "أماكن"),
+            w("country", "بلد", "كانتري", "🇪🇬", "أماكن"),
+            w("earth", "أرض", "إيرث", "🌎", "طبيعة"),
+            w("water", "ماء", "ووتر", "💧", "طبيعة"),
+            w("fire", "نار", "فاير", "🔥", "طبيعة"),
+            w("air", "هواء", "إير", "🌬️", "طبيعة"),
+            w("land", "أرض", "لاند", "🏞️", "طبيعة"),
+            w("sea", "بحر", "سي", "🌊", "طبيعة"),
+            w("mountain", "جبل", "ماونتن", "🏔️", "طبيعة"),
+            w("river", "نهر", "ريفير", "🌊", "طبيعة"),
+            w("ocean", "محيط", "أوشن", "🌊", "طبيعة"),
+            w("forest", "غابة", "فورست", "🌲", "طبيعة"),
+            w("tree", "شجرة", "تري", "🌳", "طبيعة"),
+            w("flower", "زهرة", "فلاور", "🌸", "طبيعة"),
+            w("grass", "عشب", "جراس", "🌿", "طبيعة"),
+            w("animal", "حيوان", "أنيمال", "🐾", "طبيعة"),
+            w("bird", "طائر", "بيرد", "🐦", "طبيعة"),
+            w("fish", "سمك", "فيش", "🐟", "طبيعة"),
+            w("cat", "قطة", "كات", "🐱", "حيوانات"),
+            w("dog", "كلب", "دوغ", "🐶", "حيوانات"),
+            w("horse", "حصان", "هورس", "🐴", "حيوانات"),
+            w("cow", "بقرة", "كاو", "🐄", "حيوانات"),
+            w("sheep", "خروف", "شيب", "🐑", "حيوانات"),
+            w("pig", "خنزير", "بيغ", "🐷", "حيوانات"),
+            w("chicken", "دجاجة", "تشيكن", "🐔", "حيوانات"),
+            w("duck", "بطة", "دك", "🦆", "حيوانات"),
+            w("lion", "أسد", "لايون", "🦁", "حيوانات"),
+            w("tiger", "نمر", "تايجير", "🐯", "حيوانات"),
+            w("elephant", "فيل", "إليفنت", "🐘", "حيوانات"),
+            w("bear", "دب", "بير", "🐻", "حيوانات"),
+            w("monkey", "قرد", "مانكي", "🐒", "حيوانات"),
+            w("rabbit", "أرنب", "رابيت", "🐰", "حيوانات"),
+            w("food", "طعام", "فود", "🍔", "طعام"),
+            w("fruit", "فاكهة", "فروت", "🍎", "طعام"),
+            w("vegetable", "خضار", "فيجتابل", "🥦", "طعام"),
+            w("bread", "خبز", "بريد", "🍞", "طعام"),
+            w("rice", "رز", "رايس", "🍚", "طعام"),
+            w("meat", "لحم", "ميت", "🥩", "طعام"),
+            w("milk", "حليب", "ميلك", "🥛", "مشروبات"),
+            w("tea", "شاي", "تي", "🍵", "مشروبات"),
+            w("coffee", "قهوة", "كوفي", "☕", "مشروبات"),
+            w("juice", "عصير", "جوس", "🧃", "مشروبات"),
+            w("wine", "نبيذ", "واين", "🍷", "مشروبات"),
+            w("beer", "بيرة", "بير", "🍺", "مشروبات"),
+            w("school", "مدرسة", "سكول", "🏫", "أماكن"),
+            w("university", "جامعة", "يونيفرسيتي", "🎓", "أماكن"),
+            w("college", "كلية", "كوليج", "🏛️", "أماكن"),
+            w("student", "طالب", "ستودنت", "🧑‍🎓", "أشخاص"),
+            w("teacher", "مدرس", "تيتشر", "👨‍🏫", "مهن"),
+            w("doctor", "طبيب", "دوكتر", "🩺", "مهن"),
+            w("engineer", "مهندس", "إنجنير", "👷", "مهن"),
+            w("driver", "سائق", "درايفر", "🚗", "مهن"),
+            w("farmer", "مزارع", "فارمر", "👨‍🌾", "مهن"),
+            w("chef", "طباخ", "شيف", "👨‍🍳", "مهن"),
+            w("police", "شرطي", "بوليس", "👮", "مهن"),
+            w("soldier", "جندي", "سولجر", "🪖", "مهن"),
+            w("artist", "فنان", "أرتست", "🎨", "مهن"),
+            w("writer", "كاتب", "رايتير", "🖋️", "مهن"),
+            w("reader", "قارئ", "ريدر", "📖", "مهن"),
+            w("worker", "عامل", "ووركر", "🔧", "مهن"),
+            w("friend", "صديق", "فريند", "🤝", "أشخاص"),
+            w("enemy", "عدو", "إينيمي", "👿", "أشخاص"),
+            w("baby", "طفل", "بيبي", "👶", "أشخاص"),
+            w("boy", "ولد", "بوي", "👦", "أشخاص"),
+            w("girl", "بنت", "جيرل", "👧", "أشخاص"),
+            w("man", "رجل", "مان", "👨", "أشخاص"),
+            w("woman", "امرأة", "وومن", "👩", "أشخاص"),
+            w("child", "طفل", "تشايلد", "🧒", "أشخاص"),
+            w("son", "ابن", "سان", "🧑‍🍼", "عائلة"),
+            w("daughter", "ابنة", "دوتر", "👧", "عائلة"),
+            w("father", "أب", "فاذر", "👨", "عائلة"),
+            w("mother", "أم", "ماذر", "👩", "عائلة"),
+            w("brother", "أخ", "براذر", "👦", "عائلة"),
+            w("sister", "أخت", "سيستر", "👧", "عائلة"),
+            w("cousin", "ابن عم", "كازن", "👨‍👦", "عائلة"),
+            w("uncle", "عم", "أنكل", "👨", "عائلة"),
+            w("aunt", "عمة", "آنت", "👩", "عائلة"),
+            w("grandfather", "جد", "جراند فاذر", "👴", "عائلة"),
+            w("grandmother", "جدة", "جراند ماذر", "👵", "عائلة"),
+            w("sky", "سماء", "سكاي", "🌌", "طبيعة"),
+            w("sun", "شمس", "سان", "☀️", "طبيعة"),
+            w("moon", "قمر", "مون", "🌙", "طبيعة"),
+            w("star", "نجم", "ستار", "⭐", "طبيعة"),
+            w("rain", "مطر", "رين", "🌧️", "طقس"),
+            w("snow", "ثلج", "سنو", "❄️", "طقس"),
+            w("wind", "رياح", "ويند", "🌬️", "طقس"),
+            w("cloud", "سحاب", "كلاود", "☁️", "طقس"),
+            w("storm", "عاصفة", "ستورم", "🌩️", "طقس"),
+            w("fog", "ضباب", "فوج", "🌫️", "طقس"),
+            w("hot", "حار", "هوت", "🔥", "طقس"),
+            w("cold", "بارد", "كولد", "🥶", "طقس"),
+            w("warm", "دافئ", "وورم", "☀️", "طقس"),
+            w("cool", "معتدل", "كول", "😎", "طقس"),
+            w("rainy", "ممطر", "ريني", "🌧️", "طقس"),
+            w("sunny", "مشمس", "صني", "☀️", "طقس"),
+            w("cloudy", "غائم", "كلاودي", "☁️", "طقس"),
+            w("windy", "عاصف", "ووندي", "🌬️", "طقس"),
+            w("room", "غرفة", "روم", "🛏️", "منزل"),
+            w("door", "باب", "دور", "🚪", "منزل"),
+            w("window", "نافذة", "ويندو", "🪟", "منزل"),
+            w("wall", "حائط", "وول", "🧱", "منزل"),
+            w("floor", "أرضية", "فلور", "🪠", "منزل"),
+            w("roof", "سطح", "روف", "🏠", "منزل"),
+            w("kitchen", "مطبخ", "كيتشن", "🍳", "منزل"),
+            w("bathroom", "حمام", "باثروم", "🛁", "منزل"),
+            w("bedroom", "غرفة نوم", "بيدروم", "🛏️", "منزل"),
+            w("garden", "حديقة", "جار دن", "🌳", "منزل"),
+            w("garage", "جراج", "جراج", "🚗", "منزل"),
+            w("table", "طاولة", "تيبل", "🪑", "أثاث"),
+            w("chair", "كرسي", "تشير", "🪑", "أثاث"),
+            w("bed", "سرير", "بد", "🛏️", "أثاث"),
+            w("sofa", "كنبة", "سوفا", "🛋️", "أثاث"),
+            w("desk", "مكتب", "ديسك", "🖥️", "أثاث"),
+            w("book", "كتاب", "بوك", "📖", "أدوات"),
+            w("pen", "قلم", "بين", "🖊️", "أدوات"),
+            w("pencil", "قلم رصاص", "بينسل", "✏️", "أدوات"),
+            w("paper", "ورقة", "بيبر", "📄", "أدوات"),
+            w("phone", "هاتف", "فون", "📱", "أدوات"),
+            w("computer", "كمبيوتر", "كمبيوتر", "💻", "أدوات"),
+            w("tv", "تلفاز", "تي في", "📺", "أدوات"),
+            w("radio", "راديو", "راديو", "📻", "أدوات"),
+            w("clock", "ساعة", "كلوك", "🕐", "أدوات"),
+            w("watch", "ساعة يد", "ووتش", "⌚", "أدوات"),
+            w("key", "مفتاح", "كي", "🔑", "أدوات"),
+            w("car", "سيارة", "كار", "🚗", "وسائل"),
+            w("bus", "حافلة", "باص", "🚌", "وسائل"),
+            w("train", "قطار", "ترين", "🚆", "وسائل"),
+            w("plane", "طائرة", "بلين", "✈️", "وسائل"),
+            w("ship", "سفينة", "شيب", "🚢", "وسائل"),
+            w("bike", "دراجة", "بايك", "🚲", "وسائل"),
+            w("taxi", "تاكسي", "تاكسي", "🚕", "وسائل"),
+            w("street", "شارع", "ستريت", "🛣️", "أماكن"),
+            w("road", "طريق", "رود", "🛤️", "أماكن"),
+            w("park", "حديقة (عامة)", "بارك", "🌳", "أماكن"),
+            w("shop", "متجر", "شوب", "🛒", "أماكن"),
+            w("market", "سوق", "ماركت", "🏪", "أماكن"),
+            w("hotel", "فندق", "هوتيل", "🏨", "أماكن"),
+            w("hospital", "مستشفى", "هوسبيتال", "🏥", "أماكن"),
+            w("bank", "بنك", "بانك", "🏦", "أماكن"),
+            w("restaurant", "مطعم", "ريستورانت", "🍽️", "أماكن"),
+            w("cafe", "مقهى", "كافيه", "☕", "أماكن"),
+            w("run", "يركض", "ران", "🏃", "أفعال"),
+            w("walk", "يمشي", "ووك", "🚶", "أفعال"),
+            w("eat", "يأكل", "إيت", "🍽️", "أفعال"),
+            w("drink", "يشرب", "درينك", "🥤", "أفعال"),
+            w("sleep", "ينام", "سليب", "😴", "أفعال"),
+            w("wake", "يستيقظ", "ويك", "🌅", "أفعال"),
+            w("stand", "يقف", "ستان د", "🧍", "أفعال"),
+            w("sit", "يجلس", "سيت", "🪑", "أفعال"),
+            w("read", "يقرأ", "ريد", "📖", "أفعال"),
+            w("write", "يكتب", "رايت", "✍️", "أفعال"),
+            w("learn", "يتعلم", "ليرن", "📚", "أفعال"),
+            w("teach", "يعلم", "تيتش", "👨‍🏫", "أفعال"),
+            w("play", "يلعب", "بلاي", "⚽", "أفعال"),
+            w("win", "يفوز", "وين", "🏆", "أفعال"),
+            w("lose", "يخسر", "لوز", "😞", "أفعال"),
+            w("try", "يحاول", "تراي", "🤞", "أفعال"),
+            w("need", "يحتاج", "نيد", "🆘", "أفعال"),
+            w("ask", "يسأل", "آسك", "❓", "أفعال"),
+            w("answer", "يجيب", "آن سير", "🙋", "أفعال"),
+            w("live", "يعيش", "ليف", "🏠", "أفعال"),
+            w("die", "يموت", "داي", "💀", "أفعال"),
+            w("stay", "يبقى", "ستاي", "📍", "أفعال"),
+            w("travel", "يسافر", "ترافل", "🧳", "أفعال"),
+            w("fly", "يطير", "فلاي", "✈️", "أفعال"),
+            w("swim", "يسبح", "سويم", "🏊", "أفعال"),
+            w("climb", "يتسلق", "كلايم", "🧗", "أفعال"),
+            w("jump", "يقفز", "جامب", "🤸", "أفعال"),
+            w("cook", "يطبخ", "كوك", "👩‍🍳", "أفعال"),
+            w("cut", "يقطع", "كات", "🔪", "أفعال"),
+            w("mix", "يخلط", "مكس", "🥣", "أفعال"),
+            w("clean", "ينظف", "كلين", "🧹", "أفعال"),
+            w("wash", "يغسل", "ووش", "🧼", "أفعال"),
+            w("wear", "يلبس", "وير", "👕", "أفعال"),
+            w("buy", "يشتري", "باي", "🛍️", "أفعال"),
+            w("sell", "يبيع", "سيل", "🏷️", "أفعال"),
+            w("build", "يبني", "بيلد", "🏗️", "أفعال"),
+            w("break", "يكسر", "بريك", "💔", "أفعال"),
+            w("fix", "يصلح", "فيكس", "🔧", "أفعال"),
+            w("open", "يفتح", "أوبن", "🔓", "أفعال"),
+            w("close", "يغلق", "كلوز", "🔒", "أفعال"),
+            w("start", "يبدأ", "ستارت", "▶️", "أفعال"),
+            w("finish", "ينهي", "فينيش", "🏁", "أفعال"),
+            w("help", "يساعد", "هيلب", "🤝", "أفعال"),
+            w("believe", "يصدق", "بيليف", "🤨", "أفعال"),
+            w("remember", "يتذكر", "ري ميمبر", "🧠", "أفعال"),
+            w("forget", "ينسى", "فورجت", "😵", "أفعال"),
+            w("plan", "يخطط", "بلان", "📝", "أفعال"),
+            w("change", "يغير", "تشينج", "🔄", "أفعال"),
+            w("choose", "يختار", "تشوز", "✔️", "أفعال"),
+            w("decide", "يقرر", "ديسايد", "⚖️", "أفعال"),
+            w("appear", "يظهر", "أبير", "👀", "أفعال"),
+            w("disappear", "يختفي", "ديسابير", "🌫️", "أفعال"),
+            w("move", "يتحرك", "موف", "🔄", "أفعال"),
+            w("stop", "يتوقف", "ستوب", "🛑", "أفعال"),
+            w("wait", "ينتظر", "ويت", "⏳", "أفعال"),
+            w("agree", "يوافق", "أجري", "🤝", "أفعال"),
+            w("refuse", "يرفض", "رفيوز", "🙅", "أفعال"),
+            w("smile", "يبتسم", "سمايل", "😊", "أفعال"),
+            w("cry", "يبكي", "كراي", "😢", "أفعال"),
+            w("laugh", "يضحك", "لاف", "😂", "أفعال"),
+            w("talk", "يتكلم", "توك", "💬", "أفعال"),
+            w("speak", "يتحدث", "سبيك", "🗣️", "أفعال"),
+            w("shout", "يصرخ", "شاوت", "📢", "أفعال"),
+            w("whisper", "يهمس", "ويسبر", "🤫", "أفعال"),
+            w("tell", "يخبر", "تيل", "📢", "أفعال"),
+            w("begin", "يبدأ", "بيجين", "▶️", "أفعال"),
+            w("end", "ينتهي", "إند", "🏁", "أفعال"),
+            w("arrive", "يصل", "أرايف", "📍", "أفعال"),
+            w("leave", "يغادر", "ليف", "🚪", "أفعال"),
+            w("accept", "يقبل", "أكسيبت", "✅", "أفعال"),
+            w("thank", "يشكر", "ثانك", "🙏", "أفعال"),
+            w("apologize", "يعتذر", "أبولجايز", "😔", "أفعال"),
+            w("care", "يهتم", "كير", "❤️", "أفعال"),
+            w("enjoy", "يستمتع", "إنجوي", "😍", "أفعال"),
+            w("wish", "يتمنى", "ويش", "✨", "أفعال"),
+            w("pray", "يصلي", "بري", "🛐", "أفعال"),
+            w("practice", "يمارس", "براكتيس", "🏋️", "أفعال"),
+            w("exercise", "يتدرب", "إكسيرسايز", "🏃", "أفعال"),
+            w("rest", "يستريح", "ريست", "😴", "أفعال"),
+            w("join", "ينضم", "جوين", "🤝", "أفعال"),
+            w("visit", "يزور", "فيزيت", "🏠", "أفعال"),
+            w("call", "يتصل", "كول", "📞", "أفعال"),
+            w("send", "يرسل", "سند", "📤", "أفعال"),
+            w("receive", "يستلم", "ريسيف", "📥", "أفعال"),
+            w("bring", "يجلب", "برينج", "📥", "أفعال"),
+            w("hold", "يمسك", "هولد", "✋", "أفعال"),
+            w("throw", "يرمي", "ثرو", "🎯", "أفعال"),
+            w("catch", "يمسك", "كاتش", "🧤", "أفعال"),
+            w("meet", "يقابل", "ميت", "🤝", "أفعال"),
+            w("head", "رأس", "هيد", "🧠", "جسم"),
+            w("eye", "عين", "آي", "👁️", "جسم"),
+            w("ear", "أذن", "إير", "👂", "جسم"),
+            w("nose", "أنف", "نوز", "👃", "جسم"),
+            w("mouth", "فم", "ماوث", "👄", "جسم"),
+            w("hand", "يد", "هاند", "✋", "جسم"),
+            w("foot", "قدم", "فوت", "🦶", "جسم"),
+            w("leg", "ساق", "ليج", "🦵", "جسم"),
+            w("arm", "ذراع", "آرم", "💪", "جسم"),
+            w("toe", "إصبع قدم", "تو", "🦶", "جسم"),
+            w("heart", "قلب", "هارت", "❤️", "جسم"),
+            w("blood", "دم", "بلاد", "🩸", "جسم"),
+            w("bone", "عظم", "بون", "🦴", "جسم"),
+            w("skin", "جلد", "سكين", "🧴", "جسم"),
+            w("never", "أبداً", "نيفر", "🚫", "ظروف"),
+            w("soon", "قريباً", "سون", "⏳", "ظروف"),
+            w("late", "متأخر", "ليت", "⏰", "ظروف"),
+            w("early", "مبكر", "إيرلي", "⏰", "ظروف"),
+            w("here", "هنا", "هير", "📍", "ظروف"),
+            w("under", "تحت", "أندر", "⬇️", "ظروف"),
+            w("again", "مرة أخرى", "أجين", "🔄", "ظروف"),
+            w("too", "أيضاً/جداً", "تو", "➕", "ظروف"),
+            w("very", "جداً", "فيري", "🔥", "ظروف"),
+            w("completely", "تماماً", "كمبليتلي", "✅", "ظروف"),
+            w("really", "حقاً", "ريللي", "🔹", "ظروف"),
+            w("suddenly", "فجأة", "سادينلي", "😲", "ظروف"),
+            w("slowly", "ببطء", "سلو لي", "🐢", "ظروف"),
+            w("carefully", "بحذر", "كيرفولي", "⚠️", "ظروف"),
+            w("hardly", "بالكاد", "هاردلي", "😰", "ظروف"),
+            w("enough", "كافٍ", "إيناف", "✅", "ظروف"),
+            w("almost", "تقريباً", "ألموست", "📏", "ظروف"),
+            w("already", "بالفعل", "ألريدي", "✅", "ظروف"),
+            w("still", "لا يزال", "ستيل", "⏳", "ظروف"),
+            w("unless", "إلا إذا", "أنليس", "🔀", "حروف"),
+            w("although", "رغم أن", "أولذو", "🔀", "حروف"),
+            w("since", "منذ", "سينس", "⏳", "حروف"),
+            w("until", "حتى", "أنتيل", "⏳", "حروف"),
+            w("while", "بينما", "وايل", "🔀", "حروف"),
+            w("during", "أثناء", "ديورنغ", "⏳", "حروف"),
+            w("against", "ضد", "أجينست", "⚔️", "حروف"),
+            w("around", "حول", "أراوند", "🔄", "حروف"),
+            w("before", "قبل", "بيفور", "⏳", "حروف"),
+            w("behind", "خلف", "بيهاند", "🔙", "حروف"),
+            w("below", "أسفل", "بيلو", "⬇️", "حروف"),
+            w("beside", "بجانب", "بيسايد", "📍", "حروف"),
+            w("besides", "بالإضافة", "بيسايدز", "➕", "حروف"),
+            w("between", "بين", "بيتوين", "↔️", "حروف"),
+            w("beyond", "ما وراء", "بيوند", "➡️", "حروف"),
+            w("despite", "رغم", "ديسپايت", "😤", "حروف"),
+            w("except", "باستثناء", "إكسيبت", "🚫", "حروف"),
+            w("onto", "على (حركة)", "أونتو", "⬆️", "حروف"),
+            w("opposite", "مقابل", "أوبوزيت", "🔄", "حروف"),
+            w("through", "خلال", "ثرو", "➡️", "حروف"),
+            w("throughout", "طوال", "ثرو آوت", "♾️", "حروف"),
+            w("toward", "نحو", "توورد", "➡️", "حروف"),
+            w("upon", "على", "أپون", "⬆️", "حروف"),
+            w("within", "في غضون", "ويذ إن", "🕐", "حروف"),
+            w("whether", "سواء", "ويذر", "🔀", "حروف"),
+            w("indeed", "حقاً", "إنديد", "👍", "ظروف"),
+            w("truth", "حقيقة", "تروث", "✅", "أسماء"),
+            w("fact", "حقيقة", "فاكت", "📝", "أسماء"),
+            w("opinion", "رأي", "أوبنيون", "💬", "أسماء"),
+            w("idea", "فكرة", "آيديا", "💡", "أسماء"),
+            w("thought", "فكر", "ثوت", "🧠", "أسماء"),
+            w("result", "نتيجة", "ريزلت", "🎯", "أسماء"),
+            w("reason", "سبب", "ريزون", "🔀", "أسماء"),
+            w("action", "فعل", "أكشن", "🎬", "أسماء"),
+            w("activity", "نشاط", "أكتيفيتي", "🏃", "أسماء"),
+            w("experience", "خبرة", "إكسبيرينس", "💼", "أسماء"),
+            w("knowledge", "معرفة", "نوليدج", "🧠", "أسماء"),
+            w("strength", "قوة", "سترينغث", "💪", "أسماء"),
+            w("courage", "شجاعة", "كوريدج", "🦁", "أسماء"),
+            w("freedom", "حرية", "فريدوم", "🗽", "أسماء"),
+            w("faith", "إيمان", "فيث", "🛐", "أسماء"),
+            w("state", "دولة", "ستيت", "🏛️", "أسماء"),
+            w("government", "حكومة", "غافرنمينت", "🏛️", "أسماء"),
+            w("rule", "قاعدة", "رول", "📏", "أسماء"),
+            w("order", "نظام", "أوردر", "🔢", "أسماء"),
+            w("justice", "عدالة", "جاستيس", "⚖️", "أسماء"),
+            w("advice", "نصيحة", "أدفايس", "💡", "أسماء"),
+            w("support", "دعم", "سابورت", "🤝", "أسماء"),
+            w("wealth", "ثراء", "ويلث", "💰", "أسماء"),
+            w("happiness", "سعادة", "هابنيس", "😊", "أسماء"),
+            w("sadness", "حزن", "سادنس", "😢", "أسماء"),
+            w("anger", "غضب", "أنغر", "😡", "أسماء"),
+            w("success", "نجاح", "ساكسيس", "🏆", "أسماء"),
+            w("failure", "فشل", "فيلير", "😞", "أسماء"),
+            w("chance", "فرصة", "تشانس", "🎲", "أسماء"),
+            w("solution", "حل", "سولوشن", "✅", "أسماء"),
+            w("difference", "اختلاف", "ديفرينس", "🔄", "أسماء"),
+            w("importance", "أهمية", "إمبورتنس", "⭐", "أسماء"),
+            w("possibility", "احتمال", "بوسيبيليتي", "🎲", "أسماء"),
+            w("reality", "واقع", "رياليتي", "🔹", "أسماء"),
+            w("detail", "تفصيل", "ديتيل", "🔍", "أسماء"),
+            w("report", "تقرير", "ريبورت", "📄", "أسماء"),
+            w("education", "تعليم", "إديوكيشن", "🎓", "أسماء"),
+            w("science", "علم", "ساينس", "🔬", "أسماء"),
+            w("art", "فن", "آرت", "🎨", "أسماء"),
+            w("music", "موسيقى", "ميوزيك", "🎵", "أسماء"),
+            w("song", "أغنية", "سونغ", "🎶", "أسماء"),
+            w("movie", "فيلم", "موفي", "🎬", "أسماء"),
+            w("letter", "رسالة", "ليتر", "✉️", "أسماء"),
+            w("word", "كلمة", "وورد", "🔤", "أسماء"),
+            w("language", "لغة", "لانجويدج", "🗣️", "أسماء"),
+            w("history", "تاريخ", "هيستوري", "📜", "أسماء"),
+            w("culture", "ثقافة", "كالشر", "🌍", "أسماء"),
+            w("tradition", "تقاليد", "تراديشن", "🎎", "أسماء"),
+            w("habit", "عادة", "هابيت", "🔁", "أسماء"),
+            w("relationship", "علاقة", "ريلاشنشيب", "🤝", "أسماء"),
+            w("friendship", "صداقة", "فريندشيب", "🤝", "أسماء"),
+            w("marriage", "زواج", "ماريج", "💍", "أسماء"),
+            w("children", "أطفال", "تشيلدرن", "🧒", "أسماء"),
+            w("person", "شخص", "بيرسن", "👤", "أسماء"),
+            w("name", "اسم", "نيم", "🏷️", "أسماء"),
+            w("profession", "مهنة", "بروفشن", "🩺", "أسماء"),
+            w("career", "مسيرة مهنية", "كيرير", "💼", "أسماء"),
+            w("business", "عمل/تجارة", "بيزنيس", "🏢", "أسماء"),
+            w("cash", "نقد", "كاش", "💵", "اقتصاد"),
+            w("coin", "عملة معدنية", "كوين", "🪙", "اقتصاد"),
+            w("bill", "فاتورة", "بيل", "🧾", "اقتصاد"),
+            w("debt", "دين", "ديت", "💸", "اقتصاد"),
+            w("loan", "قرض", "لون", "🏦", "اقتصاد"),
+            w("interest", "فائدة", "إنترست", "📈", "اقتصاد"),
+            w("investment", "استثمار", "إنفستمينت", "📈", "اقتصاد"),
+            w("profit", "ربح", "بروفيت", "📈", "اقتصاد"),
+            w("tax", "ضريبة", "تاكس", "🧾", "اقتصاد"),
+            w("salary", "راتب", "سالاري", "💰", "اقتصاد"),
+            w("factory", "مصنع", "فاكتوري", "🏭", "اقتصاد"),
+            w("trade", "تجارة", "تريد", "🤝", "اقتصاد"),
+            w("sales", "مبيعات", "سيلز", "🏷️", "اقتصاد"),
+            w("service", "خدمة", "سيرفيس", "🛎️", "اقتصاد"),
+            w("product", "منتج", "برودكت", "📦", "اقتصاد"),
+            w("brain", "مخ", "برين", "🧠", "جسم"),
+            w("memory", "ذاكرة", "ميموري", "🧠", "أفكار"),
+            w("imagination", "خيال", "إيماجينيشين", "🌈", "أفكار"),
+            w("dream", "حلم", "دريم", "💭", "أفكار"),
+            w("goal", "هدف", "جول", "🎯", "أفكار"),
+            w("target", "هدف", "تارجت", "🎯", "أفكار"),
+            w("aim", "هدف", "إيم", "🎯", "أفكار"),
+            w("direction", "اتجاه", "دايركشن", "🧭", "أفكار"),
+            w("challenge", "تحدي", "تشالينج", "🏆", "أفكار"),
+            w("difficulty", "صعوبة", "ديفيكلتي", "😤", "أفكار"),
+            w("danger", "خطر", "دينجر", "⚠️", "أفكار"),
+            w("security", "أمن", "سكيوريتي", "🔒", "أفكار"),
+            w("apple", "تفاح", "أبل", "🍎", "فاكهة"),
+            w("banana", "موز", "بنانا", "🍌", "فاكهة"),
+            w("orange", "برتقال", "أورينج", "🍊", "فاكهة"),
+            w("grape", "عنب", "جريب", "🍇", "فاكهة"),
+            w("strawberry", "فراولة", "ستروبيري", "🍓", "فاكهة"),
+            w("watermelon", "بطيخ", "ووترميلون", "🍉", "فاكهة"),
+            w("lemon", "ليمون", "ليمون", "🍋", "فاكهة"),
+            w("mango", "مانجو", "مانجو", "🥭", "فاكهة"),
+            w("carrot", "جزر", "كاروت", "🥕", "خضار"),
+            w("potato", "بطاطس", "بوتيتو", "🥔", "خضار"),
+            w("tomato", "طماطم", "توماتو", "🍅", "خضار"),
+            w("onion", "بصل", "أونيون", "🧅", "خضار"),
+            w("garlic", "ثوم", "جارليك", "🧄", "خضار"),
+            w("pepper", "فلفل", "بيبر", "🌶️", "خضار"),
+            w("cucumber", "خيار", "كيوكامبر", "🥒", "خضار"),
+            w("lettuce", "خس", "ليتس", "🥬", "خضار"),
+            w("corn", "ذرة", "كورن", "🌽", "خضار"),
+            w("burger", "برجر", "برجر", "🍔", "طعام"),
+            w("fries", "بطاطس مقلية", "فرايز", "🍟", "طعام"),
+            w("sandwich", "ساندويتش", "ساندويتش", "🥪", "طعام"),
+            w("soda", "صودا", "سودا", "🥤", "مشروبات"),
+            w("ice cream", "آيس كريم", "آيس كريم", "🍦", "طعام"),
+            w("chocolate", "شوكولاتة", "تشوكليت", "🍫", "طعام"),
+            w("candy", "حلوى", "كاندي", "🍬", "طعام"),
+            w("cookie", "بسكويت", "كوكي", "🍪", "طعام"),
+            w("egg", "بيض", "إيغ", "🥚", "طعام"),
+            w("flour", "دقيق", "فلور", "🌾", "طعام"),
+            w("beans", "فول", "بينز", "🫘", "طعام"),
+            w("nuts", "مكسرات", "ناتس", "🥜", "طعام"),
+            w("olive", "زيتون", "أوليف", "🫒", "طعام"),
+            w("spice", "توابل", "سبايس", "🌶️", "طعام"),
+            w("soft drink", "مشروب غازي", "سوفت درينك", "🥤", "مشروبات"),
+            w("dress", "فستان", "دريس", "👗", "ملابس"),
+            w("skirt", "تنورة", "سكيرت", "👗", "ملابس"),
+            w("gloves", "قفازات", "غلوفز", "🧤", "ملابس"),
+            w("scarf", "وشاح", "سكارف", "🧣", "ملابس"),
+            w("belt", "حزام", "بيلت", "🧶", "ملابس"),
+            w("tie", "ربطة عنق", "تاي", "👔", "ملابس"),
+            w("jacket", "جاكيت", "جاكيت", "🧥", "ملابس"),
+            w("suit", "بدلة", "سوت", "👔", "ملابس"),
+            w("shorts", "شورت", "شورت", "🩳", "ملابس"),
+            w("swimsuit", "مايوه", "سويمسوت", "🩱", "ملابس"),
+            w("ring", "خاتم", "رينغ", "💍", "إكسسوارات"),
+            w("necklace", "قلادة", "نيكليس", "📿", "إكسسوارات"),
+            w("wallet", "محفظة", "ووليت", "👛", "إكسسوارات")
+        )
+    }
+
+    private fun w(
+        en: String,
+        ar: String,
+        pron: String,
+        emoji: String,
+        cat: String,
+        part: String = "",
+        example: String = ""
+    ): DictionaryWordEntity {
+        val finalExample = if (example.isNotBlank()) example else generateDefaultExample(en, ar, cat)
+        return DictionaryWordEntity(
+            wordEnglish = en,
+            wordArabic = ar,
+            phonetic = pron,
+            partOfSpeech = if (part.isNotBlank()) part else cat,
+            exampleSentence = finalExample,
+            emoji = emoji,
+            category = cat
+        )
+    }
+}

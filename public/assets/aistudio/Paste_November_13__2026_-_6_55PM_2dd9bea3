@@ -1,0 +1,207 @@
+الدليل الهندسي لاستبدال نظام PDF في تطبيق هوس الدراسة بمستودعات GitHub المفتوحة المصدر
+المشروع المفتوح المصدر الذي تشير إليه على منصة GitHub هو حزمة ArtCraft التي نشرتها مؤسسة storytold في أواخر سبتمبر وأوائل أكتوبر 2026 بوصفها بدائل نظيفة لبرامج شركة Adobe، ويحمل برنامج الـ PDF التابع لها اسم PdfCraft (الذي عُرف في البداية باسم PrintCraft قبل تعديله في 7 أكتوبر 2026) عبر المستودع الرسمي github.com/storytold/pdfcraft. غير أن الفحص التقني لهذا المستودع يكشف قيوداً حاسمة تمنع نسخه حرفياً داخل تطبيقك: فكود PdfCraft مكتوب بالكامل بلغة Rust لأجهزة سطح المكتب والويب ولا تتوفر له مكتبة Android Gradle أصلية، كما أنه ما زال في مرحلة Alpha مبكرة تفتقر تماماً إلى أداة ضغط ملفات PDF وإلى التحرير المباشر للنصوص العربية (RTL) وفق خارطة الطريق الرسمية للمشروع.
+ولتغطية جميع إمكانيات معالجة PDF الحديثة — بما في ذلك الضغط الفعلي، التحويل، التنظيم، التشفير، والتحرير — دون تعطل البناء في Google AI Studio، يكمّل مستودع BentoPDF (github.com/alam00000/bentopdf) هذه الفجوة على الويب بأكثر من 100 أداة تعمل محلياً على جهاز المستخدم. أما داخل تطبيق «هوس الدراسة» المبني بلغة Kotlin وJetpack Compose على Android، فإن المسار الهندسي الصحيح يعتمد على توجيه Google AI Studio إلى حذف نظام PDF القديم فقط بالكامل وإحلال حزمة برمجية معزولة (pdfstudio) مكانه تجمع تجربة وميزات PdfCraft وBentoPDF فوق مكتبات Android المفتوحة المصدر والموثوقة: TomRoush/PdfBox-Android للمعالجة والضغط والتشفير، ومحرك PdfRenderer أو androidx.pdf للعرض والتعليق، وTesseract4Android للتعرف الضوئي على النصوص العربية بدون إنترنت، مع الحفاظ التام على بقية ميزات التطبيق.
+وعلى مستوى الشكل والخطوط العالمية الواضحة، يعتمد هذا النظام على الدمج بين عائلة IBM Plex Sans Arabic للواجهات والأدوات وعائلة Noto Naskh Arabic لقراءة نصوص الكتب والمحتوى المستخرج، وكلاهما متاحان مجاناً تحت رخصة الخطوط المفتوحة SIL OFL. وفي نهاية هذا التقرير ستجد التوجيه البرمجي (Prompt) النهائي المحصن ضد أخطاء Gradle لتنفيذه مباشرة في Google AI Studio.
+كشف المستودعات المفتوحة المصدر على GitHub والمقارنة التقنية
+أطلق فريق ArtCraft بقيادة المطور براندون توماس سبعة تطبيقات مفتوحة المصدر تحت حساب github.com/storytold لإعادة بناء تطبيقات Adobe بأسلوب الهندسة النظيفة (Clean-room reimplementation) وبلغة Rust الخالصة دون تضمين أي شيفرة من Adobe، وذلك بمساعدة نماذج الذكاء الاصطناعي. وتُظهر أرقام النشر المتداولة في المدونات التقنية حتى منتصف أكتوبر 2026 أن الإقبال على هذه المستودعات كان لافتاً؛ إذ سجل PhotoCraft (بديل Photoshop) نحو 52.6 ألف نجمة حتى 13 أكتوبر 2026 (مقابل 34 ألفاً قبلها بأربعة أيام)، وFilmCraft (بديل Premiere Pro) 11.3 ألف نجمة، وLightCraft (بديل Lightroom) 11.1 ألف نجمة، وPdfCraft (بديل Acrobat Pro) 11.0 ألف نجمة، وVectorCraft (بديل Illustrator) 7.8 ألف نجمة، وEffectCraft (بديل After Effects) 5.7 ألف نجمة، وDesignCraft (بديل InDesign) 3.3 ألف نجمة، مع توسع لاحق لبدائل Office وAutoCAD.
+ورغم البنية الجيدة لمشروع storytold/pdfcraft واعتماده فصلاً معمارياً بين محرك المعالجة والواجهة مع ترخيص مزدوج مرن (MIT أو Apache-2.0)، فإن التقييم الذاتي في ملف خارطة الطريق الرسمي (ROADMAP.md) وتقارير الأعطال المسجلة على GitHub يوضحان أنه غير مكتمل للاستخدام الاحترافي اليومي بعد. إذ يقدّر المطوّرون أن PdfCraft يغطي قرابة 67% من اتساع الميزات المرجح بالفئات مقارنة بنسخة Acrobat Pro غير المتصلة بالإنترنت (57.0% غير مرجح: 423 ميزة منفذة و75 جزئية من أصل 808 ميزات)، وأن جاهزيته للعمل الفعلي لا تتجاوز نحو 50% (بنطاق تقديري 45–53%)، في ظل وجود 245 مشكلة برمجية مفتوحة. وتشمل أبرز الأعطال المبلغ عنها ظهور صفحات بيضاء فارغة عند فتح ملفات PDF كبيرة الحجم (البلاغان #2440 و#3157)، واختفاء بعض الصفحات بشكل متقطع عند العرض أو الطباعة (#2329 و#2196). والأكثر أهمية لمتطلباتك أن مستودع PdfCraft لا يضم أدوات لضغط ملفات PDF وتقليل حجمها، ولا يدعم تحرير النصوص العربية أو الآسيوية المباشر (editing (no CJK/RTL) في خارطة الطريق)، كما أظهر اختبار عملي في البلاغ #1503 على الإصدار 0.6.0 إخفاقه في تعديل النص مباشرة في 9 من أصل 10 ملفات.
+في المقابل، يمثل مستودع BentoPDF (github.com/alam00000/bentopdf) المرجع المفتوح المصدر الأوسع من حيث أدوات المعالجة الفعلية حتى أكتوبر 2026، إذ حصد أكثر من 16.3 ألف نجمة ووصل إلى الإصدار v2.8.11. يعمل BentoPDF كلياً على جهاز المستخدم عبر المتصفح باستخدام TypeScript وVite وتقنية WebAssembly (معتمداً على مكتبات PDF.js وPDFLib.js وPDFKit وEmbedPDF وTesseract.js إضافة إلى وحدات PyMuPDF وGhostscript وCoherentPDF). ويوفر أكثر من 100 أداة تشمل ضغط الملفات، وتحرير النصوص الموجودة مع إعادة التدفق ودعم المحاذاة العربية RTL واللاتينية LTR في تحديث v2.8.8؛ كما أطلق مطوّره بالتوازي مع ذلك التحديث محركين مفتوحي المصدر هما Hyper Compress (للضغط دون فقدان مع ضمان إرجاع الملف الأصلي إذا لم ينجح الضغط في تصغيره) وKura (للتحويل إلى معايير الأرشفة PDF/A وPDF/UA وPDF/X) مع التنويه إلى أن دمجهما الكامل داخل تطبيق BentoPDF الرئيسي كان لا يزال قيد الاختبار. ويبقى التحفظ القانوني الأساسي على BentoPDF هو تحول رخصته منذ الإصدار v1.1.4 إلى رخصة AGPLv3 التي تلزم بمشاركة الكود المصدري عند تعديل التطبيق وتوزيعه أو تشغيله كخدمة عامة. أما المشروع الشهير Stirling-PDF (github.com/Stirling-Tools/Stirling-PDF) فيوفر أكثر من 60 أداة، لكنه يعتمد على خادم Java وحاويات Docker، وتحول ترخيصه إلى نموذج «النواة المفتوحة» (Open Core) حيث تخضع بعض الأجزاء المتقدمة تحت app/proprietary وapp/saas لتراخيص مقيدة.
+المشروع المفتوح المصدر
+رابط المستودع الرسمي
+اللغة والبنية التشغيلية
+الترخيص
+أبرز الميزات المتوفرة
+القيود الحاسمة عند دمجه في تطبيق Android
+PdfCraft (عائلة ArtCraft)
+github.com/storytold/pdfcraft
+Rust خالصة (سطح مكتب + WASM)
+MIT أو Apache-2.0
+عرض 12 نظام كتابة منها العربية، تكبير شبكي، إصلاح ملفات تالفة، دمج وتقسيم متقدم، تشفير AES-256، تحقق OCR
+مرحلة Alpha (~50% جاهزية)، لا يوجد ضغط PDF، لا يوجد تحرير نص عربي RTL، أعطال ملفات كبيرة وطباعة، لا تتوفر له مكتبة Android/Gradle
+BentoPDF
+github.com/a[span_6](start_span)[span_6](end_span)lam00000/bentopdf
+TypeScript + Vite + WebAssembly
+AGPLv3
+أكثر من 100 أداة تشمل الضغط، تحرير النصوص ودعم RTL، تحويل الصور والمستندات، التوقيع، التشفير، Tesseract.js OCR
+رخصة AGPLv3 تتطلب إتاحة الكود عند التعديل والتوزيع، ويعمل كواجهة ويب/WebView لا بواجهات Kotlin أصلية
+Stirling-PDF
+github.com/Stirling-Tools/Stirling-PDF
+خادم Java + Docker
+Open Core (MIT + أجزاء مقيدة)
+أكثر من 60 أداة تشمل الضغط، التوقيع، التنقيح، والتحويل والأتمتة
+يعتمد على معالجة خادم خلفي (Server-side) ولا يعمل محلياً داخل الهاتف دون خادم
+PdfBox-Android
+github.com/TomRoush/PdfBox-Android
+Java/Kotlin متوافق مع Android
+Apache-2.0
+بورت Android الرسمي لـ Apache PDFBox دون تعارض java.awt؛ مناسب للمعالجة الخلفية والدمج والتقسيم والتشفير والنصوص
+لا يوفر واجهة مستخدم للعرض؛ يتضمن تنبيهات CVE على اعتمادياته في Maven مما يتطلب الحذر الأمني
+Jetpack PDF (androidx.pdf)
+developer.android.com/jetpack/androidx/releases/pdf
+Kotlin / Jetpack Compose
+Apache-2.0
+عارض Google الرسمي، تدوين ورسم عبر androidx.ink، ملء نماذج، بحث، واجهات OcrProvider
+إصدارات Alpha/Beta في 2026؛ دمج Compose يتطلب compileSdk 37 وAGP 9.2.0 ولا يشمل الضغط أو الدمج
+
+الحصر الشامل لميزات PDF الحديثة بين PdfCraft وBentoPDF
+للوصول إلى نظام PDF يجمع دقة القارئ الهندسي في PdfCraft واتساع أدوات المعالجة في BentoPDF، ينبغي تغطية ست مجموعات وظيفية متكاملة داخل تطبيق «هوس الدراسة». في الجانب القرائي والتصفحي، يقدّم PdfCraft معالجة متقدمة للخطوط والنصوص المعقدة شاملةً العربية واتجاه RTL دون انهيار (مع سجل 0 أعطال عبر 983 ملف اختبار من مدونة pdf.js)، وتكبيراً عميقاً عبر تجزئة الصفحات إلى بلاطات (Tiles) لإبقاء الحروف حادة عند أي تقريب، وتعدداً في أنماط الرؤية (التمرير المستمر، الصفحة المفردة، العرض المزدوج، التدوير، ووضع القراءة الخالي من المشتتات مع ثيم نهاري وليلي)، إلى جانب لوحات جانبية للبحث الفوري أثناء الكتابة، والفهرس الهرمي القابل للبحث، والمصغرات الشبكية، وتحديد النصوص بترتيب القراءة الصحيح، وإعادة فتح الجلسات مع الحفظ التلقائي والتعافي من الأعطال.
+وفي جانب التعليق والتحرير وتنظيم الصفحات، يوفر PdfCraft التظليل، والملاحظات والتعليقات المترابطة (Threaded Comments)، والأشكال والحبر الحر والأختام والعلامات المائية، وتعبئة حقول النماذج التفاعلية، وتبديل طبقات المحتوى الاختياري، وفتح المرفقات، مع لوحة بصرية لتنظيم الصفحات (إعادة ترتيب، تدوير، حذف، إدراج صفحات فارغة أو من ملف آخر) وسجل تراجع عميق (Undo)، ودمج وتقسيم الملفات مع الحفاظ على الروابط والنماذج والطبقات والبيانات الوصفية القابلة للتعديل. غير أن تلبية طلبك الشامل تستدعي استكمال النقص الموجود في PdfCraft عبر استعارة أدوات BentoPDF الحيوية: وأهمها ضغط ملفات PDF لتصغير أحجام المذكرات والكتب المدرسية دون إفساد النص، والتحويل المتبادل بين PDF والصور المتعددة (JPG وPNG وWebP) ونسخ الأبيض والأسود، وإضافة أرقام الصفحات والرؤوس والتذييلات، وتسطيح النماذج والتعليقات (Flatten)، وطمس المحتوى الحساس (Redaction)، وتشفير الملفات أو إزالة كلمات المرور ومسح البيانات الوصفية للخصوصية.
+أما في معالجة الكتب المصورة والملفات الممسوحة ضوئياً (OCR)، فيجمع التصور الاحترافي بين تجربة التحقق التفاعلية في PdfCraft (تنظيف الصفحات بالتدوير الآلي وإزالة التشويش وموازنة الميلان ثم عرض الكلمات المستخرجة للمراجعة والتصحيح)، وبين التشغيل المحلي الكامل على جهاز الطالب دون رفع ملفاته لأي خادم خارجي كما في فلسفة BentoPDF.
+فئة الميزات
+الوظائف المتوفرة في PdfCraft
+الإضافات المستكملة من BentoPDF
+كيف تُنفَّذ فعلياً داخل تطبيق «هوس الدراسة»
+القراءة والعرض
+تكبير شبكي، تعدد الأنماط، وضع قراءة، بحث فوري، فهرس هرمي، مصغرات
+عاكس الألوان وتعديل الخلفية لراحة العين، تحجيم موحد للصفحات
+عارض Compose سريع عبر PdfRenderer / androidx.pdf مع أنماط القراءة (نهاري/ليلي/دافئ) وحفظ آخر صفحة
+التعليق والتحرير
+تظليل، تعليقات مترابطة، أشكال، حبر، أختام، تعبئة نماذج، طبقات
+تحرير النصوص مع إعادة التدفق ودعم RTL، تسطيح المستند (Flatten)، مسح التعليقات
+طبقة رسم وتظليل عبر Canvas أو androidx.ink مع أزرار تراجع/إعادة وأختام دراسية وملاحظات
+الضغط والأرشفة
+غير متوفرة حالياً في الوثائق
+ضغط PDF ومحرك Hyper Compress المضمون، Kura للأرشفة
+ضغط محلي بـ 3 درجات جودة مع مقارنة الحجم قبل وبعد وعدم استبدال الأصل إذا زاد الحجم
+التنظيم والدمج والتقسيم
+شبكة صفحات (تدوير، حذف، إدراج، ترتيب)، دمج وتقسيم يحفظ الروابط والنماذج
+خلط الصفحات المتناوب، تكرار الصفحات، قص الهوامش (Crop)
+معالج PdfBox-Android في خيط خلفي Dispatchers.IO عبر شبكة مصغرات مرئية
+التحويل وOCR العربي
+OCR مدمج مع Tesseract وشاشة تحقق وتنظيف مسح ضوئي
+صور متعددة إلى PDF، PDF إلى صور أو تدرج رمادي، OCR عبر Tesseract.js
+تحويل الصور عبر Android Bitmap + PdfBox-Android، وOCR العربي عبر Tesseract4Android
+الأمان والخصائص
+فتح ملفات محمية (RC4 إلى AES-256)، تعديل الخصائص الوصفية
+تشفير وفك تشفير، صلاحيات، علامة مائية، أرقام صفحات، مسح الخصائص، تنقيح
+تشفير وفك حماية عبر PdfBox-Android، وإضافة علامات مائية وأرقام صفحات عربية
+
+البنية البرمجية الصحيحة للدمج في Google AI Studio بدون أخطاء
+يعمل تطبيق «هوس الدراسة» في Google AI Studio على بيئة Android أصلية بلغة Kotlin وJetpack Compose وبنظام بناء Gradle؛ ولذلك فإن مطالبة النموذج بسحب كود PdfCraft المكتوب بلغة Rust أو كود BentoPDF المكتوب بـ TypeScript ونسخه داخل مشروع Android ستؤدي حتماً إلى فشل التصريف. وحتى لو فكّر المطور في تضمين الحزمة الثابتة الجاهزة من BentoPDF (مثل ملف dist-simple-2.8.11.zip) داخل مجلد assets وتشغيلها عبر WebViewAssetLoader محلياً، فإن هذا الخيار يفرض تحميل الحزمة يدوياً خارج قدرة AI Studio، ويكسر تجانس واجهة تطبيقك، كما يورثك قيود رخصة AGPLv3 إذا وُزّع التطبيق معدلاً.
+الحل الهندسي الأنظف والأضمن للاستقرار داخل Google AI Studio هو بناء حزمة أندرويد أصلية مستقلة (pdfstudio) تترجم جميع ميزات PdfCraft وBentoPDF إلى أدوات Kotlin متوافقة مع Gradle. وتبدأ هذه البنية بفحص قيمة compileSdk وإصدار Android Gradle Plugin (AGP) في المشروع أولاً: فرغم أن مكتبات androidx.pdf من Google (pdf-core وpdf-viewer-fragment وpdf-compose) توفر في إصدارات 2026 (1.0.0-alpha19 في يوليو 2026 وbeta01 في أغسطس 2026) عرضاً متقدماً مع دعم androidx.ink والبحث والنماذج وواجهات OcrProvider والرجوع بالعتاد حتى minSdk = 28، فإن دمج مكوّن pdf-compose يشترط ترقية compileSdk إلى API 37 واستخدام AGP 9.2.0 على الأقل واستهداف Java 11. لذا يجب وضع شرط حماية في التوجيه يلزم Google AI Studio بالتحقق من build.gradle؛ فإذا لم يكن المشروع على API 37 وAGP 9.2.0، يعتمد تلقائياً على واجهة النظام الأصلية android.graphics.pdf.PdfRenderer (التي تعمل مستقرة دون ترقية قسرية للنظام) مع عارض Jetpack Compose مخصص يدعم التكبير وتقليب الصفحات وطبقة Canvas للرسم والتظليل.
+أما في معالجة الملفات وتحريرها (الدمج، التقسيم، الضغط، التدوير، التشفير، العلامات المائية، وتحويل الصور)، فيتعين استخدام TomRoush/PdfBox-Android (com.tom-roush:pdfbox-android:2.0.27.0) المرخص بـ Apache-2.0؛ إذ تفشل المكتبات المعتمدة على Java القياسية مثل Apache PDFBox الأصلي أو أجزاء من OpenPDF (openpdf-renderer) على هواتف Android بسبب اعتمادها على حزمة java.awt.* الغائبة عن نظام التشغيل. ويجب أن يلتزم الكود بتهيئة PDFBoxResourceLoader.init في التطبيق وإغلاق مستندات PDDocument داخل كتل آمنة في خيط Dispatchers.IO تفادياً لاستهلاك الذاكرة، مع مراعاة تنبيهات الاعتماديات المسجلة على الإصدار 2.0.27.0 في Maven بحصر استخدامه على معالجة ملفات الطالب المحلية وعدم استيراد أصول غير موثوقة.
+وبالنسبة للتعرف الضوئي على النصوص العربية (OCR)، تكشف الوثائق الرسمية لحزمة Google ML Kit Text Recognition v2 أنها تقتصر على الأحرف اللاتينية والصينية واليابانية والكورية والديوناغارية فقط ولا تدعم قراءة اللغة العربية في الصور (مع دعم العربية في أداة تحديد اللغة لا القراءة البصرية). وبناءً على ذلك، يُعد مستودع Tesseract4Android (github.com/adaptech-cz/Tesseract4Android) بإصداره 4.9.0 عبر مستودع JitPack الخيار المفتوح المصدر الأبرز المتوافق مع أندرويد للعمل دون إنترنت؛ فهو مرخص تحت Apache-2.0، ويغلف محرك Tesseract OCR 5.5.1 مع مكتبة Leptonica 1.85.0 بدايةً من minSdk 21، ويقرأ العربية بدقة عند تزويده بملف البيانات التدريبية ara.traineddata (إصدار 4.0.0) داخل مجلد tessdata الخاص بالتطبيق.
+المرجع التقني والمستودع
+المعرف الدقيق للاعتمادية (Gradle)
+الدور داخل استوديو PDF
+شروط وضمانات منع الأخطاء
+github.com/TomRoush/PdfBox-Android
+com.tom-roush:pdfbox-android:2.0.27.0
+المعالجة الشاملة: الدمج، التقسيم، الضغط عبر إعادة تحجيم الصور، التشفير، العلامات المائية، استخراج النص
+استدعاء PDFBoxResourceLoader.init() مرة واحدة وتشغيل المعالجة في Dispatchers.IO مع إغلاق الموارد
+developer.android.com/jetpack/androidx/releases/pdf
+androidx.pdf:pdf-compose:1.0.0-alpha19 أو PdfRenderer المدمج
+عرض الصفحات عالي الدقة، التكبير العميق، التظليل والرسم الحر، أوضاع حماية العين
+يُربط androidx.pdf فقط إذا تطابقت compileSdk 37[span_44](start_span)[span_44](end_span) وAGP 9.2.0؛ وإلا يُستخدم PdfRenderer القياسي
+github.com/adaptech-cz/Tesseract4Android
+cz.adaptech.tesseract4android:tesseract4android:4.9.0 (عبر jitpack.io)
+قراءة الكتب والصور العربية والإنجليزية وتحويلها لنصوص قابلة للنسخ بدون إنترنت
+تنزيل ara.traineddata عند أول تشغيل للأداة بدلاً من تضمينه في الـ APK لتجنب تضخم التطبيق
+github.com/storytold/pdfcraft و github.com/alam00000/bentopdf[span_30](start_span)[span_30](end_span)[span_36](start_span)[span_36](end_span)
+مراجع تصميمية ووظيفية (لا تُنسخ لغتهما مباشرة)
+استلهام تخطيط اللوحات، شاشة التحقق من OCR، ومنطق ضمان تقليل الحجم في الضغط
+استلهام الواجهات وتنفيذها أصلياً في Kotlin/Compose لمنع أخطاء التصريف وتجاوز قيود AGPLv3
+
+اختيار أفضل خطوط النصوص العالمية للواجهات وقراءة الكتب العربية
+لم تتوفر في المصادر المرجعية المتاحة دراسات قياس تجريبية مستقلة تقارن رقمياً بين سرعة القراءة أو معدلات إجهاد العين لدى القارئ العربي بين الخطوط الرقمية الحديثة على الهواتف الذكية. ومع ذلك، يتيح تحليل خصائص الخطوط العربية المفتوحة المصدر وتغطيتها اللغوية اختيار مزيج طباعي يحقق توازن الوضوح العالمي والحجم المريح الذي تطلبه دون أي تكاليف ترخيص؛ إذ تتوفر عائلات IBM Plex Sans Arabic وReadex Pro وCairo وTajawal وNoto Naskh Arabic وAlmarai وRubik وVazirmatn مجاناً وبشكل مفتوح المصدر تحت رخصة SIL Open Font License (OFL) التي تسمح بتضمينها بحرية في التطبيقات التجارية والتعليمية.
+ولتحقيق المظهر العالمي الواضح والمتناغم في تطبيق دراسي يتعامل مع العربية والإنجليزية والمصطلحات العلمية، تبرز عائلة IBM Plex Sans Arabic بوصفها الخيار الأكثر اتزاناً لواجهات المستخدم وقوائم الأدوات والعناوين؛ فهي مصممة للوضوح الرقمي العالي مع أشكال حروف متسقة وتقترن بسلاسة تامة مع الخطوط اللاتينية المماثلة، كما توفر عائلات مثل Readex Pro وCairo وTajawal وAmiri دعم الحروف العربية واللاتينية في عائلة واحدة. أما عند عرض نصوص الكتب المستخرجة، نتائج التعرف الضوئي OCR، أو صفحات الملاحظات الدراسية الطويلة التي اعتاد الطالب قراءتها بأسلوب الكتب المطبوعة، فإن اقتران الواجهة مع خط Noto Naskh Arabic يمنح القارئ مظهر النسخ الطباعي الدافئ والواضح مع فتحة حروف متوازنة تمنع تداخل النقاط والتشكيل عند التكبير.
+ولترجمة هذا الاختيار إلى "خط واضح وكبير" فعلياً داخل شاشات Jetpack Compose دون تضارب مع بساطة واجهة «هوس الدراسة» الحالية، تُوصي الممارسات الهندسية لتصميم Material 3 بتطبيق المقاسات الهندسية الموضحة في الجدول التالي (ملاحظة: هذه الأرقام هي مواصفات تصميمية قياسية لتجربة القراءة المريحة وليست ناتجة عن دراسة مقارنة تجريبية للخطوط).
+موضع النص في التطبيق والاستوديو
+الخط الموصى به
+الوزن (FontWeight)
+المقاس الافتراضي (sp)
+ارتفاع السطر (lineHeight)
+الغرض البصري
+العناوين الرئيسية للشاشات والأقسام
+IBM Plex Sans Arabic
+Bold (700) / SemiBold (600)
+20sp – 22sp
+30sp – 32sp
+بروز قيادي نظيف بمظهر عالمي ودون تشكيل متزاحم
+عناوين بطاقات الأدوات وأسماء الملفات
+IBM Plex Sans Arabic
+SemiBold (600) / Medium (500)
+16sp
+24sp
+قراءة فورية ومريحة لأزرار الاستوديو في البطاقات البيضاء
+الأوصاف الفرعية والتنبيهات والأشرطة
+IBM Plex Sans Arabic
+Regular (400)
+13sp – 14sp
+20sp – 22sp
+وضوح هادئ يحافظ على مساحات التنفس داخل البطاقات
+نصوص الكتب المستخرجة ونتائج OCR
+Noto Naskh Arabic
+Regular (400) و Bold (700)
+18sp (قابل للتكبير حتى 26sp)
+30sp (نسبة 1.65x تقريباً)
+محاكاة مريحة لخطوط الكتب التعليمية المطبوعة على الشاشات الصغيرة
+
+مواصفات التصميم والشاشات وبروتوكول الإحلال الآمن
+لضمان اندماج «استوديو PDF الشامل» عضوياً داخل تطبيق «هوس الدراسة» دون أن يشعر الطالب بأنه انتقل إلى تطبيق غريب، ينبغي إعادة بناء تجربة لوحات العمل (Workbench) المستوحاة من PdfCraft وتصنيف أدوات BentoPDF باستخدام نفس اللغة البصرية المعتمدة في واجهتك الحديثة: خلفية بيضاء نقية، بطاقة علوية ثلاثية الأبعاد متراكبة باللون الأزرق الملكي المريح للعين لاختيار الملفات ومتابعة آخر كتاب مفتوح، وبطاقات أدوات بيضاء بارزة بظلال ناعمة وأيقونات خطية ملونة نظيفة، مع الاستجابة الكاملة لمبدل الألوان الرئيسي والوضع الليلي في التطبيق.
+ينقسم الاستوديو داخل هذه الواجهة إلى ثلاث مناطق تشغيلية مترابطة. تبدأ التجربة من شاشة مركز الاستوديو (PDF Studio Hub) التي تضم شريط تبويبات أنيقاً يصنف الأدوات إلى أربعة أقسام واضحة: (القراءة والتحرير | الضغط والحجم | التنظيم والصفحات | التحويل والأمان)، بحيث يصل الطالب إلى أي أداة في ضغطة واحدة. وعند فتح أي مستند ينتقل إلى عارض القراءة الاحترافي (Workbench Reader) الذي يتيح إخفاء جميع الأشرطة بلمسة واحدة للتركيز، ويوفر شريطاً عائماً بالأسفل للتبديل السريع بين أوضاع الرؤية (النهاري، الورقي الدافئ Sepia، والليلي العاكس)، وأدوات التظليل والقلم والملاحظات والأختام والتراجع، مع شريط بحث وفهرس ومصغرات جانبية. أما عند اختيار وظيفة معالجة مثل الضغط أو الدمج أو التقسيم أو الـ OCR، فتُفتح لوحة تنفيذ تفاعلية تعرض معاينة مرئية (كشبكة صفحات قابلة للتحديد والتدوير، أو خيارات مستوى الضغط مع مقارنة الحجم قبل وبعد)، وتُجرى المعالجة في الخلفية عبر Dispatchers.IO مع شريط تقدم واضح.
+وعلى مستوى الحماية البرمجية للنظام، ينص البروتوكول الصارم على حصر الحذف في ملفات ومكتبات نظام الـ PDF القديم فقط، وإعادة توجيه كافة الأزرار المرتبطة بالـ PDF في التطبيق (بطاقة الـ PDF في الشاشة الرئيسية، وفتح الكتب في المكتبة الدراسية، وملفات المواد في حقيبة الطالب) إلى الاستوديو الجديد، مع تحريم المساس بأي ميزة أخرى داخل «هوس الدراسة» أو اختلاق روابط كتب وهمية في المكتبة الدراسية.
+البرومبت الاحترافي النهائي لـ Google AI Studio
+لتنفيذ هذا النظام في مشروعك بأعلى دقة ممكنة ودون أخطاء بناء، اتبع الخطوات الثلاث التالية:
+افتح مشروع تطبيق «هوس الدراسة» داخل Google AI Studio.
+تأكد من عدم إرفاق أي ملفات تصميم مناقضة للستايل الأبيض المعتمد في شاشتك الرئيسية الحالية، ويمكنك إرفاق لقطة شاشة التصميم المعتمد الحالي لتأكيد التطابق البصري.
+انسخ التوجيه الهندسي الكامل داخل الصندوق التالي كما هو والصقه مباشرة في المحادثة ليبدأ التطبيق الفعلي خطوة بخطوة:
+أريدك أن تقوم بعملية إحلال هندسي كاملة وشاملة لنظام الـ PDF القديم الموجود حالياً في تطبيقي «هوس الدراسة» فقط، واستبداله بـ «استوديو PDF الشامل» بأعلى مستوى احترافي ممكن (مستلهماً في مكوناته وأدواته وتجربة المستخدم من المشاريع المفتوحة المصدر الرائدة على GitHub: storytold/pdfcraft و alam00000/bentopdf)، مع الالتزام التام بهوية التصميم الحالية لتطبيقي، وبخطوط قراءة عالمية كبيرة وواضحة، ودون المساس نهائياً بأي ميزة أخرى في التطبيق.
+==================================================
+قواعد الحماية والاستبدال الآمن (إلزامي قبل كتابة أي كود): ==================================================
+فحص بنية المشروع أولاً: اقرأ ملفات settings.gradle / settings.gradle.kts و build.gradle / build.gradle.kts و HomeScreen.kt و AppTheme.kt وجميع الشاشات الموجودة لتحديد: (أ) ملفات ومكونات ومكتبات نظام الـ PDF القديم. (ب) قيمة compileSdk و minSdk وإصدار Android Gradle Plugin (AGP) الحالية في المشروع. (ج) كافة نقاط الدخول التي تفتح أو تتعامل مع ملفات PDF (مثل بطاقة PDF في الرئيسية، والمكتبة الدراسية، وملفاتي بالمادة).
+إزالة نظام PDF القديم فقط: احذف بالكامل شيفرات وواجهات ومكتبات نظام الـ PDF القديم فقط، واستبدله بحزمة جديدة معزولة باسم pdfstudio (تحت مسار الحزمة الأساسي للتطبيق)، واربطها بجميع نقاط الدخول السابقة في التطبيق دون ترك أي مسارات ميتة.
+حماية بقية التطبيق بنسبة 100%: ممنوع منعاً باتاً حذف أو تعطيل أو تغيير منطق أو تصميم أي ميزة أو قسم آخر في «هوس الدراسة» (بما في ذلك: فهيم، عداد الصلاة، عداد الامتحانات، منهج الثانوي، امتحان، تركيز، بنك الأسئلة، الآلة الحاسبة، دليل الإعراب، استرجاع نشط، الخريطة الذهنية، المهام، أهداف اليوم، الجدول، القرآن، الدفعات، مبدّل ألوان الثيم، القائمة الجانبية، أو أي ميزة فيديو/وسائط موجودة).
+================================================== 2. المحركات والمكتبات البرمجية الدقيقة (منع أخطاء Gradle):
+لا تحاول استيراد شيفرة Rust أو ملفات WebAssembly/JS عشوائياً داخل ملفات Kotlin؛ بل ابنِ النظام بلغة Kotlin وJetpack Compose فوق المكتبات الرسمية المفتوحة المصدر المتوافقة مع أندرويد:
+محرك المعالجة والضغط والتشفير والتحرير (TomRoush/PdfBox-Android):
+مرجع GitHub: https://github.com/TomRoush/PdfBox-Android
+أضف في ملف Gradle اعتمادية: implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+هيّئ PDFBoxResourceLoader.init(applicationContext) بشكل آمن عند بدء استخدام الاستوديو، ونفّذ جميع عمليات الملفات الثقيلة في خيط خلفي (Dispatchers.IO) مع إغلاق كل PDDocument داخل كتل try/finally لتجنب أخطاء الذاكرة (OutOfMemoryError).
+محرك العرض والتعليق والتكبير الشبكي الدقيق:
+افحص compileSdk وإصدار AGP أولاً: إذا كان المشروع مضبوطاً على compileSdk >= 37 و AGP >= 9.2.0 فيمكنك الاستفادة من androidx.pdf:pdf-compose:1.0.0-alpha19 و androidx.pdf:pdf-core:1.0.0-alpha19.
+أما إذا كان المشروع على compileSdk أقل من 37، فلا تقم بترقية compileSdk أو AGP بشكل قسري يكسر البناء، بل ابنِ عارض Jetpack Compose احترافي عالي الأداء يعتمد على محرك النظام الأصلي android.graphics.pdf.PdfRenderer مع تصيير الصفحات بدقة عالية عند التكبير (High-DPI Zoom Rendering)، وإدارة الذاكرة النقطية (Bitmap LRU Cache)، وفوقه طبقة Canvas تفاعلية للرسم الحر والتظليل.
+محرك التعرف الضوئي على النصوص العربية بدون إنترنت (Tesseract4Android):
+تنبيه هام: لا تستخدم Google ML Kit للتعرف الضوئي على النصوص لأنه لا يدعم اللغة العربية.
+مرجع GitHub: https://github.com/adaptech-cz/Tesseract4Android
+أضف مستودع JitPack في settings.gradle.kts عبر maven { url = uri("https://jitpack.io") } ثم أضف الاعتمادية: implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
+أنشئ مديراً ذكياً للبيانات اللغوية يقوم بتنزيل ملف ara.traineddata (و eng.traineddata) عند الطلب داخل مجلد tessdata الخاص بالتطبيق حتى لا يتضخم حجم APK الأساسي، مع عرض مؤشر تقدم وتنبيه واضح للمستخدم عند التشغيل الأول.
+================================================== 3. الميزات الكاملة المطلوب تنفيذها فعلياً داخل «استوديو PDF الشامل»:
+اعتماداً على ميزات storytold/pdfcraft و alam00000/bentopdf، نفّذ الوظائف التالية بشكل فعلي ومبرمج بالكامل:
+أ) شاشة مركز الاستوديو (PDF Studio Hub):
+بطاقة علوية بارزة لفتح ملف PDF من الجهاز، واستعراض قائمة الملفات المفتوحة مؤخراً مع آخر صفحة توقف عندها الطالب، وشريط تبويبات ينظم الأدوات في أربع فئات: (القراءة والتحرير | الضغط والحجم | التنظيم والصفحات | التحويل والأمان).
+ب) عارض القراءة الاحترافي (Workbench Reader):
+أوضاع عرض متعددة: تمرير عمودي مستمر، صفحة بصفحة، عرض صفحتين معاً للأجهزة اللوحية، تدوير العرض، وضع القراءة الصافي بلمسة واحدة (إخفاء الأشرطة)، وإبقاء الشاشة مضيئة أثناء المذاكرة.
+أوضاع حماية العين: الوضع النهاري الناصع، الوضع الورقي الدافئ (Sepia)، والوضع الليلي العاكس المريح للعين.
+التكبير العميق بالإيماءات (Pinch-to-Zoom حتى 5x) مع بقاء النصوص حادة.
+شريط بحث نصي فوري داخل المستند مع إبراز النتائج والتنقل بينها، ولوحة الفهرس الهرمي (Bookmarks) القابلة للبحث، ولوحة المصغرات الشبكية، وحفظ موضع القراءة تلقائياً.
+دعم فتح الملفات المحمية بكلمة مرور، وعزل أي صفحة تالفة أثناء العرض حتى لا ينهار التطبيق.
+ج) أدوات الدراسة والتعليق والتحرير (Annotations & Markup):
+شريط أدوات عائم يضم: قلم تظليل بألوان متعددة، قلم حبر حر بسماكات وألوان قابلة للتعديل، ممحاة دقيقة، إضافة نصوص وملاحظات مكتوبة على الصفحة، إضافة أشكال (مربع/دائرة/سهم)، وأختام دراسية جاهزة («مهم جداً»، «تمت المراجعة»، «ملخص»).
+أزرار تراجع وإعادة (Undo / Redo) للجلسة، مع خيار حفظ التعديلات كنسخة جديدة أو تسطيح التعليقات (Flatten) لحمايتها قبل المشاركة.
+د) ضغط وتقليل حجم PDF (Smart Compressor):
+أداة ضغط محلية عبر PdfBox-Android وضاغط الصور المضمنة توفر 3 مستويات واضحة: (ضغط خفيف بأعلى جودة / ضغط متوازن موصى به للدراسة / أقصى ضغط لتقليل المساحة).
+تعرض الأداة مقارنة الحجم قبل الضغط وبعده بالميجابايت ونسبة التوفير، وتحتفظ بالملف الأصلي تلقائياً إذا لم ينجح الضغط في تصغير الحجم (نفس مبدأ محرك Hyper Compress في BentoPDF).
+هـ) تنظيم الصفحات والدمج والتقسيم (Organize, Merge & Split):
+شبكة مصغرات بصرية تفاعلية تتيح: تحديد صفحات متعددة، إعادة الترتيب، التدوير (90/180/270)، الحذف، التكرار، إدراج صفحات بيضاء أو مسطرة للمذاكرة، واستيراد صفحات من ملف آخر.
+دمج عدة ملفات PDF في ملف واحد بالترتيب المحدد مع إنشاء إشارات مرجعية تلقائية لكل ملف.
+تقسيم الملف كل N صفحة أو استخراج نطاق صفحات محدد (مثل 1-5, 8, 12-15).
+أداة قص الهوامش البيضاء الزائدة (Crop) وإضافة أرقام الصفحات والرؤوس والتذييلات.
+و) التحويل وOCR العربي والأمان والبيانات (Convert, OCR & Security):
+صور إلى PDF: اختيار صور متعددة من المعرض أو الكاميرا وترتيبها وتحويلها لملف PDF بجودة قابلة للاختيار.
+PDF إلى صور: تصدير صفحات محددة أو كل الملف إلى صور JPG/PNG أو نسخة أبيض وأسود اقتصادية للطباعة.
+استخراج النصوص وOCR العربي: استخراج النص من ملفات PDF النصية، وتشغيل Tesseract4Android لقراءة الصور والكتب المصورة بالعربية والإنجليزية وعرض النص في قارئ نظيف قابل للنسخ والحفظ.
+الأمان والخصوصية: تشفير الملف بكلمة مرور وتحديد الصلاحيات، فك التشفير عند امتلاك كلمة المرور، إضافة علامة مائية نصية مائلة/مكررة بشفافية قابلة للتعديل، وعرض وتعديل البيانات الوصفية للمستند (العنوان، المؤلف، الموضوع، الكلمات المفتاحية) أو مسحها للخصوصية.
+================================================== 4. الشكل البصري والخطوط العالمية الكبيرة والواضحة:
+مطابقة هوية تطبيق «هوس الدراسة» الحالية:
+التزم بنفس الستايل النظيف المريح للعين في التطبيق: خلفية بيضاء ناصعة (#FFFFFF و #F8FAFC)، بطاقة علوية ثلاثية الأبعاد متراكبة (3D Stacked Card) بلون أزرق ملكي مريح (#1A6FE3)، وبطاقات أدوات بيضاء بارزة بظلال ناعمة (Soft-3D Elevated Cards بحواف 20.dp) وأيقونات خطية ملونة نظيفة، مع دعم الوضع الليلي ومتابعة اللون الرئيسي المختار من مبدل الثيم.
+الخط العالمي الكبير والواضح (Global Clear Typography):
+ضمّن عائلة خط IBM Plex Sans Arabic (بأوزان Regular 400، Medium 500، SemiBold 600، Bold 700) في res/font واستخدمها لواجهات الاستوديو والأزرار والعناوين.
+ضمّن عائلة خط Noto Naskh Arabic (Regular 400 و Bold 700) واستخدمها لعرض نصوص الكتب المستخرجة ونتائج OCR والمطالعة النصية الطويلة ليظهر بشكل كتاب عالمي واضح ومريح للعين.
+اعتمد أحجاماً واضحة وكبيرة: عناوين الشاشات 20.sp–22.sp، عناوين الأدوات 16.sp، ونصوص القراءة الطويلة 18.sp كافتراضي مع ارتفاع سطر 30.sp وإمكانية التكبير حتى 26.sp، دون تشكيل متزاحم.
+================================================== 5. التحقق والتسليم:
+تأكد من إضافة صلاحيات وإعدادات Android 14/15/16 الآمنة لاختيار الملفات ومشاركتها (Storage Access Framework OpenDocument / CreateDocument و FileProvider).
+نفّذ بناء المشروع (Gradle Build) وأصلح أي أخطاء استيراد أو تعارضات مكتبات أو موارد حتى يكتمل البناء بنجاح تام.
+في نهاية استجابتك، قدم ملخصاً واضحاً بالعربية يذكر الملفات القديمة التي حُذفت من نظام PDF السابق، والملفات الجديدة المضافة، وتفاصيل نجاح البناء بدون أخطاء.
+المصادر المقتبَس منها
+1. Free Adobe Alternatives in 2026: 3 Open-Source Apps to Try, https://www.ediskool.com/blog/free-adobe-alternatives-in-2026-3-open-source-apps-to-try/ 2. Open-Source Adobe Alternatives: ArtCraft + 7 Free Picks, https://griffinwooldridge.com/blog/open-source-adobe-alternatives 3. Free Adobe Alternatives: 7 Open-Source Apps | Autopilot Studio, https://www.autopilot-studio.com/blog/free-adobe-alternatives-open-source 4. Someone Vibe Coded Adobe Premier Pro , Photoshop ... - YouTube, https://www.youtube.com/watch?v=T0rgndq5w_o 5. storytold/pdfcraft | Git archive | HDATF, https://hdatf.com/insights/storytold--pdfcraft 6. PdfCraft: An open-source PDF reader and editor written ... - GitHub, https://github.com/storytold/pdfcraft 7. pdfcraft/ROADMAP.md at main - GitHub, https://github.com/storytold/pdfcraft/blob/main/ROADMAP.md 8. goodtab/bentopdf: A Privacy First PDF Toolkit - GitHub, https://github.com/goodtab/bentopdf 9. BentoPDF - Free Online PDF Tools | Privacy-First PDF Toolkit, https://www.bentopdf.com/ 10. BentoPDF Handles PDFs Locally, So You Don't Have to Upload, https://itsfoss.com/bentopdf/ 11. pdfbox-android » 2.0.27.0 - com.tom-roush - Maven Repository, https://mvnrepository.com/artifact/com.tom-roush/pdfbox-android/2.0.27.0 12. PDFBOX use in android - Stack Overflow, https://stackoverflow.com/questions/22671648/pdfbox-use-in-android 13. Android PDF viewer | Views - Android Developers, https://developer.android.com/develop/ui/views/layout/pdf/pdf-viewer 14. GitHub - adaptech-cz/Tesseract4Android: Fork of tess-two rewritten, https://github.com/adaptech-cz/Tesseract4Android 15. Best Arabic Web Fonts for Ecommerce (2026): Free & Paid, https://sell-middle-east-production.up.railway.app/localization/arabic-fonts/ 16. Arabic fonts for a bilingual brand: how to pair them with English - Aahfil, https://aahfil.com/en/blog/arabic-fonts-for-bilingual-brands 17. I've created Open Source 100% Rust clean-room replacements for 7, https://www.reddit.com/r/SaaS/comments/1wwnhbt/ive_created_open_source_100_rust_cleanroom/ 18. [Bug] PDFCraft fails to render PDFs with a large number of pages, https://github.com/storytold/artcraft/issues/2440 19. [Bug] PDFCraft Fails to Display or Print All Pages in Multi-Page PDFs, https://github.com/storytold/artcraft/issues/2329 20. Printer use in PDFCRAFT not working · Issue #2196 · storytold/artcraft, https://github.com/storytold/artcraft/issues/2196 21. [PDFCraft] Priority Request: Robust Text Editing in Any PDF #1503, https://github.com/storytold/pdfcraft/issues/1503 22. Package bentopdf-simple - GitHub, https://github.com/users/alam00000/packages/container/package/bentopdf-simple 23. BentoPDF download | SourceForge.net, https://sourceforge.net/projects/bentopdf.mirror/ 24. BentoPDF - Umbrel App Store, https://apps.umbrel.com/app/bentopdf 25. BentoPDF is a powerful, privacy-first, client-side PDF toolkit ... - GitHub, https://github.com/stupleb/bentopdf-startos 26. BentoPDF: privacy-first, client-side PDF toolkit (alternative to Stirling, https://forum.cloudron.io/topic/14454/bentopdf-privacy-first-client-side-pdf-toolkit-alternative-to-stirling-pdf 27. BentoPDF can edit existing PDF Text and two new engines - Reddit, https://www.reddit.com/r/selfhosted/comments/1w1ltg9/bentopdf_can_edit_existing_pdf_text_and_two_new/ 28. Stirling-PDF/LICENSE at main - GitHub, https://github.com/Stirling-Tools/Stirling-PDF/blob/main/LICENSE 29. License change v0.46.2 to v1.0.0. How this affects self hosting or, https://github.com/Stirling-Tools/Stirling-PDF/discussions/4332 30. Stirling PDF GitHub Explained: Self-Hosted Document Automation, https://www.youtube.com/watch?v=-3L8xCc3g1U 31. Stirling PDF - 30M+ Downloads, https://www.stirling.com/ 32. Self-hosting BentoPDF the easy way - Sliplane, https://sliplane.io/blog/self-hosting-bento-pdf-the-easy-way 33. androidx.pdf » pdf-viewer-fragment - Maven Repository, https://mvnrepository.com/artifact/androidx.pdf/pdf-viewer-fragment 34. pdfbox-android » 2.0.17.0 - com.tom-roush - Maven Repository, https://mvnrepository.com/artifact/com.tom-roush/pdfbox-android/2.0.17.0 35. OpenPDF is an open-source Java library for creating ... - GitHub, https://github.com/librepdf/openpdf 36. TextRecognition based on MLKit . Will it support Arabic? - B4X, https://www.b4x.com/android/forum/threads/textrecognition-based-on-mlkit-will-it-support-arabic.161926/ 37. Recognize Arabic Text In Egyptian Id With ML-Kit In Android, https://stackoverflow.com/questions/77356143/recognize-arabic-text-in-egyptian-id-with-ml-kit-in-android-arabic-text-recogn 38. ML Kit language identification: supported languages, https://developers.google.com/ml-kit/language/identification/langid-support 39. google_mlkit_text_recognition 0.17.0 | Flutter package - Pub.dev, https://pub.dev/packages/google_mlkit_text_recognition/versions/0.17.0

@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rafeeq-telegram-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "BOT_USERNAME": "RafeeqAlTalebBot",
+    "APP_NAME": "رفيق الطالب",
+    "STORAGE_CHANNEL_LINK": "https://t.me/+zAsB3Bq2cwRlYjc0",
+    "PLAY_STORE_URL": "https://play.google.com/store/apps/details?id=com.aistudio.studentcompanion.app",
+    "TIMEZONE": "Africa/Cairo"
+  },
+  "env": {
+    "preview": {
+      "workers_dev": true,
+      "preview_urls": true,
+      "vars": {
+        "BOT_USERNAME": "RafeeqAlTalebBot",
+        "APP_NAME": "رفيق الطالب",
+        "STORAGE_CHANNEL_LINK": "https://t.me/+zAsB3Bq2cwRlYjc0",
+        "PLAY_STORE_URL": "https://play.google.com/store/apps/details?id=com.aistudio.studentcompanion.app",
+        "TIMEZONE": "Africa/Cairo"
+      }
+    }
+  },
+  "triggers": {
+    "crons": [
+      "0 5 * * *",
+      "0 15 * * *",
+      "0 18 * * 4",
+      "30 6 * * 5",
+      "0 22 * * *"
+    ]
+  }
+}

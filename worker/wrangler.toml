@@ -1,0 +1,54 @@
+name = "rafeeq-telegram-worker"
+main = "src/index.ts"
+compatibility_date = "2024-09-25"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = true
+
+[observability]
+enabled = true
+
+# Environment variables (public configs, secrets set via `wrangler secret put`)
+[vars]
+BOT_USERNAME = "RafeeqAlTalebBot"
+APP_NAME = "رفيق الطالب"
+STORAGE_CHANNEL_LINK = "https://t.me/+zAsB3Bq2cwRlYjc0"
+PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.aistudio.studentcompanion.app"
+TIMEZONE = "Africa/Cairo"
+
+# Dedicated Preview Environment configuration to prevent Error 1031 in Cloudflare Workers Preview
+[env.preview]
+workers_dev = true
+preview_urls = true
+[env.preview.vars]
+BOT_USERNAME = "RafeeqAlTalebBot"
+APP_NAME = "رفيق الطالب"
+STORAGE_CHANNEL_LINK = "https://t.me/+zAsB3Bq2cwRlYjc0"
+PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.aistudio.studentcompanion.app"
+TIMEZONE = "Africa/Cairo"
+
+# Cloudflare KV Bindings for high-speed persistence on Free Plan
+[[kv_namespaces]]
+binding = "STORAGE_KV"
+id = "rafeeq_storage_kv"
+
+# Optional Cloudflare D1 SQL Database Binding
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "rafeeq_db"
+# database_id = "rafeeq_d1_id"
+
+# 24/7 Automated Cron Triggers (Cairo Time is UTC+2 / UTC+3 in DST)
+# 1. Morning Athkar (7:00 AM Cairo / 05:00 UTC): "0 5 * * *"
+# 2. Evening Athkar (5:00 PM Cairo / 15:00 UTC): "0 15 * * *"
+# 3. Thursday Eve Reminder (8:00 PM Cairo / 18:00 UTC Thursday): "0 18 * * 4"
+# 4. Friday Morning Kahf Reminder (8:30 AM Cairo / 06:30 UTC Friday): "30 6 * * 5"
+# 5. Midnight Achievement Report (00:00 Midnight Cairo / 22:00 UTC): "0 22 * * *"
+[triggers]
+crons = [
+  "0 5 * * *",
+  "0 15 * * *",
+  "0 18 * * 4",
+  "30 6 * * 5",
+  "0 22 * * *"
+]
