@@ -320,6 +320,13 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
     var currentRoute by remember { mutableStateOf("home") }
     var subRouteOrigin by remember { mutableStateOf("home") }
     var calculatorOriginRoute by remember { mutableStateOf("home") }
+    var isMushafFullScreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentRoute) {
+        if (currentRoute != "quran" && currentRoute != "quran_audio") {
+            isMushafFullScreen = false
+        }
+    }
 
     val incomingPdfUri by mainViewModel.currentOpenPdfUri.collectAsState()
     val incomingPdfTitle by mainViewModel.currentOpenPdfTitle.collectAsState()
@@ -402,32 +409,55 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
                     )
                 }
             ) {
-                val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator"
-                Scaffold(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    contentWindowInsets = if (isFullScreenPdfRoute) WindowInsets(0) else ScaffoldDefaults.contentWindowInsets,
-                    bottomBar = {
-                        val showBottomBar = currentRoute in listOf(
-                            "home", "account", "quests", "quran", "quran_audio",
-                            "zakat", "library", "community", "games", "plans", "tools",
-                            "schedule", "tasks"
-                        )
-                        if (showBottomBar) {
-                            com.example.ui.components.RafiqBottomBar(
-                                currentRoute = currentRoute,
-                                onTabSelected = { tab ->
-                                    currentRoute = tab.route
-                                }
-                            )
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val isLandscape = maxWidth > maxHeight && maxWidth >= 480.dp
+                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio"))
+                    val showMainNav = currentRoute in listOf(
+                        "home", "account", "quests", "quran", "quran_audio",
+                        "zakat", "library", "community", "games", "plans", "tools",
+                        "schedule", "tasks"
+                    ) && !isFullScreenPdfRoute
+                    Scaffold(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        contentWindowInsets = if (isFullScreenPdfRoute) WindowInsets(0) else if (isLandscape) WindowInsets.safeDrawing else ScaffoldDefaults.contentWindowInsets,
+                        bottomBar = {
+                            if (showMainNav && !isLandscape) {
+                                com.example.ui.components.RafiqBottomBar(
+                                    currentRoute = currentRoute,
+                                    onTabSelected = { tab ->
+                                        currentRoute = tab.route
+                                    }
+                                )
+                            }
                         }
-                    }
-                ) { paddingValues ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .then(if (isFullScreenPdfRoute) Modifier else Modifier.padding(paddingValues))
-                    ) {
-                        AnimatedContent(
+                    ) { paddingValues ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (isFullScreenPdfRoute) {
+                                        Modifier
+                                    } else {
+                                        Modifier
+                                            .padding(paddingValues)
+                                            .consumeWindowInsets(paddingValues)
+                                    }
+                                )
+                        ) {
+                            if (showMainNav && isLandscape) {
+                                com.example.ui.components.RafiqNavigationRail(
+                                    currentRoute = currentRoute,
+                                    onTabSelected = { tab ->
+                                        currentRoute = tab.route
+                                    }
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                            ) {
+                                AnimatedContent(
                             targetState = currentRoute,
                             transitionSpec = {
                                 (slideInHorizontally(
@@ -545,7 +575,9 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
                                 "quran" -> QuranScreen(
                                     viewModel = mainViewModel,
                                     initialTab = QuranTab.SURAHS,
+                                    onFullScreenViewerChanged = { isMushafFullScreen = it },
                                     onNavigateBack = {
+                                        isMushafFullScreen = false
                                         currentRoute = if (subRouteOrigin == "prayer") {
                                             subRouteOrigin = "home"
                                             "prayer"
@@ -554,7 +586,15 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
                                         }
                                     }
                                 )
-                                "quran_audio" -> QuranScreen(viewModel = mainViewModel, initialTab = QuranTab.AUDIO, onNavigateBack = { currentRoute = "home" })
+                                "quran_audio" -> QuranScreen(
+                                    viewModel = mainViewModel,
+                                    initialTab = QuranTab.AUDIO,
+                                    onFullScreenViewerChanged = { isMushafFullScreen = it },
+                                    onNavigateBack = {
+                                        isMushafFullScreen = false
+                                        currentRoute = "home"
+                                    }
+                                )
                                 "ai" -> AiScreen(viewModel = mainViewModel, onNavigate = { currentRoute = it })
                                 "copy" -> BestCopyScreen(viewModel = mainViewModel)
                                 "dictionary" -> DictionaryScreen(viewModel = mainViewModel)
@@ -616,7 +656,7 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
                         }
 
                 // Cloud Session Auto-Restoration Banner
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = autoSessionStatus != null,
                     enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
@@ -651,7 +691,9 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
                 }
             }
         }
+                }
+                }
+            }
+        }
     }
-}
-}
 }

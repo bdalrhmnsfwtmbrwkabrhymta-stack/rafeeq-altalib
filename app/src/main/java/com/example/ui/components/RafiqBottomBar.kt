@@ -9,7 +9,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Assignment
@@ -101,13 +103,7 @@ fun RafiqBottomBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 RafiqTab.entries.forEach { tab ->
-                    val isSelected = when (tab) {
-                        RafiqTab.HOME -> currentRoute in listOf("home", "library", "plans", "tools", "schedule", "tasks")
-                        RafiqTab.ACCOUNT -> currentRoute in listOf("account", "settings", "app_theme", "theme")
-                        RafiqTab.QUESTS -> currentRoute in listOf("quests", "games", "brain_games", "chess")
-                        RafiqTab.QURAN -> currentRoute in listOf("quran", "quran_audio")
-                        RafiqTab.PAYMENTS -> currentRoute == "zakat"
-                    }
+                    val isSelected = isRafiqTabSelected(tab, currentRoute)
 
                     FloatingPillTabItem(
                         tab = tab,
@@ -121,6 +117,137 @@ fun RafiqBottomBar(
                     )
                 }
             }
+        }
+    }
+}
+
+private fun isRafiqTabSelected(tab: RafiqTab, currentRoute: String): Boolean {
+    return when (tab) {
+        RafiqTab.HOME -> currentRoute in listOf("home", "library", "plans", "tools", "schedule", "tasks")
+        RafiqTab.ACCOUNT -> currentRoute in listOf("account", "settings", "app_theme", "theme")
+        RafiqTab.QUESTS -> currentRoute in listOf("quests", "games", "brain_games", "chess")
+        RafiqTab.QURAN -> currentRoute in listOf("quran", "quran_audio")
+        RafiqTab.PAYMENTS -> currentRoute == "zakat"
+    }
+}
+
+/**
+ * Sleek Vertical Navigation Rail displayed on the RTL start (right) edge in Landscape Mode.
+ */
+@Composable
+fun RafiqNavigationRail(
+    currentRoute: String,
+    onTabSelected: (RafiqTab) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val railShape = RoundedCornerShape(28.dp)
+    val accentColor = MaterialTheme.colorScheme.primary
+    val isDarkSurface = MaterialTheme.colorScheme.surface.let {
+        (it.red * 0.299f + it.green * 0.587f + it.blue * 0.114f) < 0.45f
+    }
+    val containerColor = if (isDarkSurface) MaterialTheme.colorScheme.surface else Color.White
+    val borderColor = if (isDarkSurface) MaterialTheme.colorScheme.outlineVariant else Color(0xFFE2E8F0)
+    val inactiveColor = if (isDarkSurface) Color(0xFF94A3B8) else Color(0xFF475569)
+
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .padding(start = 10.dp, end = 6.dp, top = 10.dp, bottom = 10.dp)
+            .testTag("rafiq_navigation_rail"),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier
+                .width(78.dp)
+                .fillMaxHeight()
+                .shadow(
+                    elevation = 12.dp,
+                    shape = railShape,
+                    spotColor = accentColor.copy(alpha = 0.18f),
+                    ambientColor = Color.Black.copy(alpha = 0.10f)
+                ),
+            shape = railShape,
+            color = containerColor,
+            border = BorderStroke(1.dp, borderColor.copy(alpha = 0.85f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
+            ) {
+                RafiqTab.entries.forEach { tab ->
+                    val isSelected = isRafiqTabSelected(tab, currentRoute)
+                    RailPillTabItem(
+                        tab = tab,
+                        isSelected = isSelected,
+                        accentColor = accentColor,
+                        inactiveTextColor = inactiveColor,
+                        onClick = { onTabSelected(tab) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("rail_tab_${tab.route}")
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RailPillTabItem(
+    tab: RafiqTab,
+    isSelected: Boolean,
+    accentColor: Color,
+    inactiveTextColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) accentColor else Color.Transparent,
+        label = "railTabBg"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (isSelected) Color.White else inactiveTextColor,
+        label = "railTabContent"
+    )
+
+    Box(
+        modifier = modifier
+            .defaultMinSize(minHeight = 52.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(bgColor)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 4.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = if (isSelected) tab.filledIcon else tab.outlinedIcon,
+                contentDescription = tab.titleAr,
+                tint = contentColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            AutoSizeText(
+                text = tab.titleAr,
+                fontFamily = com.example.ui.theme.DisplayArabicFontFamily,
+                maxFontSize = 11.sp,
+                minFontSize = 8.5.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                color = contentColor,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                overflowToTwoLinesAtMinSize = false
+            )
         }
     }
 }

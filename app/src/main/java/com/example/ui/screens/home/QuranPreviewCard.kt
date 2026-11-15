@@ -32,9 +32,9 @@ fun QuranPreviewCard(
     isEnglish: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val emeraldDark = Color(0xFF0D5C3A)
-    val emeraldMedium = Color(0xFF1B8A5A)
-    val goldAccent = Color(0xFFFFD54F)
+    val royalBlueDark = Color(0xFF1356B5)
+    val royalBlue = Color(0xFF1A6FE3)
+    val goldAccent = Color(0xFFF59E0B)
 
     Card(
         modifier = modifier
@@ -43,16 +43,16 @@ fun QuranPreviewCard(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        border = BorderStroke(1.dp, emeraldMedium.copy(alpha = 0.3f))
+        border = BorderStroke(1.dp, royalBlue.copy(alpha = 0.25f))
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Header Banner with Islamic Emerald Gradient
+            // Header Banner with Royal Blue Gradient
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
                         Brush.horizontalGradient(
-                            colors = listOf(emeraldDark, emeraldMedium)
+                            colors = listOf(royalBlueDark, royalBlue)
                         )
                     )
                     .padding(horizontal = 16.dp, vertical = 14.dp)
@@ -122,7 +122,7 @@ fun QuranPreviewCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    border = BorderStroke(1.dp, emeraldMedium.copy(alpha = 0.15f))
+                    border = BorderStroke(1.dp, royalBlue.copy(alpha = 0.15f))
                 ) {
                     Column(
                         modifier = Modifier.padding(14.dp),
@@ -137,7 +137,7 @@ fun QuranPreviewCard(
                                 text = if (isEnglish) "🌟 Verse of the Day" else "🌟 آية وتدبر اليوم",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = emeraldMedium
+                                color = royalBlue
                             )
                             Text(
                                 text = todayVerse.second,
@@ -182,7 +182,7 @@ fun QuranPreviewCard(
                         onClick = onOpenQuran,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f),
-                        border = BorderStroke(1.dp, emeraldMedium.copy(alpha = 0.4f)),
+                        border = BorderStroke(1.dp, royalBlue.copy(alpha = 0.4f)),
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = MaterialTheme.colorScheme.onSurface
                         )
@@ -190,7 +190,7 @@ fun QuranPreviewCard(
                         Icon(
                             Icons.Default.Bookmark,
                             contentDescription = null,
-                            tint = emeraldMedium,
+                            tint = royalBlue,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -209,7 +209,7 @@ fun QuranPreviewCard(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = emeraldDark
+                            containerColor = royalBlueDark
                         )
                     ) {
                         Icon(
@@ -241,7 +241,7 @@ fun QuranPreviewCard(
                         Icon(
                             Icons.Default.AutoStories,
                             contentDescription = null,
-                            tint = emeraldMedium,
+                            tint = royalBlue,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -264,7 +264,7 @@ fun QuranPreviewCard(
                             text = if (isEnglish) "+ 1 Page Read" else "+ قرأت صفحة ✅",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = emeraldMedium
+                            color = royalBlue
                         )
                     }
                 }
@@ -276,8 +276,8 @@ fun QuranPreviewCard(
                         .fillMaxWidth()
                         .height(6.dp)
                         .clip(RoundedCornerShape(3.dp)),
-                    color = emeraldMedium,
-                    trackColor = emeraldMedium.copy(alpha = 0.15f)
+                    color = royalBlue,
+                    trackColor = royalBlue.copy(alpha = 0.15f)
                 )
             }
         }

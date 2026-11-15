@@ -42,12 +42,27 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.preferences.UserSettings
 import com.example.ui.MainViewModel
+import com.example.ui.components.AutoSizeText
+import com.example.ui.theme.HeaderBrandAmiriFontFamily
+import com.example.ui.theme.ReadexProFontFamily
 import kotlinx.coroutines.delay
 
 /**
@@ -1002,108 +1017,262 @@ fun StudentGatewayScreen(
 
 @Composable
 fun SplashScreen(onSplashFinished: () -> Unit) {
-    LaunchedEffect(Unit) {
-        delay(1800)
-        onSplashFinished()
+    var hasFinished by remember { mutableStateOf(false) }
+    var animateIn by remember { mutableStateOf(false) }
+
+    val finishOnce = remember(onSplashFinished) {
+        {
+            if (!hasFinished) {
+                hasFinished = true
+                onSplashFinished()
+            }
+        }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFFFFFFF),
-                        Color(0xFFFAF9FD),
-                        Color(0xFFF3EEFF)
+    LaunchedEffect(Unit) {
+        animateIn = true
+        delay(1800)
+        finishOnce()
+    }
+
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (animateIn) 1f else 0f,
+        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        label = "splashAlpha"
+    )
+    val contentScale by animateFloatAsState(
+        targetValue = if (animateIn) 1f else 0.90f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "splashScale"
+    )
+
+    val splashBrandTitle = remember {
+        buildAnnotatedString {
+            withStyle(
+                SpanStyle(
+                    brush = Brush.horizontalGradient(
+                        listOf(Color(0xFF0EA5E9), Color(0xFF1A6FE3))
                     )
                 )
-            ),
+            ) {
+                append("هَوَسُ ")
+            }
+            withStyle(SpanStyle(color = Color(0xFF0F172A))) {
+                append("الد")
+            }
+            // Pure color-only SpanStyle preserves HarfBuzz Arabic diacritic ligatures
+            withStyle(SpanStyle(color = Color(0xFFD97706))) {
+                append("\u0651\u0650")
+            }
+            withStyle(SpanStyle(color = Color(0xFF0F172A))) {
+                append("رَاسَة")
+            }
+        }
+    }
+
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFFFFFFF),
+                            Color(0xFFF8FAFC),
+                            Color(0xFFEFF6FF)
+                        )
+                    )
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = finishOnce
+                )
+                .testTag("splash_screen_root"),
+            contentAlignment = Alignment.Center
+        ) {
+            // Soft atmospheric royal-blue background glow
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFDBEAFE).copy(alpha = 0.55f),
+                            Color(0xFF3B82F6).copy(alpha = 0.08f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.5f, size.height * 0.38f),
+                        radius = size.minDimension * 0.68f
+                    )
+                )
+            }
+
+            val isLandscape = maxWidth > maxHeight
+
+            if (isLandscape) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .safeDrawingPadding()
+                        .padding(horizontal = 32.dp, vertical = 16.dp)
+                        .alpha(contentAlpha)
+                        .scale(contentScale),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(36.dp, Alignment.CenterHorizontally)
+                ) {
+                    SplashHeroIconBadge()
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        SplashBrandTextsAndBadge(
+                            splashBrandTitle = splashBrandTitle,
+                            isCompactHeight = true
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .safeDrawingPadding()
+                        .padding(horizontal = 24.dp)
+                        .alpha(contentAlpha)
+                        .scale(contentScale)
+                ) {
+                    SplashHeroIconBadge()
+                    Spacer(modifier = Modifier.height(28.dp))
+                    SplashBrandTextsAndBadge(
+                        splashBrandTitle = splashBrandTitle,
+                        isCompactHeight = false
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SplashHeroIconBadge() {
+    Box(
+        modifier = Modifier.size(196.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(horizontal = 24.dp)
-        ) {
-            // Concentric circle badge on clean light background
-            Box(
-                modifier = Modifier
-                    .size(136.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFEDE9FE)),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(108.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(Color(0xFFF5F3FF), Color(0xFFDDD6FE))
-                            )
+        // Outer soft sky-blue halo (#DBEAFE)
+        Box(
+            modifier = Modifier
+                .size(196.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFDBEAFE).copy(alpha = 0.85f),
+                            Color(0xFFDBEAFE).copy(alpha = 0.20f),
+                            Color.Transparent
                         )
-                        .border(2.dp, Color(0xFF8B5CF6), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_student_logo_1786045057086),
-                        contentDescription = "شعار هوس الدراسة",
-                        modifier = Modifier
-                            .size(86.dp)
-                            .clip(CircleShape)
                     )
-                }
-            }
+                )
+        )
+        // Inner luminous blue ring (#3B82F6)
+        Box(
+            modifier = Modifier
+                .size(170.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF3B82F6).copy(alpha = 0.12f))
+                .border(1.5.dp, Color(0xFF3B82F6).copy(alpha = 0.25f), CircleShape)
+        )
+        // Official 3D Launcher Artwork (148.dp, 32.dp rounded corners)
+        Surface(
+            shape = RoundedCornerShape(32.dp),
+            color = Color.White,
+            shadowElevation = 14.dp,
+            border = BorderStroke(2.dp, Color.White),
+            modifier = Modifier
+                .size(148.dp)
+                .shadow(
+                    elevation = 18.dp,
+                    shape = RoundedCornerShape(32.dp),
+                    spotColor = Color(0xFF3B82F6).copy(alpha = 0.40f)
+                )
+                .testTag("splash_3d_icon")
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_launcher_art),
+                contentDescription = "شعار هوس الدراسة",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(32.dp))
+            )
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(28.dp))
+@Composable
+private fun SplashBrandTextsAndBadge(
+    splashBrandTitle: androidx.compose.ui.text.AnnotatedString,
+    isCompactHeight: Boolean
+) {
+    AutoSizeText(
+        text = splashBrandTitle,
+        fontFamily = HeaderBrandAmiriFontFamily,
+        fontWeight = FontWeight.Bold,
+        maxFontSize = 34.sp,
+        minFontSize = 24.sp,
+        lineHeightRatio = 1.28f,
+        letterSpacing = 0.sp,
+        textAlign = TextAlign.Center,
+        overflowToTwoLinesAtMinSize = false,
+        modifier = Modifier.testTag("splash_brand_title")
+    )
 
-            // Text on single clean horizontal line without distortion or overlapping
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "هوس الدراسة",
-                        fontSize = 34.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A),
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        softWrap = false,
-                        letterSpacing = 0.sp
-                    )
+    Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
 
-                    Spacer(modifier = Modifier.height(10.dp))
+    AutoSizeText(
+        text = "منظمتك الدراسية والدينية الشاملة",
+        fontFamily = ReadexProFontFamily,
+        fontWeight = FontWeight.Medium,
+        maxFontSize = 15.sp,
+        minFontSize = 12.sp,
+        color = Color(0xFF475569),
+        textAlign = TextAlign.Center,
+        overflowToTwoLinesAtMinSize = false,
+        modifier = Modifier.testTag("splash_subtitle")
+    )
 
-                    Text(
-                        text = "منظمتك الدراسية والدينية الشاملة",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF6B7280),
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
+    Spacer(modifier = Modifier.height(if (isCompactHeight) 20.dp else 40.dp))
 
-            Spacer(modifier = Modifier.height(44.dp))
-
-            Surface(
-                color = Color.White,
-                shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.2.dp, Color(0xFFDDD6FE)),
-                shadowElevation = 2.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "المطور: عبد الرحمن صفوت عطا 👨‍💻",
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF6D28D9)
-                    )
-                }
-            }
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.2.dp, Color(0xFFBFDBFE)),
+        shadowElevation = 3.dp,
+        modifier = Modifier.testTag("splash_developer_badge")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Code,
+                contentDescription = null,
+                tint = Color(0xFF1A6FE3),
+                modifier = Modifier.size(18.dp)
+            )
+            AutoSizeText(
+                text = "المطور: عبد الرحمن صفوت عطا",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                maxFontSize = 14.sp,
+                minFontSize = 11.5.sp,
+                color = Color(0xFF1A6FE3),
+                textAlign = TextAlign.Center,
+                overflowToTwoLinesAtMinSize = false
+            )
         }
     }
 }

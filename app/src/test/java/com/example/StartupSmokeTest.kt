@@ -2,9 +2,9 @@ package com.example
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
@@ -21,15 +21,37 @@ class StartupSmokeTest {
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun mainActivityStartsAndRendersSplashThenOnboardingWithoutCrash() {
+    fun mainActivityStartsAndRendersUpgradedSplashThenTransitionsWithoutCrash() {
         val activity = composeTestRule.activity
         assertNotNull(activity)
 
         composeTestRule.waitForIdle()
-        // Splash screen should render app title visibly
-        composeTestRule.onNodeWithText("هوس الدراسة", substring = true).assertExists()
+        composeTestRule.onNodeWithTag("splash_screen_root").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("splash_3d_icon", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("splash_brand_title", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("هَوَسُ الدِّرَاسَة", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("منظمتك الدراسية والدينية الشاملة", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("المطور: عبد الرحمن صفوت عطا", useUnmergedTree = true).assertIsDisplayed()
 
-        // Advance virtual clock past splash delay (1800ms) -> transitions cleanly to Setup/Home
+        // Tap anywhere on splash skips immediately without crashing
+        composeTestRule.onNodeWithTag("splash_screen_root").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("splash_screen_root").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w800dp-h360dp-land")
+    fun mainActivityLandscapeSplashRendersCleanlyWithoutCrash() {
+        val activity = composeTestRule.activity
+        assertNotNull(activity)
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("splash_screen_root").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("splash_3d_icon", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("splash_brand_title", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("splash_developer_badge", useUnmergedTree = true).assertIsDisplayed()
+
+        // Advance virtual clock past splash delay (1800ms)
         composeTestRule.mainClock.advanceTimeBy(2500L)
         composeTestRule.waitForIdle()
     }

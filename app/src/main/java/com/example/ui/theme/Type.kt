@@ -19,13 +19,18 @@ val HeaderBrandAmiriFontFamily = FontFamily(
     Font(R.font.amiri, FontWeight.Normal)
 )
 
+// Uthmani Mushaf Script Font: Amiri Quran (locally bundled static Regular font in res/font/amiri_quran.ttf).
+val AmiriQuranFontFamily = FontFamily(
+    Font(R.font.amiri_quran, FontWeight.Normal)
+)
+
 // Backwards-compatible aliases pointing to Readex Pro across the entire app UI
 val CairoFontFamily = ReadexProFontFamily
 val DisplayArabicFontFamily = ReadexProFontFamily
 val BrandTitleFontFamily = ReadexProFontFamily
 
 // Classic Calligraphic Naskh Font (Amiri) - Dedicated for Quranic verses, Azkar, and Islamic supplications
-val QuranArabicFontFamily = HeaderBrandAmiriFontFamily
+val QuranArabicFontFamily = AmiriQuranFontFamily
 
 val Typography = Typography(
     displayLarge = TextStyle(

@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.domain.telegram.DailyTelegramReportHelper
 import com.example.ui.MainViewModel
+import com.example.ui.components.AutoSizeText
 import com.example.ui.theme.CURATED_ACCENT_CHOICES
 import com.example.ui.theme.DisplayArabicFontFamily
 import com.example.ui.theme.HeaderBrandAmiriFontFamily
@@ -151,7 +152,7 @@ fun HomeScreen(
         val raw = userSettings.userName.trim()
         when {
             raw.isBlank() || raw == "طالب زائر" || raw == "الطالب المثالي" -> "ضيف"
-            else -> raw.substringBefore(" ")
+            else -> raw
         }
     }
 
@@ -223,127 +224,148 @@ fun HomeScreen(
     ) Color(0xFF0F62FE) else primaryAccent
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(canvasBg)
         ) {
-            // ==========================================================
-            // 1. TOP HEADER (Drawer + هوس الدراسة + Theme/Notifications/Settings)
-            // ==========================================================
+            val isLandscape = maxWidth > maxHeight
+            val toolColumns = when {
+                maxWidth >= 840.dp -> 4
+                isLandscape -> 3
+                else -> 2
+            }
+
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(canvasBg)
-                    .statusBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                modifier = Modifier.fillMaxSize()
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                // ==========================================================
+                // 1. TOP HEADER (Drawer + هوس الدراسة + Theme/Notifications/Settings)
+                // ==========================================================
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(canvasBg)
+                        .statusBarsPadding()
+                        .padding(
+                            horizontal = if (isLandscape) 16.dp else 12.dp,
+                            vertical = if (isLandscape) 6.dp else 10.dp
+                        )
                 ) {
-                    // Right (RTL Start): Clean unboxed Drawer button + App Title + Subtitle
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        IconButton(
-                            onClick = onOpenDrawer,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("home_drawer_button")
+                        // Right (RTL Start): Clean unboxed Drawer button + App Title + Subtitle
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Menu,
-                                contentDescription = "القائمة الجانبية",
-                                tint = textMain,
-                                modifier = Modifier.size(25.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Column {
-                            val titleNavyColor = if (isDarkTheme) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-                            val shaddaAccentColor = if (isDarkTheme) Color(0xFFF59E0B) else Color(0xFFD97706)
-                            val styledAppTitle = remember(isDarkTheme) {
-                                buildAnnotatedString {
-                                    // RTL visual sweep: #1A6FE3 on right ('هـ') -> #0EA5E9 on left ('سُ')
-                                    withStyle(
-                                        SpanStyle(
-                                            brush = Brush.horizontalGradient(
-                                                listOf(Color(0xFF0EA5E9), Color(0xFF1A6FE3))
+                            IconButton(
+                                onClick = onOpenDrawer,
+                                modifier = Modifier
+                                    .size(width = 44.dp, height = 48.dp)
+                                    .testTag("home_drawer_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = "القائمة الجانبية",
+                                    tint = textMain,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                val titleNavyColor = if (isDarkTheme) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+                                val shaddaAccentColor = if (isDarkTheme) Color(0xFFF59E0B) else Color(0xFFD97706)
+                                val styledAppTitle = remember(isDarkTheme) {
+                                    buildAnnotatedString {
+                                        // RTL visual sweep: #1A6FE3 on right ('هـ') -> #0EA5E9 on left ('سُ')
+                                        withStyle(
+                                            SpanStyle(
+                                                brush = Brush.horizontalGradient(
+                                                    listOf(Color(0xFF0EA5E9), Color(0xFF1A6FE3))
+                                                )
                                             )
-                                        )
-                                    ) {
-                                        append("هَوَسُ ")
-                                    }
-                                    withStyle(SpanStyle(color = titleNavyColor)) {
-                                        append("الد")
-                                    }
-                                    // Pure color-only SpanStyle avoids MetricAffectingSpan splitting HarfBuzz diacritic clusters
-                                    withStyle(SpanStyle(color = shaddaAccentColor)) {
-                                        append("\u0651\u0650")
-                                    }
-                                    withStyle(SpanStyle(color = titleNavyColor)) {
-                                        append("رَاسَة")
+                                        ) {
+                                            append("هَوَسُ ")
+                                        }
+                                        withStyle(SpanStyle(color = titleNavyColor)) {
+                                            append("الد")
+                                        }
+                                        // Pure color-only SpanStyle avoids MetricAffectingSpan splitting HarfBuzz diacritic clusters
+                                        withStyle(SpanStyle(color = shaddaAccentColor)) {
+                                            append("\u0651\u0650")
+                                        }
+                                        withStyle(SpanStyle(color = titleNavyColor)) {
+                                            append("رَاسَة")
+                                        }
                                     }
                                 }
+                                AutoSizeText(
+                                    text = styledAppTitle,
+                                    fontFamily = HeaderBrandAmiriFontFamily,
+                                    maxFontSize = 21.sp,
+                                    minFontSize = 15.5.sp,
+                                    lineHeightRatio = 1.32f,
+                                    fontWeight = FontWeight.Bold,
+                                    overflowToTwoLinesAtMinSize = false,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("home_header_title")
+                                )
+                                AutoSizeText(
+                                    text = "طريقك نحو مستقبل أفضل",
+                                    fontFamily = ReadexProFontFamily,
+                                    maxFontSize = 11.5.sp,
+                                    minFontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B),
+                                    overflowToTwoLinesAtMinSize = false,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("home_header_subtitle")
+                                )
                             }
-                            Text(
-                                text = styledAppTitle,
-                                fontFamily = HeaderBrandAmiriFontFamily,
-                                fontSize = 27.sp,
-                                lineHeight = 35.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        // Left (RTL End): Theme Switcher + Notification Bell (with coral badge) + Settings Gear
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            HeaderCircleActionButton(
+                                icon = Icons.Outlined.Palette,
+                                contentDescription = "تبديل لون التطبيق",
+                                tint = primaryAccent,
+                                badgeColor = null,
+                                surfaceColor = cardSurface,
+                                onClick = { showAccentPickerBar = !showAccentPickerBar },
+                                testTag = "home_theme_switcher_button"
                             )
-                            Text(
-                                text = "طريقك نحو مستقبل أفضل",
-                                fontFamily = ReadexProFontFamily,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Normal,
-                                color = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                            HeaderCircleActionButton(
+                                icon = Icons.Outlined.Notifications,
+                                contentDescription = "التنبيهات والموثوقية",
+                                tint = textMain,
+                                badgeColor = VibrantCoral,
+                                surfaceColor = cardSurface,
+                                onClick = { onNavigate("notification_reliability_check") },
+                                testTag = "home_notifications_button"
+                            )
+                            HeaderCircleActionButton(
+                                icon = Icons.Outlined.Settings,
+                                contentDescription = "الإعدادات",
+                                tint = textMain,
+                                badgeColor = null,
+                                surfaceColor = cardSurface,
+                                onClick = { onNavigate("settings") },
+                                testTag = "home_settings_button"
                             )
                         }
                     }
-
-                    // Left (RTL End): Theme Switcher + Notification Bell (with coral badge) + Settings Gear
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        HeaderCircleActionButton(
-                            icon = Icons.Outlined.Palette,
-                            contentDescription = "تبديل لون التطبيق",
-                            tint = primaryAccent,
-                            badgeColor = null,
-                            surfaceColor = cardSurface,
-                            onClick = { showAccentPickerBar = !showAccentPickerBar },
-                            testTag = "home_theme_switcher_button"
-                        )
-                        HeaderCircleActionButton(
-                            icon = Icons.Outlined.Notifications,
-                            contentDescription = "التنبيهات والموثوقية",
-                            tint = textMain,
-                            badgeColor = VibrantCoral,
-                            surfaceColor = cardSurface,
-                            onClick = { onNavigate("notification_reliability_check") },
-                            testTag = "home_notifications_button"
-                        )
-                        HeaderCircleActionButton(
-                            icon = Icons.Outlined.Settings,
-                            contentDescription = "الإعدادات",
-                            tint = textMain,
-                            badgeColor = null,
-                            surfaceColor = cardSurface,
-                            onClick = { onNavigate("settings") },
-                            testTag = "home_settings_button"
-                        )
-                    }
-                }
 
                 // Expandable Theme Accent Switcher Pill Strip
                 AnimatedVisibility(visible = showAccentPickerBar) {
@@ -414,7 +436,7 @@ fun HomeScreen(
             }
 
             // ==========================================================
-            // SCROLLABLE BODY (Exact Image 2 + Zajil 3D Visual Style)
+            // SCROLLABLE BODY (Portrait & Landscape Adaptive Layout)
             // ==========================================================
             Column(
                 modifier = Modifier
@@ -423,120 +445,153 @@ fun HomeScreen(
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // ----------------------------------------------------------
-                // 2. ZAJIL-STYLE 3D STACKED ROYAL BLUE HERO CARD
-                // ----------------------------------------------------------
-                ZajilStackedHeroCard(
-                    heroBlueColor = zajilHeroBlue,
-                    studentGreetingName = displayGreetingName,
-                    progressPercent = todayProgressPercent,
-                    nextPrayerName = nextPrayerName,
-                    prayerCountdownText = prayerCountdownText,
-                    onPrayerClick = { onNavigate("prayer") },
-                    onBookClick = { onNavigate("library") }
-                )
-
-                // ----------------------------------------------------------
-                // 3. QUICK QUESTION BAR («اسأل فهيم عن أي حاجة...»)
-                // ----------------------------------------------------------
-                Surface(
-                    onClick = { onNavigate("ai") },
-                    shape = RoundedCornerShape(50),
-                    color = cardSurface,
-                    shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("home_quick_ask_faheem")
-                ) {
-                    Row(
+                val quickAskBar: @Composable () -> Unit = {
+                    Surface(
+                        onClick = { onNavigate("ai") },
+                        shape = RoundedCornerShape(50),
+                        color = cardSurface,
+                        shadowElevation = 6.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .testTag("home_quick_ask_faheem")
                     ) {
                         Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.TipsAndUpdates,
-                                contentDescription = "فهيم",
-                                tint = zajilHeroBlue,
-                                modifier = Modifier.size(24.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.TipsAndUpdates,
+                                    contentDescription = "فهيم",
+                                    tint = zajilHeroBlue,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                AutoSizeText(
+                                    text = "اسأل فهيم عن أي حاجة...",
+                                    fontFamily = DisplayArabicFontFamily,
+                                    maxFontSize = 15.sp,
+                                    minFontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = textMain,
+                                    overflowToTwoLinesAtMinSize = false,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(zajilHeroBlue),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "اسأل فهيم",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                val dailyStatsPills: @Composable () -> Unit = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CleanActivityStatPill(
+                                icon = Icons.Outlined.LocalFireDepartment,
+                                iconColor = Color(0xFFEA580C),
+                                iconBg = Color(0xFFFFEDD5),
+                                text = "$streakDays يوم متواصل",
+                                surfaceColor = cardSurface,
+                                textColor = textMain,
+                                onClick = { onNavigate("quests") },
+                                modifier = if (isLandscape) Modifier.weight(1f) else Modifier
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "اسأل فهيم عن أي حاجة...",
-                                fontFamily = DisplayArabicFontFamily,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = textMain,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                            CleanActivityStatPill(
+                                icon = Icons.Outlined.AccessTime,
+                                iconColor = zajilHeroBlue,
+                                iconBg = Color(0xFFDBEAFE),
+                                text = "$todayStudyMinutes دقيقة النهاردة",
+                                surfaceColor = cardSurface,
+                                textColor = textMain,
+                                onClick = { onNavigate("pomodoro") },
+                                modifier = if (isLandscape) Modifier.weight(1f) else Modifier
                             )
                         }
 
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(zajilHeroBlue),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                contentDescription = "اسأل فهيم",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            CleanActivityStatPill(
+                                icon = Icons.Outlined.EventNote,
+                                iconColor = Color(0xFF6D28D9),
+                                iconBg = Color(0xFFEDE9FE),
+                                text = "$pendingTasksCount مهمة مستنية",
+                                surfaceColor = cardSurface,
+                                textColor = textMain,
+                                onClick = { onNavigate("tasks") }
                             )
                         }
                     }
                 }
 
                 // ----------------------------------------------------------
-                // 4. CLEAN DAILY STATS PILLS (Crisp, non-faded)
+                // 2-4. HERO CARD + QUICK QUESTION + DAILY STATS
+                // Side-by-side in Landscape, Stacked in Portrait
                 // ----------------------------------------------------------
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                if (isLandscape) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CleanActivityStatPill(
-                            icon = Icons.Outlined.LocalFireDepartment,
-                            iconColor = Color(0xFFEA580C),
-                            iconBg = Color(0xFFFFEDD5),
-                            text = "$streakDays يوم متواصل",
-                            surfaceColor = cardSurface,
-                            textColor = textMain,
-                            onClick = { onNavigate("quests") }
-                        )
-                        CleanActivityStatPill(
-                            icon = Icons.Outlined.AccessTime,
-                            iconColor = zajilHeroBlue,
-                            iconBg = Color(0xFFDBEAFE),
-                            text = "$todayStudyMinutes دقيقة النهاردة",
-                            surfaceColor = cardSurface,
-                            textColor = textMain,
-                            onClick = { onNavigate("pomodoro") }
-                        )
+                        Box(modifier = Modifier.weight(1.05f)) {
+                            ZajilStackedHeroCard(
+                                heroBlueColor = zajilHeroBlue,
+                                studentGreetingName = displayGreetingName,
+                                progressPercent = todayProgressPercent,
+                                nextPrayerName = nextPrayerName,
+                                prayerCountdownText = prayerCountdownText,
+                                onPrayerClick = { onNavigate("prayer") },
+                                onBookClick = { onNavigate("library") }
+                            )
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            quickAskBar()
+                            dailyStatsPills()
+                        }
                     }
-
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        CleanActivityStatPill(
-                            icon = Icons.Outlined.EventNote,
-                            iconColor = Color(0xFF6D28D9),
-                            iconBg = Color(0xFFEDE9FE),
-                            text = "$pendingTasksCount مهمة مستنية",
-                            surfaceColor = cardSurface,
-                            textColor = textMain,
-                            onClick = { onNavigate("tasks") }
-                        )
-                    }
+                } else {
+                    ZajilStackedHeroCard(
+                        heroBlueColor = zajilHeroBlue,
+                        studentGreetingName = displayGreetingName,
+                        progressPercent = todayProgressPercent,
+                        nextPrayerName = nextPrayerName,
+                        prayerCountdownText = prayerCountdownText,
+                        onPrayerClick = { onNavigate("prayer") },
+                        onBookClick = { onNavigate("library") }
+                    )
+                    quickAskBar()
+                    dailyStatsPills()
                 }
 
                 // ----------------------------------------------------------
@@ -556,6 +611,7 @@ fun HomeScreen(
                         titleColor = if (isDarkTheme) Color.White else Color(0xFF1E1B4B),
                         subtitleColor = if (isDarkTheme) Color(0xFFCBD5E1) else Color(0xFF4C1D95),
                         onClick = { onNavigate("ai") },
+                        isCompactLandscape = isLandscape,
                         modifier = Modifier
                             .weight(1f)
                             .testTag("home_quick_card_faheem")
@@ -569,6 +625,7 @@ fun HomeScreen(
                         titleColor = if (isDarkTheme) Color.White else Color(0xFF064E3B),
                         subtitleColor = if (isDarkTheme) Color(0xFFCBD5E1) else Color(0xFF047857),
                         onClick = { onNavigate("library") },
+                        isCompactLandscape = isLandscape,
                         modifier = Modifier
                             .weight(1f)
                             .testTag("home_quick_card_library")
@@ -582,6 +639,7 @@ fun HomeScreen(
                         titleColor = if (isDarkTheme) Color.White else Color(0xFF1E3A8A),
                         subtitleColor = if (isDarkTheme) Color(0xFFCBD5E1) else Color(0xFF1D4ED8),
                         onClick = { onNavigate("tasks") },
+                        isCompactLandscape = isLandscape,
                         modifier = Modifier
                             .weight(1f)
                             .testTag("home_quick_card_tasks")
@@ -589,153 +647,164 @@ fun HomeScreen(
                 }
 
                 // ----------------------------------------------------------
-                // 6. VIBRANT PINK DAILY TIP BANNER (Image 3 Signature Style)
+                // 6. DAILY TIP + EXAM COUNTDOWN BANNERS
                 // ----------------------------------------------------------
                 val tipBg = if (isDarkTheme) Color(0xFF3A162B) else Color(0xFFFDF2F8)
                 val tipPink = Color(0xFFEC4899)
                 val tipLabelPink = if (isDarkTheme) Color(0xFFF9A8D4) else Color(0xFFDB2777)
 
-                Surface(
-                    onClick = { tipIndex = (tipIndex + 1) % dailyTips.size },
-                    shape = RoundedCornerShape(24.dp),
-                    color = tipBg,
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(1.dp, tipPink.copy(alpha = 0.25f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("home_banner_daily_tip")
-                ) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        Canvas(modifier = Modifier.matchParentSize()) {
-                            drawCircle(
-                                color = tipPink.copy(alpha = 0.08f),
-                                radius = size.height * 0.85f,
-                                center = Offset(size.width * 0.12f, size.height * 0.2f)
-                            )
-                            drawCircle(
-                                color = tipPink.copy(alpha = 0.06f),
-                                radius = size.height * 0.55f,
-                                center = Offset(size.width * 0.88f, size.height * 0.88f)
-                            )
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(50.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(tipPink),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lightbulb,
-                                    contentDescription = "نصيحة النهاردة",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(26.dp)
+                val dailyTipBanner: @Composable (Modifier) -> Unit = { bannerModifier ->
+                    Surface(
+                        onClick = { tipIndex = (tipIndex + 1) % dailyTips.size },
+                        shape = RoundedCornerShape(24.dp),
+                        color = tipBg,
+                        shadowElevation = 4.dp,
+                        border = BorderStroke(1.dp, tipPink.copy(alpha = 0.25f)),
+                        modifier = bannerModifier.testTag("home_banner_daily_tip")
+                    ) {
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Canvas(modifier = Modifier.matchParentSize()) {
+                                drawCircle(
+                                    color = tipPink.copy(alpha = 0.08f),
+                                    radius = size.height * 0.85f,
+                                    center = Offset(size.width * 0.12f, size.height * 0.2f)
+                                )
+                                drawCircle(
+                                    color = tipPink.copy(alpha = 0.06f),
+                                    radius = size.height * 0.55f,
+                                    center = Offset(size.width * 0.88f, size.height * 0.88f)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "نصيحة النهاردة",
-                                    fontFamily = DisplayArabicFontFamily,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = tipLabelPink
-                                )
-                                Text(
-                                    text = "من هوس الدراسة ليك",
-                                    fontFamily = DisplayArabicFontFamily,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (isDarkTheme) Color.White else Color(0xFF831843)
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = dailyTips[tipIndex],
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = if (isDarkTheme) Color(0xFFFBCFE8) else Color(0xFF9D174D),
-                                    lineHeight = 19.sp
-                                )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(tipPink),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lightbulb,
+                                        contentDescription = "نصيحة النهاردة",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "نصيحة النهاردة",
+                                        fontFamily = DisplayArabicFontFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = tipLabelPink
+                                    )
+                                    Text(
+                                        text = "من هوس الدراسة ليك",
+                                        fontFamily = DisplayArabicFontFamily,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (isDarkTheme) Color.White else Color(0xFF831843)
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = dailyTips[tipIndex],
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isDarkTheme) Color(0xFFFBCFE8) else Color(0xFF9D174D),
+                                        lineHeight = 19.sp
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
-                // ----------------------------------------------------------
-                // PRESERVED EXAM COUNTDOWN BANNER
-                // ----------------------------------------------------------
-                Surface(
-                    onClick = { showExamDialog = true },
-                    shape = RoundedCornerShape(22.dp),
-                    color = cardSurface,
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(1.dp, zajilHeroBlue.copy(alpha = 0.25f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("home_banner_exam_countdown")
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                val examBanner: @Composable (Modifier) -> Unit = { bannerModifier ->
+                    Surface(
+                        onClick = { showExamDialog = true },
+                        shape = RoundedCornerShape(22.dp),
+                        color = cardSurface,
+                        shadowElevation = 4.dp,
+                        border = BorderStroke(1.dp, zajilHeroBlue.copy(alpha = 0.25f)),
+                        modifier = bannerModifier.testTag("home_banner_exam_countdown")
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(15.dp))
-                                .background(zajilHeroBlue),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.EventAvailable,
-                                contentDescription = "العد التنازلي للامتحانات",
-                                tint = Color.White,
-                                modifier = Modifier.size(25.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "أضف عداً تنازلياً لامتحاناتك",
-                                fontFamily = DisplayArabicFontFamily,
-                                fontSize = 15.5.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = textMain
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (nearestExam != null && nearestExamDaysLeft != null) {
-                                    "متبقي $nearestExamDaysLeft يوم على ${nearestExam.examTitle} • اضغط للإدارة"
-                                } else {
-                                    "حدد موعد مهمة وإحنا نحسب الأيام الباقية"
-                                },
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = textSub
-                            )
-                        }
-                        Surface(
-                            shape = CircleShape,
-                            color = zajilHeroBlue.copy(alpha = 0.12f),
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(15.dp))
+                                    .background(zajilHeroBlue),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Icon(
-                                    imageVector = if (nearestExam != null) Icons.Default.EditCalendar else Icons.Default.Add,
-                                    contentDescription = "إضافة امتحان",
-                                    tint = zajilHeroBlue,
-                                    modifier = Modifier.size(19.dp)
+                                    imageVector = Icons.Default.EventAvailable,
+                                    contentDescription = "العد التنازلي للامتحانات",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(25.dp)
                                 )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "أضف عداً تنازلياً لامتحاناتك",
+                                    fontFamily = DisplayArabicFontFamily,
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = textMain
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (nearestExam != null && nearestExamDaysLeft != null) {
+                                        "متبقي $nearestExamDaysLeft يوم على ${nearestExam.examTitle} • اضغط للإدارة"
+                                    } else {
+                                        "حدد موعد مهمة وإحنا نحسب الأيام الباقية"
+                                    },
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = textSub
+                                )
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = zajilHeroBlue.copy(alpha = 0.12f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (nearestExam != null) Icons.Default.EditCalendar else Icons.Default.Add,
+                                        contentDescription = "إضافة امتحان",
+                                        tint = zajilHeroBlue,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
                             }
                         }
                     }
+                }
+
+                if (isLandscape) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        dailyTipBanner(Modifier.weight(1f))
+                        examBanner(Modifier.weight(1f))
+                    }
+                } else {
+                    dailyTipBanner(Modifier.fillMaxWidth())
+                    examBanner(Modifier.fillMaxWidth())
                 }
 
                 // ----------------------------------------------------------
@@ -768,7 +837,7 @@ fun HomeScreen(
                     )
                 }
 
-                primaryToolCards.chunked(2).forEach { rowCards ->
+                primaryToolCards.chunked(toolColumns).forEach { rowCards ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -779,6 +848,9 @@ fun HomeScreen(
                                 onClick = { onNavigate(card.route) },
                                 modifier = Modifier.weight(1f)
                             )
+                        }
+                        repeat(toolColumns - rowCards.size) {
+                            Spacer(modifier = Modifier.weight(1f))
                         }
                     }
                 }
@@ -813,7 +885,7 @@ fun HomeScreen(
                     )
                 }
 
-                extraFeatureCards.chunked(2).forEach { rowCards ->
+                extraFeatureCards.chunked(toolColumns).forEach { rowCards ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -824,6 +896,9 @@ fun HomeScreen(
                                 onClick = { onNavigate(card.route) },
                                 modifier = Modifier.weight(1f)
                             )
+                        }
+                        repeat(toolColumns - rowCards.size) {
+                            Spacer(modifier = Modifier.weight(1f))
                         }
                     }
                 }
@@ -1088,6 +1163,7 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+        }
 
         if (showExamDialog) {
             ExamCountdownManagerDialog(
@@ -1195,22 +1271,28 @@ private fun ZajilStackedHeroCard(
 
                         Spacer(modifier = Modifier.width(12.dp))
 
-                        Column {
-                            Text(
+                        Column(modifier = Modifier.weight(1f)) {
+                            AutoSizeText(
                                 text = "مرحباً بك يا $studentGreetingName",
                                 fontFamily = com.example.ui.theme.BrandTitleFontFamily,
-                                fontSize = 23.sp,
+                                maxFontSize = 17.sp,
+                                minFontSize = 13.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflowToTwoLinesAtMinSize = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("home_hero_welcome")
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
+                            AutoSizeText(
                                 text = "كمّل يومك خطوة بخطوة",
-                                fontSize = 15.sp,
+                                maxFontSize = 14.sp,
+                                minFontSize = 11.5.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = Color.White.copy(alpha = 0.95f)
+                                color = Color.White.copy(alpha = 0.95f),
+                                overflowToTwoLinesAtMinSize = true,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
@@ -1318,22 +1400,24 @@ private fun CleanActivityStatPill(
     text: String,
     surfaceColor: Color,
     textColor: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(50),
         color = surfaceColor,
         shadowElevation = 3.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+        modifier = modifier
     ) {
         Row(
-            modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(26.dp)
                     .clip(CircleShape)
                     .background(iconBg),
                 contentAlignment = Alignment.Center
@@ -1342,17 +1426,18 @@ private fun CleanActivityStatPill(
                     imageVector = icon,
                     contentDescription = null,
                     tint = iconColor,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
+            Spacer(modifier = Modifier.width(6.dp))
+            AutoSizeText(
                 text = text,
                 fontFamily = DisplayArabicFontFamily,
-                fontSize = 13.5.sp,
+                maxFontSize = 13.sp,
+                minFontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = textColor,
-                maxLines = 1
+                overflowToTwoLinesAtMinSize = false
             )
         }
     }
@@ -1371,7 +1456,8 @@ private fun OrganicAuraRealisticCard(
     titleColor: Color,
     subtitleColor: Color,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isCompactLandscape: Boolean = false
 ) {
     val cardShape = RoundedCornerShape(26.dp)
     Surface(
@@ -1381,7 +1467,7 @@ private fun OrganicAuraRealisticCard(
         shadowElevation = 5.dp,
         border = BorderStroke(1.dp, auraAccentColor.copy(alpha = 0.16f)),
         modifier = modifier
-            .height(186.dp)
+            .height(if (isCompactLandscape) 158.dp else 186.dp)
             .shadow(
                 elevation = 8.dp,
                 shape = cardShape,
@@ -1426,7 +1512,7 @@ private fun OrganicAuraRealisticCard(
                     color = Color.White,
                     shadowElevation = 4.dp,
                     border = BorderStroke(1.5.dp, Color.White),
-                    modifier = Modifier.size(68.dp)
+                    modifier = Modifier.size(if (isCompactLandscape) 56.dp else 68.dp)
                 ) {
                     Image(
                         painter = painterResource(id = imageRes),
@@ -1436,32 +1522,37 @@ private fun OrganicAuraRealisticCard(
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    AutoSizeText(
                         text = title,
                         fontFamily = DisplayArabicFontFamily,
-                        fontSize = 16.sp,
+                        maxFontSize = if (isCompactLandscape) 15.sp else 16.sp,
+                        minFontSize = 11.5.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = titleColor,
                         textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflowToTwoLinesAtMinSize = false,
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
+                    Spacer(modifier = Modifier.height(2.dp))
+                    AutoSizeText(
                         text = subtitle,
-                        fontSize = 12.5.sp,
+                        maxFontSize = if (isCompactLandscape) 11.5.sp else 12.5.sp,
+                        minFontSize = 9.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = subtitleColor,
                         textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflowToTwoLinesAtMinSize = false,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
                         .background(auraAccentColor),
                     contentAlignment = Alignment.Center
@@ -1488,7 +1579,10 @@ private fun HeaderCircleActionButton(
     onClick: () -> Unit,
     testTag: String
 ) {
-    Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier.size(width = 42.dp, height = 48.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Surface(
             onClick = onClick,
             shape = CircleShape,
@@ -1511,7 +1605,7 @@ private fun HeaderCircleActionButton(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 6.dp, end = 6.dp)
+                    .padding(top = 6.dp, end = 3.dp)
                     .size(8.dp)
                     .clip(CircleShape)
                     .background(badgeColor)
@@ -1607,24 +1701,26 @@ private fun VibrantSideNotchCard(
                     }
                 }
 
-                Column {
-                    Text(
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    AutoSizeText(
                         text = spec.title,
                         fontFamily = DisplayArabicFontFamily,
-                        fontSize = 17.sp,
+                        maxFontSize = 17.sp,
+                        minFontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflowToTwoLinesAtMinSize = false,
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(3.dp))
-                    Text(
+                    AutoSizeText(
                         text = spec.subtitle,
-                        fontSize = 13.sp,
+                        maxFontSize = 13.sp,
+                        minFontSize = 9.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.White.copy(alpha = 0.95f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflowToTwoLinesAtMinSize = true,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
