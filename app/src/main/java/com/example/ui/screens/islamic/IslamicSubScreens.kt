@@ -293,206 +293,21 @@ fun AzkarDailySubScreen(
 ) {
     BackHandler { onBack() }
 
-    val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
-    val prefs = remember { context.getSharedPreferences("islamic_azkar_prefs", Context.MODE_PRIVATE) }
-    val todayKey = remember { LocalDate.now().toString() }
+    val initialWindow = remember {
+        com.example.domain.prayer.AdhkarAutoTriggerManager.recommendedCategoryForClock()
+    }
 
-    var selectedCategory by remember { mutableStateOf("MORNING") }
-    var playingAzkarResId by remember { mutableStateOf<Int?>(null) }
-    var isAzkarPaused by remember { mutableStateOf(false) }
-
-    LaunchedEffect(azanAudioPlayer) {
-        azanAudioPlayer.onCompletionCallback = {
-            playingAzkarResId = null
-            isAzkarPaused = false
-        }
-        azanAudioPlayer.onStateChangedCallback = {
-            isAzkarPaused = azanAudioPlayer.isPaused
-            playingAzkarResId = azanAudioPlayer.currentPlayingResId
+    DisposableEffect(azanAudioPlayer) {
+        onDispose {
+            azanAudioPlayer.stopAudio()
         }
     }
 
-    val morningAzkar = remember {
-        listOf(
-            AzkarItem("أَصْبَحْنَا وَأَصْبَحَ المُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ لاَ إِلَهَ إِلاَّ اللَّهُ وَحْدَهُ لاَ شَرِيكَ لَهُ", 1),
-            AzkarItem("اللَّهُمَّ بِكَ أَصْبَحْنَا، وَبِكَ أَمْسَيْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ وَإِلَيْكَ النُّشُورُ", 1),
-            AzkarItem("آيَةُ الْكُرْسِيِّ — اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ", 1),
-            AzkarItem("بِسْمِ اللَّهِ الَّذِي لاَ يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الأَرْضِ وَلاَ فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ", 3),
-            AzkarItem("رَضِيتُ بِاللَّهِ رَبَّاً، وَبِالإِسْلاَمِ دِينَاً، وَبِمُحَمَّدٍ صَلَّى اللَّهُ عَلَيْهِ وَسَلَّمَ نَبِيَّاً", 3),
-            AzkarItem("سُبْحَانَ اللَّهِ وَبِحَمْدِهِ: عَدَدَ خَلْقِهِ، وَرِضَا نَفْسِهِ، وَزِنَةَ عَرْشِهِ، وَمِدَادَ كَلِمَاتِهِ", 3),
-            AzkarItem("أَسْتَغْفِرُ اللَّهَ وَأَتُوبُ إِلَيْهِ", 100)
-        )
-    }
-
-    val eveningAzkar = remember {
-        listOf(
-            AzkarItem("أَمْسَيْنَا وَأَمْسَى المُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ لاَ إِلَهَ إِلاَّ اللَّهُ وَحْدَهُ لاَ شَرِيكَ لَهُ", 1),
-            AzkarItem("اللَّهُمَّ بِكَ أَمْسَيْنَا، وَبِكَ أَصْبَحْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ وَإِلَيْكَ المَصِيرُ", 1),
-            AzkarItem("آيَةُ الْكُرْسِيِّ — اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ", 1),
-            AzkarItem("أَعُوذُ بِكَلِمَاتِ اللَّهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ", 3),
-            AzkarItem("بِسْمِ اللَّهِ الَّذِي لاَ يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الأَرْضِ وَلاَ فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ", 3),
-            AzkarItem("سُبْحَانَ اللَّهِ وَبِحَمْدِهِ", 100)
-        )
-    }
-
-    val isMorning = selectedCategory == "MORNING"
-    val targetRes = if (isMorning) R.raw.azkar_sabah else R.raw.azkar_massa
-    val isCurrentPlaying = playingAzkarResId == targetRes
-    val isPlaying = isCurrentPlaying && !isAzkarPaused
-    val isPaused = isCurrentPlaying && isAzkarPaused
-    val activeList = if (isMorning) morningAzkar else eveningAzkar
-
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            IslamicTopBar(title = "أذكار الصباح والمساء", onBack = onBack)
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    FilterChip(
-                        selected = isMorning,
-                        onClick = { selectedCategory = "MORNING" },
-                        label = { Text("أذكار الصباح", fontWeight = FontWeight.Bold) },
-                        leadingIcon = { Icon(Icons.Default.WbSunny, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilterChip(
-                        selected = !isMorning,
-                        onClick = { selectedCategory = "EVENING" },
-                        label = { Text("أذكار المساء", fontWeight = FontWeight.Bold) },
-                        leadingIcon = { Icon(Icons.Default.NightsStay, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            item {
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = if (isMorning) "الاستماع لأذكار الصباح كاملة" else "الاستماع لأذكار المساء كاملة",
-                            fontFamily = DisplayArabicFontFamily,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    if (isPaused) azanAudioPlayer.resumeAudio()
-                                    else {
-                                        if (isMorning) azanAudioPlayer.playMorningAzkar() else azanAudioPlayer.playEveningAzkar()
-                                        playingAzkarResId = targetRes
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (isPlaying) "يعمل الآن" else "تشغيل")
-                            }
-                            OutlinedButton(
-                                onClick = { if (isPlaying) azanAudioPlayer.pauseAudio() },
-                                enabled = isPlaying,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("إيقاف مؤقت")
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    azanAudioPlayer.stopAudio()
-                                    playingAzkarResId = null
-                                },
-                                enabled = isCurrentPlaying,
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("إيقاف")
-                            }
-                        }
-                    }
-                }
-            }
-
-            itemsIndexed(activeList) { idx, azkar ->
-                val prefKey = "azkar_${todayKey}_${selectedCategory}_$idx"
-                var remaining by remember(prefKey) {
-                    mutableIntStateOf(prefs.getInt(prefKey, azkar.targetCount))
-                }
-                val isDone = remaining <= 0
-
-                Surface(
-                    onClick = {
-                        if (remaining > 0) {
-                            remaining -= 1
-                            prefs.edit().putInt(prefKey, remaining).apply()
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
-                    },
-                    shape = RoundedCornerShape(18.dp),
-                    color = if (isDone) Color(0xFFECFDF5) else MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(
-                        1.dp,
-                        if (isDone) Color(0xFF10B981).copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = azkar.text,
-                            fontFamily = QuranArabicFontFamily,
-                            fontSize = 18.sp,
-                            lineHeight = 30.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isDone) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Surface(
-                            shape = CircleShape,
-                            color = if (isDone) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = if (isDone) "✓" else "$remaining",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    com.example.ui.prayer.AutoAdhkarScreen(
+        azanAudioPlayer = azanAudioPlayer,
+        initialWindow = initialWindow,
+        onBack = onBack
+    )
 }
 
 @Composable

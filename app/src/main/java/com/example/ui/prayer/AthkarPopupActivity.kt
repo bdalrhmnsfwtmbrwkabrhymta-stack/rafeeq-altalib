@@ -161,6 +161,7 @@ fun AthkarPopupContent(
     onMuteAudioAndRead: () -> Unit,
     onOpenFullPrayerScreen: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val isMorning = athkarType == AthkarPopupActivity.TYPE_MORNING
     val isSalawat = athkarType == AthkarPopupActivity.TYPE_SALAWAT
 
@@ -178,6 +179,102 @@ fun AthkarPopupContent(
             // Auto dismiss screen after 2 minutes to save battery power
             onDismissScreenOnly()
         }
+    }
+
+    if (!isSalawat) {
+        val popupAudioPlayer = remember { com.example.data.audio.AzanAudioPlayer(context) }
+        DisposableEffect(popupAudioPlayer) {
+            onDispose { popupAudioPlayer.stopAudio() }
+        }
+        AutoAdhkarScreen(
+            azanAudioPlayer = popupAudioPlayer,
+            initialWindow = if (isMorning) {
+                com.example.domain.prayer.AdhkarWindow.MORNING
+            } else {
+                com.example.domain.prayer.AdhkarWindow.EVENING
+            },
+            onBack = onDismissScreenOnly,
+            footerContent = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF0F3D99).copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, Color(0xFF0F3D99).copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (isAutoDismissActive) {
+                                    val m = remainingSeconds / 60
+                                    val s = remainingSeconds % 60
+                                    "توفير الطاقة • إغلاق تلقائي %02d:%02d".format(m, s)
+                                } else {
+                                    "وضع القراءة المفتوحة"
+                                },
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF0F3D99),
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { isAutoDismissActive = !isAutoDismissActive }) {
+                                Text(
+                                    text = if (isAutoDismissActive) "إبقاء الشاشة" else "تفعيل التوفير",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                popupAudioPlayer.stopAudio()
+                                onStopAudioAndClose()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFDC2626),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Text("إيقاف وإغلاق", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isAudioPlaying = false
+                                isAutoDismissActive = false
+                                popupAudioPlayer.stopAudio()
+                                onMuteAudioAndRead()
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Text("كتم والقراءة", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        )
+        return
     }
 
     val title = when {

@@ -21,9 +21,11 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.OfflineBolt
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -117,102 +119,119 @@ fun QuranAudioTabContent(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Royal Blue Reciter Picker + Offline Downloads Card matching Mockup 5
+        // Stacked Layered Royal Blue Reciter Picker + Offline Downloads Card matching Mockup 5
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(QuranPalette.HeroGradient)
-                    .padding(18.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = if (isEnglish) "Choose Favorite Reciter" else "اختر القارئ المفضل",
-                            fontFamily = ReadexProFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.5.sp,
-                            color = Color.White
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Headphones,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.84f)
+                        .height(7.dp)
+                        .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
+                        .background(Color(0xFFDBEAFE))
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .height(7.dp)
+                        .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                        .background(Color(0xFF93C5FD))
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(QuranPalette.HeroGradient)
+                        .padding(18.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = if (isEnglish) "Choose Favorite Reciter" else "اختر القارئ المفضل",
+                                fontFamily = ReadexProFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.5.sp,
+                                color = Color.White
+                            )
+                        }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AVAILABLE_RECITERS.forEachIndexed { index, reciter ->
-                            val selected = index == selectedReciterIndex
-                            Surface(
-                                modifier = Modifier
-                                    .heightIn(min = 38.dp)
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .clickable { onSelectReciter(index) }
-                                    .testTag("reciter_chip_${reciter.id}"),
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (selected) Color.White else Color.White.copy(alpha = 0.18f)
-                            ) {
-                                Box(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AVAILABLE_RECITERS.forEachIndexed { index, reciter ->
+                                val selected = index == selectedReciterIndex
+                                Surface(
+                                    modifier = Modifier
+                                        .heightIn(min = 40.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .clickable { onSelectReciter(index) }
+                                        .testTag("reciter_chip_${reciter.id}"),
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (selected) Color.White else Color.White.copy(alpha = 0.22f)
                                 ) {
-                                    Text(
-                                        text = if (isEnglish) reciter.nameEn else reciter.nameAr.removePrefix("الشيخ ").replace(" (مرتل)", ""),
-                                        fontFamily = ReadexProFontFamily,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 12.5.sp,
-                                        color = if (selected) QuranPalette.RoyalBlue else Color.White,
-                                        maxLines = 1
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (selected) {
+                                            Icon(
+                                                imageVector = Icons.Default.RecordVoiceOver,
+                                                contentDescription = null,
+                                                tint = QuranPalette.RoyalBlue,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = if (isEnglish) reciter.nameEn else reciter.nameAr.replace(" (مرتل)", ""),
+                                            fontFamily = ReadexProFontFamily,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 12.5.sp,
+                                            color = if (selected) QuranPalette.RoyalBlue else Color.White,
+                                            maxLines = 1
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                        // Full-width translucent outlined pill button "+ تحميل وتنزيل بدون إنترنت" matching Mockup 5
                         Surface(
                             modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 42.dp)
-                                .clip(RoundedCornerShape(18.dp))
+                                .fillMaxWidth()
+                                .heightIn(min = 44.dp)
+                                .clip(RoundedCornerShape(22.dp))
                                 .clickable { audioSubFilter = "SURAHS" }
                                 .testTag("audio_download_shortcut"),
-                            shape = RoundedCornerShape(18.dp),
-                            color = Color.White
+                            shape = RoundedCornerShape(22.dp),
+                            color = Color.White.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.65f))
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                            Box(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudDownload,
-                                    contentDescription = null,
-                                    tint = QuranPalette.RoyalBlue,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isEnglish) "Download Offline" else "تحميل وتنزيل بدون نت",
+                                    text = if (isEnglish) "+ Download Offline" else "+ تحميل وتنزيل بدون إنترنت",
                                     fontFamily = ReadexProFontFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    color = QuranPalette.RoyalBlue,
+                                    fontSize = 13.5.sp,
+                                    color = Color.White,
                                     maxLines = 1
                                 )
                             }
@@ -220,16 +239,16 @@ fun QuranAudioTabContent(
 
                         Surface(
                             modifier = Modifier
-                                .heightIn(min = 42.dp)
-                                .clip(RoundedCornerShape(18.dp))
+                                .fillMaxWidth()
+                                .heightIn(min = 40.dp)
+                                .clip(RoundedCornerShape(20.dp))
                                 .clickable { filePickerLauncher.launch("audio/*") }
                                 .testTag("audio_import_device_button"),
-                            shape = RoundedCornerShape(18.dp),
-                            color = Color.White.copy(alpha = 0.18f),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f))
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White.copy(alpha = 0.22f)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
@@ -237,13 +256,13 @@ fun QuranAudioTabContent(
                                     imageVector = Icons.Default.FolderOpen,
                                     contentDescription = null,
                                     tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(17.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isEnglish) "Import" else "من الهاتف",
+                                    text = if (isEnglish) "Import Audio from Device" else "استيراد ملف صوتي من الهاتف",
                                     fontFamily = ReadexProFontFamily,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.SemiBold,
                                     fontSize = 12.sp,
                                     color = Color.White,
                                     maxLines = 1
@@ -263,7 +282,7 @@ fun QuranAudioTabContent(
                     onValueChange = { searchQuery = it },
                     placeholder = {
                         Text(
-                            text = if (isEnglish) "Search surah or juz..." else "ابحث عن سورة أو جزء...",
+                            text = if (isEnglish) "Search by juz number or surah name..." else "ابحث برقم الجزء أو اسم السورة...",
                             fontFamily = ReadexProFontFamily,
                             fontSize = 13.5.sp,
                             color = QuranPalette.SlateMuted
@@ -427,19 +446,46 @@ fun QuranAudioTabContent(
 
                             Spacer(modifier = Modifier.width(8.dp))
 
-                            Box(
+                            // Solid Royal Blue Pill CTA "[ ▶ استمع ]" matching Mockup 5
+                            Surface(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isPlayingThis) QuranPalette.RoyalBlue else QuranPalette.RoyalBlueSoft),
-                                contentAlignment = Alignment.Center
+                                    .heightIn(min = 38.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        val rawId = juzAudio.rawResId
+                                        if (rawId != null) {
+                                            onPlayRawAudio(rawId, juzAudio.titleAr, if (juzAudio.juzNumber > 0) juzAudio.juzNumber else null)
+                                        } else {
+                                            onPlayJuz(juzAudio.juzNumber)
+                                        }
+                                    },
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isPlayingThis) QuranPalette.RoyalBlueDark else QuranPalette.RoyalBlue
                             ) {
-                                Icon(
-                                    imageVector = if (isPlayingThis) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (isPlayingThis) "إيقاف مؤقت" else "تشغيل",
-                                    tint = if (isPlayingThis) Color.White else QuranPalette.RoyalBlue,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlayingThis) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (isPlayingThis) {
+                                            if (isEnglish) "Pause" else "إيقاف"
+                                        } else {
+                                            if (isEnglish) "Listen" else "استمع"
+                                        },
+                                        fontFamily = ReadexProFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color.White,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
@@ -546,22 +592,36 @@ fun QuranAudioTabContent(
                                 }
                             }
 
-                            IconButton(
-                                onClick = { onPlaySurah(surah.number, surah.nameAr, selectedReciterIndex) },
-                                modifier = Modifier.size(48.dp)
+                            Surface(
+                                modifier = Modifier
+                                    .heightIn(min = 38.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable { onPlaySurah(surah.number, surah.nameAr, selectedReciterIndex) },
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isPlayingThis) QuranPalette.RoyalBlueDark else QuranPalette.RoyalBlue
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isPlayingThis) QuranPalette.RoyalBlue else QuranPalette.RoyalBlueSoft),
-                                    contentAlignment = Alignment.Center
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
                                         imageVector = if (isPlayingThis) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = if (isPlayingThis) "إيقاف" else "تشغيل",
-                                        tint = if (isPlayingThis) Color.White else QuranPalette.RoyalBlue,
-                                        modifier = Modifier.size(22.dp)
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (isPlayingThis) {
+                                            if (isEnglish) "Pause" else "إيقاف"
+                                        } else {
+                                            if (isEnglish) "Listen" else "استمع"
+                                        },
+                                        fontFamily = ReadexProFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color.White,
+                                        maxLines = 1
                                     )
                                 }
                             }
@@ -617,18 +677,37 @@ fun QuranAudioTabContent(
                                     color = QuranPalette.SlateMuted
                                 )
                             }
-                            Box(
+                            Surface(
                                 modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(if (playing) QuranPalette.RoyalBlue else QuranPalette.RoyalBlueSoft),
-                                contentAlignment = Alignment.Center
+                                    .heightIn(min = 38.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        item.rawResId?.let { res ->
+                                            onPlayRawAudio(res, item.titleAr, if (item.juzNumber > 0) item.juzNumber else null)
+                                        }
+                                    },
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (playing) QuranPalette.RoyalBlueDark else QuranPalette.RoyalBlue
                             ) {
-                                Icon(
-                                    imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = if (playing) Color.White else QuranPalette.RoyalBlue
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (playing) "إيقاف" else "استمع",
+                                        fontFamily = ReadexProFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color.White
+                                    )
+                                }
                             }
                         }
                     }

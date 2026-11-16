@@ -67,27 +67,39 @@ class QuranUiOverhaulTest {
         }
         composeTestRule.waitForIdle()
 
-        // Verify calligraphic header and 4 non-duplicated tabs
+        // Verify calligraphic header, header icons, and 4 non-duplicated tabs
         composeTestRule.onNodeWithTag("quran_header_title").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("quran_header_downloads_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("quran_settings_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quran_tab_surahs").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quran_tab_juz").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quran_tab_audio").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quran_tab_khatmah").assertIsDisplayed()
+        composeTestRule.onNodeWithText("سورة الفاتحة (صفحة ١)").assertIsDisplayed()
         composeTestRule.onNodeWithTag("quran_continue_reading_button").assertIsDisplayed()
 
-        // Switch to Juz tab
+        // Switch to Juz tab (Mockup 4)
         composeTestRule.onNodeWithTag("quran_tab_juz").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("quran_juz_list").assertIsDisplayed()
         composeTestRule.onNodeWithText("الجزء الأول (الم)").assertIsDisplayed()
+        composeTestRule.onNodeWithText("سورة الفاتحة • صفحة ١ إلى ٢١").assertIsDisplayed()
 
-        // Switch to Audio tab
-        composeTestRule.onNodeWithTag("quran_tab_audio").performClick()
+        // Switch to Audio tab via header downloads button (Mockup 5)
+        composeTestRule.onNodeWithTag("quran_header_downloads_button").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("quran_audio_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithText("اختر القارئ المفضل").assertIsDisplayed()
         composeTestRule.onNodeWithTag("reciter_chip_alafasy").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("audio_download_shortcut").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("audio_import_device_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("quran_audio_screen")
+            .performScrollToNode(androidx.compose.ui.test.hasText("الجزء الأول (الم)"))
+        composeTestRule.onAllNodes(androidx.compose.ui.test.hasText("استمع")).fetchSemanticsNodes().let {
+            assertTrue("Expected Royal Blue 'استمع' pill buttons on Audio screen", it.isNotEmpty())
+        }
 
-        // Switch back to Surahs tab, scroll to Al-Fatihah card, and open full-screen Mushaf
+        // Switch back to Surahs tab, scroll to Al-Fatihah card, and open full-screen Mushaf (Mockup 2)
         composeTestRule.onNodeWithTag("quran_tab_surahs").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("quran_surahs_list")
@@ -100,7 +112,8 @@ class QuranUiOverhaulTest {
             composeTestRule.onAllNodesWithTag("mushaf_viewer_root").fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("mushaf_viewer_root").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("mushaf_segment_1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("mushaf_page_1_segment_1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("سُورَةُ ٱلْفَاتِحَةِ").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mushaf_page_indicator").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mushaf_zoom_badge").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mushaf_index_button").assertIsDisplayed()
@@ -108,6 +121,18 @@ class QuranUiOverhaulTest {
         composeTestRule.onNodeWithTag("mushaf_audio_button").assertIsDisplayed()
         composeTestRule.onNodeWithText("صفحة ١ من ٦٠٤").assertIsDisplayed()
         composeTestRule.onNodeWithText("100%").assertIsDisplayed()
+
+        // Jump to Page 2 (Al-Baqarah) via Quick Index Sheet and verify sequential Mockup 3 page
+        composeTestRule.onNodeWithTag("mushaf_index_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("سورة البقرة").performClick()
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithTag("mushaf_page_2_segment_2").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("سُورَةُ ٱلْبَقَرَةِ").assertIsDisplayed()
+        composeTestRule.onNodeWithText("صفحة ٢ من ٦٠٤").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("mushaf_page_2_segment_2").assertIsDisplayed()
 
         // Exit Mushaf back to Hub and restore bottom navigation bar
         composeTestRule.onNodeWithTag("mushaf_back_button").performClick()

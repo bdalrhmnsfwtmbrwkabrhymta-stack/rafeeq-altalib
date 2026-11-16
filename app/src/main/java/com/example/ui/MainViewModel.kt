@@ -1871,6 +1871,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (method != null) {
                 updatePrayerCalculationMethod(method)
             }
+            PrayerAlarmScheduler.rescheduleAll(getApplication())
         }
     }
 
@@ -1881,30 +1882,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             prefsRepo.updatePrayerCalculationMethod(methodName)
+            PrayerAlarmScheduler.rescheduleAll(getApplication())
         }
     }
 
     fun updatePrayerNotificationEnabled(enabled: Boolean) {
         viewModelScope.launch {
             prefsRepo.updatePrayerNotificationEnabled(enabled)
+            PrayerAlarmScheduler.rescheduleAll(getApplication())
         }
     }
 
     fun updateAdhanFullAudio(full: Boolean) {
         viewModelScope.launch {
             prefsRepo.updateAdhanFullAudio(full)
+            PrayerAlarmScheduler.rescheduleAll(getApplication())
+        }
+    }
+
+    fun updateSunriseAlertEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            prefsRepo.updateSunriseAlertEnabled(enabled)
+            PrayerAlarmScheduler.rescheduleAll(getApplication())
+        }
+    }
+
+    fun updateAutoUpdateHighQualityAudio(enabled: Boolean) {
+        viewModelScope.launch {
+            prefsRepo.updateAutoUpdateHighQualityAudio(enabled)
         }
     }
 
     fun toggleMutedPrayer(prayer: String) {
         viewModelScope.launch {
-            prefsRepo.toggleMutedPrayer(prayer)
+            if (prayer == "sunrise") {
+                val nextEnabled = !userSettings.value.isSunriseAlertEnabled
+                prefsRepo.updateSunriseAlertEnabled(nextEnabled)
+            } else {
+                prefsRepo.toggleMutedPrayer(prayer)
+            }
+            PrayerAlarmScheduler.rescheduleAll(getApplication())
         }
     }
 
     fun updateMuezzinVoice(voice: String) {
         viewModelScope.launch {
             prefsRepo.updateMuezzinVoice(voice)
+            PrayerAlarmScheduler.rescheduleAll(getApplication())
         }
     }
 

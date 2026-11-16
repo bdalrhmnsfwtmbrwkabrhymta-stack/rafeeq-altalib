@@ -69,13 +69,16 @@ object PrayerAlarmScheduler {
                 muezzinVoice = settings.muezzinVoice,
                 isFullAudio = settings.isAdhanFullAudio,
                 isEnabled = settings.isPrayerNotificationEnabled,
-                mutedPrayers = settings.mutedPrayers
+                mutedPrayers = settings.mutedPrayers,
+                isSunriseAlertEnabled = settings.isSunriseAlertEnabled
             )
 
-            scheduleAzkarAlarms(
+            AdhkarAutoTriggerManager.scheduleDynamicWindowAlarms(
                 context = context,
                 morningEnabled = settings.isMorningAzkarEnabled,
-                eveningEnabled = settings.isEveningAzkarEnabled
+                eveningEnabled = settings.isEveningAzkarEnabled,
+                todayResult = prayerResult,
+                tomorrowResult = tomorrowPrayerResult
             )
 
             scheduleSalawatReminder(
@@ -108,6 +111,15 @@ object PrayerAlarmScheduler {
         )
     }
 
+    fun shouldSchedulePrayer(
+        prayerId: String,
+        mutedPrayers: Set<String>,
+        isSunriseAlertEnabled: Boolean
+    ): Boolean {
+        if (prayerId == "sunrise" && !isSunriseAlertEnabled) return false
+        return !mutedPrayers.contains(prayerId)
+    }
+
     fun schedulePrayerAlarms(
         context: Context,
         prayerTimesResult: PrayerTimesResult,
@@ -116,7 +128,8 @@ object PrayerAlarmScheduler {
         muezzinVoice: String,
         isFullAudio: Boolean,
         isEnabled: Boolean,
-        mutedPrayers: Set<String>
+        mutedPrayers: Set<String>,
+        isSunriseAlertEnabled: Boolean = false
     ) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
@@ -146,7 +159,7 @@ object PrayerAlarmScheduler {
         )
 
         for ((prayerId, reqCode, prayerTimeData) in prayers) {
-            if (mutedPrayers.contains(prayerId)) continue
+            if (!shouldSchedulePrayer(prayerId, mutedPrayers, isSunriseAlertEnabled)) continue
 
             val todayMs = prayerTimeData.timestampMillis
             val tomorrowMs = tomorrowPrayersMap[prayerId] ?: (todayMs + 86400000L)

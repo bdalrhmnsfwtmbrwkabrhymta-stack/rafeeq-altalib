@@ -7,10 +7,18 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import com.example.R
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
 class AzanAudioPlayer(private val context: Context) {
 
     private var mediaPlayer: MediaPlayer? = null
     private val appContext = context.applicationContext
+    private var fadeInJob: Job? = null
+    private val audioScope = CoroutineScope(Dispatchers.Main)
 
     var onCompletionCallback: (() -> Unit)? = null
     var onStateChangedCallback: (() -> Unit)? = null
@@ -34,42 +42,58 @@ class AzanAudioPlayer(private val context: Context) {
         .setLegacyStreamType(AudioManager.STREAM_MUSIC)
         .build()
 
+    private val alarmAudioAttributes = AudioAttributes.Builder()
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .setUsage(AudioAttributes.USAGE_ALARM)
+        .setLegacyStreamType(AudioManager.STREAM_ALARM)
+        .build()
+
     fun playMakkahAzan() {
         AppAudioManager.stopAllNonAdhanAudio(appContext)
-        playRawSound(R.raw.azan_makkah_1)
+        playRawSoundWithFadeIn(R.raw.adhan_makkah_hq, useAlarmAttributes = false)
     }
 
     fun playCairoAzan() {
         AppAudioManager.stopAllNonAdhanAudio(appContext)
-        playRawSound(R.raw.adhan_cairo)
+        playRawSoundWithFadeIn(R.raw.adhan_egypt_mbc_hq, useAlarmAttributes = false)
     }
 
     fun playMoroccoAzan() {
         AppAudioManager.stopAllNonAdhanAudio(appContext)
-        playRawSound(R.raw.adhan_morocco)
+        playRawSoundWithFadeIn(R.raw.adhan_madinah_hq, useAlarmAttributes = false)
     }
 
     fun playAbdulbasitAzan() {
         AppAudioManager.stopAllNonAdhanAudio(appContext)
-        playRawSound(R.raw.azan_ali_mulla)
+        playRawSoundWithFadeIn(R.raw.adhan_egypt_mbc_hq, useAlarmAttributes = false)
     }
 
     fun playMinshawiAzan() {
         AppAudioManager.stopAllNonAdhanAudio(appContext)
-        playRawSound(R.raw.adhan_minshawi)
+        playRawSoundWithFadeIn(R.raw.adhan_madinah_hq, useAlarmAttributes = false)
     }
 
     fun playHussaryAzan() {
         AppAudioManager.stopAllNonAdhanAudio(appContext)
-        playRawSound(R.raw.adhan_hussary)
+        playRawSoundWithFadeIn(R.raw.adhan_madinah_hq, useAlarmAttributes = false)
     }
 
     fun playAliMullaAzan() {
         AppAudioManager.stopAllNonAdhanAudio(appContext)
-        playRawSound(R.raw.azan_makkah_1)
+        playRawSoundWithFadeIn(R.raw.adhan_makkah_hq, useAlarmAttributes = false)
     }
 
-    fun playMuezzin(muezzinId: String, muezzinName: String = "") {
+    fun playMadinahAzan() {
+        AppAudioManager.stopAllNonAdhanAudio(appContext)
+        playRawSoundWithFadeIn(R.raw.adhan_madinah_hq, useAlarmAttributes = false)
+    }
+
+    fun playMuezzin(
+        muezzinId: String,
+        muezzinName: String = "",
+        useAlarmAttributes: Boolean = true,
+        smoothFadeIn: Boolean = true
+    ) {
         AppAudioManager.stopAllNonAdhanAudio(appContext)
         val downloadedFile1 = com.example.domain.prayer.AdhanAudioDownloaderManager.getDownloadedVoiceFile(appContext, muezzinId)
         val downloadedFile2 = com.example.domain.prayer.AdhanAudioDownloaderManager.getDownloadedVoiceFile(appContext, muezzinName)
@@ -81,19 +105,32 @@ class AzanAudioPlayer(private val context: Context) {
         }
 
         if (fileToPlay != null) {
-            playLocalFile(fileToPlay)
+            playLocalFile(
+                file = fileToPlay,
+                useAlarmAttributes = useAlarmAttributes,
+                smoothFadeIn = smoothFadeIn
+            )
         } else {
             val resId = getRawResForMuezzin(muezzinId, muezzinName)
-            playRawSound(resId)
+            if (smoothFadeIn) {
+                playRawSoundWithFadeIn(resId, useAlarmAttributes = useAlarmAttributes)
+            } else {
+                playRawSound(resId)
+            }
         }
     }
 
-    fun playLocalFile(file: java.io.File, onFinish: (() -> Unit)? = null) {
+    fun playLocalFile(
+        file: java.io.File,
+        useAlarmAttributes: Boolean = false,
+        smoothFadeIn: Boolean = true,
+        onFinish: (() -> Unit)? = null
+    ) {
         stopAudio()
         ensureAudibleVolume()
         try {
             val mp = MediaPlayer()
-            mp.setAudioAttributes(audioAttributes)
+            mp.setAudioAttributes(if (useAlarmAttributes) alarmAudioAttributes else audioAttributes)
             mp.setDataSource(file.absolutePath)
             mp.setOnCompletionListener {
                 currentPlayingResId = null
@@ -112,9 +149,15 @@ class AzanAudioPlayer(private val context: Context) {
                 true
             }
             mp.prepare()
+            if (smoothFadeIn) {
+                mp.setVolume(0.06f, 0.06f)
+            }
             mp.start()
             mediaPlayer = mp
             isPaused = false
+            if (smoothFadeIn) {
+                startSmoothFadeIn(mp)
+            }
             onStateChangedCallback?.invoke()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -161,12 +204,67 @@ class AzanAudioPlayer(private val context: Context) {
     fun getRawResForMuezzin(muezzinId: String, muezzinName: String = ""): Int {
         val combined = "$muezzinId $muezzinName".lowercase()
         return when {
-            combined.contains("morocco") || combined.contains("المغرب") || combined.contains("مرعوش") -> R.raw.adhan_morocco
-            combined.contains("cairo") || combined.contains("القاهرة") || combined.contains("رفعت") -> R.raw.adhan_cairo
-            combined.contains("abdulbasit") || combined.contains("عبد الباسط") -> R.raw.azan_ali_mulla
-            combined.contains("minshawi") || combined.contains("المنشاوي") -> R.raw.adhan_minshawi
-            combined.contains("hussary") || combined.contains("الحصري") -> R.raw.adhan_hussary
-            else -> R.raw.azan_makkah_1
+            combined.contains("makkah") || combined.contains("مكة") || combined.contains("الحرم المكي") || combined.contains("ملا") -> R.raw.adhan_makkah_hq
+            combined.contains("madinah") || combined.contains("المدين") || combined.contains("النبوي") ||
+                combined.contains("mishary") || combined.contains("مشاري") || combined.contains("العفاسي") ||
+                combined.contains("الخاشع") || combined.contains("minshawi") || combined.contains("hussary") ||
+                combined.contains("morocco") -> R.raw.adhan_madinah_hq
+            else -> R.raw.adhan_egypt_mbc_hq
+        }
+    }
+
+    fun playRawSoundWithFadeIn(
+        rawResId: Int,
+        useAlarmAttributes: Boolean = true,
+        onFinish: (() -> Unit)? = null
+    ) {
+        stopAudio()
+        ensureAudibleVolume()
+        try {
+            val attrs = if (useAlarmAttributes) alarmAudioAttributes else audioAttributes
+            val player = createPreparedPlayerWithAttributes(rawResId, attrs)
+            if (player != null) {
+                currentPlayingResId = rawResId
+                isPaused = false
+                player.setOnCompletionListener {
+                    currentPlayingResId = null
+                    isPaused = false
+                    stopAudio()
+                    onFinish?.invoke()
+                    onCompletionCallback?.invoke()
+                    onStateChangedCallback?.invoke()
+                }
+                player.setVolume(0.06f, 0.06f)
+                player.start()
+                mediaPlayer = player
+                startSmoothFadeIn(player)
+                onStateChangedCallback?.invoke()
+            } else {
+                onFinish?.invoke()
+                onCompletionCallback?.invoke()
+                onStateChangedCallback?.invoke()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stopAudio()
+            onFinish?.invoke()
+        }
+    }
+
+    private fun startSmoothFadeIn(player: MediaPlayer) {
+        fadeInJob?.cancel()
+        fadeInJob = audioScope.launch {
+            val steps = 16
+            for (i in 1..steps) {
+                if (mediaPlayer !== player) break
+                val vol = (i.toFloat() / steps.toFloat()).coerceIn(0.06f, 1.0f)
+                try {
+                    player.setVolume(vol, vol)
+                } catch (_: Exception) {
+                    break
+                }
+                delay(100L)
+            }
         }
     }
 
@@ -353,12 +451,15 @@ class AzanAudioPlayer(private val context: Context) {
     }
 
     private fun createPreparedPlayer(rawResId: Int): MediaPlayer? {
-        // Try MediaPlayer.create first which properly resolves package raw resources
+        return createPreparedPlayerWithAttributes(rawResId, audioAttributes)
+    }
+
+    private fun createPreparedPlayerWithAttributes(rawResId: Int, attrs: AudioAttributes): MediaPlayer? {
         try {
-            val mp = MediaPlayer.create(appContext, rawResId, audioAttributes, 0)
+            val mp = MediaPlayer.create(appContext, rawResId, attrs, 0)
                 ?: MediaPlayer.create(appContext, rawResId)
             if (mp != null) {
-                mp.setOnErrorListener { player, what, extra ->
+                mp.setOnErrorListener { player, _, _ ->
                     try {
                         player.reset()
                         player.release()
@@ -375,18 +476,17 @@ class AzanAudioPlayer(private val context: Context) {
             }
         } catch (_: Exception) {}
 
-        // Fallback using AssetFileDescriptor
         var afd: AssetFileDescriptor? = null
         return try {
             afd = appContext.resources.openRawResourceFd(rawResId)
             if (afd != null) {
                 val mp = MediaPlayer()
-                mp.setAudioAttributes(audioAttributes)
+                mp.setAudioAttributes(attrs)
                 mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 afd.close()
                 afd = null
 
-                mp.setOnErrorListener { player, what, extra ->
+                mp.setOnErrorListener { player, _, _ ->
                     try {
                         player.reset()
                         player.release()
@@ -412,6 +512,8 @@ class AzanAudioPlayer(private val context: Context) {
     }
 
     fun stopAudio() {
+        fadeInJob?.cancel()
+        fadeInJob = null
         try {
             mediaPlayer?.let { player ->
                 try {

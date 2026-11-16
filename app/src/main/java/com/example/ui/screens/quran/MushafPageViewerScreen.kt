@@ -507,9 +507,10 @@ private fun MushafSinglePageCanvas(
             val density = androidx.compose.ui.platform.LocalDensity.current
             val reservedBannerAndBottomPx = with(density) { (54.dp + 10.dp + 32.dp + 8.dp).roundToPx() }
 
-            // For Page 1 (Al-Fatihah), automatically ensure ALL 7 ayahs fit completely inside
-            // the viewport height without scrolling or clipping.
-            val (page1FontSp, fitsInsideViewport) = remember(
+            // For Page 1 (Al-Fatihah), prefer exact PDF spec (24.sp, lineHeight = 1.95) whenever
+            // viewport height permits, gracefully scaling down only on ultra-compact viewports so
+            // all 7 ayahs always remain completely visible without clipping or scrolling.
+            val (page1FontSp, page1LineHeightMult, fitsInsideViewport) = remember(
                 page.pageNumber,
                 constraints.maxWidth,
                 constraints.maxHeight,
@@ -517,7 +518,7 @@ private fun MushafSinglePageCanvas(
                 reservedBannerAndBottomPx
             ) {
                 if (!isFatihahPage) {
-                    baseFontSp.coerceAtLeast(24f) to false
+                    Triple(baseFontSp.coerceAtLeast(24f), 1.95f, false)
                 } else {
                     val sampleText = buildAnnotatedString {
                         page.segments.forEach { seg ->
@@ -529,30 +530,47 @@ private fun MushafSinglePageCanvas(
                     }
                     val availHeightPx = (constraints.maxHeight - reservedBannerAndBottomPx).coerceAtLeast(100)
                     var candidateSp = 24f
+                    var chosenMult = 1.95f
                     var fits = false
-                    while (candidateSp >= 13f) {
-                        val measured = textMeasurer.measure(
-                            text = sampleText,
-                            style = androidx.compose.ui.text.TextStyle(
-                                fontFamily = AmiriQuranFontFamily,
-                                fontSize = candidateSp.sp,
-                                lineHeight = (candidateSp * 1.85f).sp,
-                                textAlign = TextAlign.Center
-                            ),
-                            constraints = Constraints(maxWidth = (constraints.maxWidth - 4).coerceAtLeast(80))
-                        )
-                        if (measured.size.height <= availHeightPx) {
-                            fits = true
-                            break
+
+                    val fullMeasured = textMeasurer.measure(
+                        text = sampleText,
+                        style = androidx.compose.ui.text.TextStyle(
+                            fontFamily = AmiriQuranFontFamily,
+                            fontSize = 24f.sp,
+                            lineHeight = (24f * 1.95f).sp,
+                            textAlign = TextAlign.Center
+                        ),
+                        constraints = Constraints(maxWidth = (constraints.maxWidth - 4).coerceAtLeast(80))
+                    )
+                    if (fullMeasured.size.height <= availHeightPx) {
+                        fits = true
+                    } else {
+                        chosenMult = 1.82f
+                        while (candidateSp >= 13f) {
+                            val measured = textMeasurer.measure(
+                                text = sampleText,
+                                style = androidx.compose.ui.text.TextStyle(
+                                    fontFamily = AmiriQuranFontFamily,
+                                    fontSize = candidateSp.sp,
+                                    lineHeight = (candidateSp * chosenMult).sp,
+                                    textAlign = TextAlign.Center
+                                ),
+                                constraints = Constraints(maxWidth = (constraints.maxWidth - 4).coerceAtLeast(80))
+                            )
+                            if (measured.size.height <= availHeightPx) {
+                                fits = true
+                                break
+                            }
+                            candidateSp -= 1f
                         }
-                        candidateSp -= 1f
                     }
-                    candidateSp.coerceAtLeast(13f) to fits
+                    Triple(candidateSp.coerceAtLeast(13f), chosenMult, fits)
                 }
             }
 
             val effectiveFontSp = if (isFatihahPage) page1FontSp else 24f.coerceAtLeast(baseFontSp)
-            val lineHeightSp = effectiveFontSp * if (isFatihahPage) 1.82f else 1.95f
+            val lineHeightSp = effectiveFontSp * if (isFatihahPage) page1LineHeightMult else 1.95f
             val scrollState = rememberScrollState()
 
             Column(
@@ -637,7 +655,7 @@ private fun MushafSinglePageCanvas(
                         textAlign = if (isFatihahPage || segment.ayahs.size <= 3) TextAlign.Center else TextAlign.Justify,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("mushaf_segment_${segment.surahInfo.number}")
+                            .testTag("mushaf_page_${page.pageNumber}_segment_${segment.surahInfo.number}")
                     )
                 }
             }

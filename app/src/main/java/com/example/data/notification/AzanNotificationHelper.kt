@@ -48,7 +48,7 @@ class AzanNotificationHelper(private val context: Context) {
                 .build()
 
             // Main Azan Channel
-            val mainAzanUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.azan_makkah_1)
+            val mainAzanUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.adhan_egypt_mbc_hq)
             val mainAzanChannel = NotificationChannel(
                 CHANNEL_AZAN_ID,
                 "الأذان ومواقيت الصلاة 🕌",
@@ -92,13 +92,13 @@ class AzanNotificationHelper(private val context: Context) {
             notificationManager.createNotificationChannel(salawatMainChannel)
 
             // 1. قناة أذان مكة المكرمة
-            val makkahUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.azan_makkah_1)
+            val makkahUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.adhan_makkah_hq)
             val makkahChannel = NotificationChannel(
                 CHANNEL_MAKKAH_ID,
-                "أذان مكة المكرمة 🕋",
+                "أذان الحرم المكي الشريف 🕋",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "إشعارات الأذان بصوت أذان مكة المكرمة"
+                description = "إشعارات الأذان بصوت أذان الحرم المكي الشريف"
                 setSound(makkahUri, audioAttributes)
                 enableVibration(true)
                 enableLights(true)
@@ -106,14 +106,14 @@ class AzanNotificationHelper(private val context: Context) {
             }
             notificationManager.createNotificationChannel(makkahChannel)
 
-            // 2. قناة أذان القاهرة
-            val cairoUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.adhan_cairo)
+            // 2. قناة الأذان المصري الأصيل
+            val cairoUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.adhan_egypt_mbc_hq)
             val cairoChannel = NotificationChannel(
                 CHANNEL_CAIRO_ID,
-                "أذان القاهرة 🇪🇬",
+                "الأذان المصري الأصيل (MBC وإذاعة القرآن) 🇪🇬",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "إشعارات الأذان بصوت أذان القاهرة"
+                description = "إشعارات الأذان بصوت الأذان المصري الأصيل"
                 setSound(cairoUri, audioAttributes)
                 enableVibration(true)
                 enableLights(true)
@@ -121,14 +121,14 @@ class AzanNotificationHelper(private val context: Context) {
             }
             notificationManager.createNotificationChannel(cairoChannel)
 
-            // 3. قناة أذان المغرب
-            val moroccoUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.adhan_morocco)
+            // 3. قناة الأذان الخاشع / المسجد النبوي
+            val moroccoUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.adhan_madinah_hq)
             val moroccoChannel = NotificationChannel(
                 CHANNEL_MOROCCO_ID,
-                "أذان المغرب 🇲🇦",
+                "الأذان الخاشع فائق النقاء 🕌",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "إشعارات الأذان بصوت أذان المغرب"
+                description = "إشعارات الأذان الخاشع فائق النقاء"
                 setSound(moroccoUri, audioAttributes)
                 enableVibration(true)
                 enableLights(true)
@@ -136,14 +136,14 @@ class AzanNotificationHelper(private val context: Context) {
             }
             notificationManager.createNotificationChannel(moroccoChannel)
 
-            // 4. قناة أذان مصر (عبد الباسط)
-            val aliMullaUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.azan_ali_mulla)
+            // 4. قناة إضافية للأذان الخاشع
+            val aliMullaUri = Uri.parse("android.resource://" + context.packageName + "/" + R.raw.adhan_madinah_hq)
             val aliMullaChannel = NotificationChannel(
                 CHANNEL_ALI_MULLA_ID,
-                "أذان مصر - الشيخ عبد الباسط 🕌",
+                "أذان المسجد النبوي الشريف 🕌",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "إشعارات الأذان بصوت الشيخ عبد الباسط عبد الصمد"
+                description = "إشعارات الأذان الخاشع فائق النقاء"
                 setSound(aliMullaUri, audioAttributes)
                 enableVibration(true)
                 enableLights(true)
@@ -244,16 +244,15 @@ class AzanNotificationHelper(private val context: Context) {
     fun showAzanNotification(
         title: String,
         message: String,
-        rawAudioResId: Int = R.raw.azan_makkah_1
+        rawAudioResId: Int = R.raw.adhan_egypt_mbc_hq
     ) {
         createAllNotificationChannels()
 
         val channelId = when (rawAudioResId) {
-            R.raw.adhan_cairo -> CHANNEL_CAIRO_ID
-            R.raw.adhan_morocco -> CHANNEL_MOROCCO_ID
-            R.raw.azan_ali_mulla -> CHANNEL_ALI_MULLA_ID
+            R.raw.adhan_makkah_hq -> CHANNEL_MAKKAH_ID
+            R.raw.adhan_madinah_hq -> CHANNEL_MOROCCO_ID
             R.raw.salli_ala_muhammad, R.raw.salawat_reminder -> CHANNEL_SALAWAT_ID
-            else -> CHANNEL_MAKKAH_ID
+            else -> CHANNEL_CAIRO_ID
         }
 
         // بناء المسار المباشر للملف الصوتي من مجلد res/raw

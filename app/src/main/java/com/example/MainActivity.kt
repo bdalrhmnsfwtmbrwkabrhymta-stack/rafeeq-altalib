@@ -321,10 +321,14 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
     var subRouteOrigin by remember { mutableStateOf("home") }
     var calculatorOriginRoute by remember { mutableStateOf("home") }
     var isMushafFullScreen by remember { mutableStateOf(false) }
+    var isDofaatiFullScreen by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentRoute) {
         if (currentRoute != "quran" && currentRoute != "quran_audio") {
             isMushafFullScreen = false
+        }
+        if (currentRoute != "dofaati") {
+            isDofaatiFullScreen = false
         }
     }
 
@@ -411,10 +415,10 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
             ) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val isLandscape = maxWidth > maxHeight && maxWidth >= 480.dp
-                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio"))
+                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
                     val showMainNav = currentRoute in listOf(
                         "home", "account", "quests", "quran", "quran_audio",
-                        "zakat", "library", "community", "games", "plans", "tools",
+                        "dofaati", "zakat", "library", "community", "games", "plans", "tools",
                         "schedule", "tasks"
                     ) && !isFullScreenPdfRoute
                     Scaffold(
@@ -560,6 +564,13 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
                                         currentRoute = next
                                     },
                                     onNavigateBack = { currentRoute = "home" }
+                                )
+                                "dofaati" -> com.hawas.study.dofaati.ui.screens.DofaatiNavigation(
+                                    onNavigateBackToApp = {
+                                        isDofaatiFullScreen = false
+                                        currentRoute = "home"
+                                    },
+                                    onFullScreenChanged = { isDofaatiFullScreen = it }
                                 )
                                 "zakat" -> ZakatCalculatorScreen(viewModel = mainViewModel, onNavigateBack = { currentRoute = "home" })
                                 "god_names" -> GodNamesScreen(viewModel = mainViewModel, onNavigateBack = { currentRoute = "home" })

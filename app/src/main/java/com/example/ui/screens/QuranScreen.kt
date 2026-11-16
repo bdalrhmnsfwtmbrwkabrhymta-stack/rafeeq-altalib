@@ -492,28 +492,32 @@ fun QuranScreen(
         }
     } else {
         // Main Unified Royal Blue & White Quran Hub
-    val (titleFirst, titleSecond, headerSubtitle) = when (activeTab) {
-        QuranTab.SURAHS -> Triple(
-            if (isEnglish) "Holy" else "ٱلْقُرْآنُ",
-            if (isEnglish) "Quran" else "ٱلْكَرِيمُ",
-            if (isEnglish) "114 Surahs • Recitation, Khatmah & Digital Mushaf" else "١١٤ سورة كاملة • تلاوة وختمة ومصحف رقمي"
-        )
-        QuranTab.JUZ -> Triple(
-            if (isEnglish) "Quran" else "أَجْزَاءُ",
-            if (isEnglish) "Ajza (30)" else "ٱلْقُرْآنِ",
-            if (isEnglish) "30 Sequential Ajza • 604 Mushaf Pages" else "٣٠ جزءاً مرتبة بالتسلسل • ٦٠٤ صفحات"
-        )
-        QuranTab.AUDIO -> Triple(
-            if (isEnglish) "Audio" else "التِّلَاوَاتُ",
-            if (isEnglish) "Recitations" else "الصَّوْتِيَّةُ",
-            if (isEnglish) "Listen & download Surahs and Ajza offline" else "استمع وحمّل السور والأجزاء بدون إنترنت"
-        )
-        QuranTab.KHATMAH -> Triple(
-            if (isEnglish) "Daily" else "الْوِرْدُ",
-            if (isEnglish) "Khatmah" else "وَالْخَتْمَةُ",
-            if (isEnglish) "Track your daily reading goal and bookmarks" else "نظّم وردك اليومي وتابع ختمة القرآن الكريم"
-        )
-    }
+        val headerConfig = when (activeTab) {
+            QuranTab.SURAHS -> listOf(
+                if (isEnglish) "Holy" else "ٱلْقُرْآنُ",
+                if (isEnglish) "Quran" else "ٱلْكَرِيمُ",
+                if (isEnglish) "30 Blessed Ajza • 114 Surahs" else "٣٠ جزءاً مباركاً • ١١٤ سورة"
+            )
+            QuranTab.JUZ -> listOf(
+                if (isEnglish) "Quran" else "أَجْزَاءُ",
+                if (isEnglish) "Ajza (30)" else "ٱلْقُرْآنِ",
+                if (isEnglish) "30 Sequential Ajza • 604 Mushaf Pages" else "٣٠ جزءاً مرتبة بالتسلسل • ٦٠٤ صفحات"
+            )
+            QuranTab.AUDIO -> listOf(
+                if (isEnglish) "Audio" else "التِّلَاوَاتُ",
+                if (isEnglish) "Recitations" else "الصَّوْتِيَّةُ",
+                if (isEnglish) "Listen & download Surahs and Ajza offline" else "استمع وحمّل السور والأجزاء بدون إنترنت"
+            )
+            QuranTab.KHATMAH -> listOf(
+                if (isEnglish) "Daily" else "الْوِرْدُ",
+                if (isEnglish) "Khatmah" else "وَالْخَتْمَةُ",
+                if (isEnglish) "Track your daily reading goal and bookmarks" else "نظّم وردك اليومي وتابع ختمة القرآن الكريم"
+            )
+        }
+        val titleFirst = headerConfig[0]
+        val titleSecond = headerConfig[1]
+        val headerSubtitle = headerConfig[2]
+        val firstWordBlue = activeTab == QuranTab.SURAHS || activeTab == QuranTab.AUDIO
 
     Column(
         modifier = Modifier
@@ -524,9 +528,11 @@ fun QuranScreen(
         QuranCalligraphicScreenHeader(
             firstWord = titleFirst,
             secondWord = titleSecond,
+            firstWordBlue = firstWordBlue,
             subtitle = headerSubtitle,
             isEnglish = isEnglish,
             onNavigateBack = onNavigateBack,
+            onOpenDownloads = { activeTab = QuranTab.AUDIO },
             onOpenSettings = { showSettingsSheet = true }
         )
 
@@ -539,9 +545,23 @@ fun QuranScreen(
         Box(modifier = Modifier.weight(1f)) {
             when (activeTab) {
                 QuranTab.SURAHS -> {
+                    val bookmarkPage = remember(
+                        userSettings.quranBookmarkSurah,
+                        userSettings.quranBookmarkAyah,
+                        mushafPages,
+                        allSurahInfoList
+                    ) {
+                        MushafPagePagination.findPageForSurahAyah(
+                            surahNumber = userSettings.quranBookmarkSurah,
+                            ayahNumber = userSettings.quranBookmarkAyah,
+                            pages = mushafPages,
+                            fallbackSurahInfo = allSurahInfoList
+                        )
+                    }
                     QuranSurahsHubContent(
                         allSurahInfoList = allSurahInfoList,
                         userSettings = userSettings,
+                        bookmarkPage = bookmarkPage,
                         searchQuery = searchQuery,
                         onSearchQueryChange = { viewModel.quranSearchQuery.value = it },
                         selectedFilter = selectedSurahFilter,
@@ -691,6 +711,7 @@ fun QuranScreen(
 private fun QuranSurahsHubContent(
     allSurahInfoList: List<SurahInfo>,
     userSettings: UserSettings,
+    bookmarkPage: Int,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     selectedFilter: String,
@@ -759,9 +780,9 @@ private fun QuranSurahsHubContent(
                             )
                             AutoSizeText(
                                 text = if (isEnglish)
-                                    "${userSettings.quranBookmarkSurahName} • Ayah ${userSettings.quranBookmarkAyah}"
+                                    "Surah ${userSettings.quranBookmarkSurahName} (Page $bookmarkPage)"
                                 else
-                                    "سورة ${userSettings.quranBookmarkSurahName} • آية ${formatArabicDigits(userSettings.quranBookmarkAyah)}",
+                                    "سورة ${userSettings.quranBookmarkSurahName} (صفحة ${formatArabicDigits(bookmarkPage)})",
                                 maxFontSize = 18.sp,
                                 minFontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
@@ -818,7 +839,7 @@ private fun QuranSurahsHubContent(
                     onValueChange = onSearchQueryChange,
                     placeholder = {
                         Text(
-                            text = if (isEnglish) "Search surah by name or number..." else "ابحث عن السورة بالاسم أو الرقم...",
+                            text = if (isEnglish) "Search surah by name or number..." else "ابحث عن اسم السورة أو رقمها...",
                             fontFamily = ReadexProFontFamily,
                             fontSize = 13.5.sp,
                             color = QuranPalette.SlateMuted

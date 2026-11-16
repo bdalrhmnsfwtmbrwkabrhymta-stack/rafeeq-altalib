@@ -15,6 +15,10 @@ data class MuezzinVoice(
     val id: String,
     val nameArabic: String,
     val nameEnglish: String,
+    val subtitleArabic: String = "نقاء استوديو 320 kbps • يعمل بدون إنترنت",
+    val bitrateLabel: String = "320\nkbps\nHD",
+    val rawResName: String = "adhan_egypt_mbc_hq",
+    val isDefaultPrimary: Boolean = false,
     val isOnlineAvailable: Boolean = true,
     val audioUrl: String = "",
     val previewUrl: String = ""
@@ -24,51 +28,39 @@ object PrayerDataConstants {
 
     val MUEZZIN_VOICES = listOf(
         MuezzinVoice(
-            id = "makkah",
-            nameArabic = "أذان مكة المكرمة (الشيخ علي ملا) 🕋",
-            nameEnglish = "Makkah Adhan - Sheikh Ali Mulla",
-            isOnlineAvailable = true,
-            audioUrl = "https://raw.githubusercontent.com/Kiwifu/adhan-mp3/main/Ali_Ibn_Ahmad_Mala_1_-_Al_Haram_Al_Maki_(%D8%B9%D9%84%D9%8A_%D8%A8%D9%86_%D8%A3%D8%AD%D9%85%D8%AF_%D9%85%D9%84%D8%A7_-_%D8%A7%D9%84%D8%AD%D8%B1%D9%85_%D8%A7%D9%84%D9%85%D9%83%D9%8A).mp3",
-            previewUrl = ""
-        ),
-        MuezzinVoice(
-            id = "cairo",
-            nameArabic = "أذان القاهرة (الشيخ محمد رفعت) 🇪🇬",
-            nameEnglish = "Cairo Adhan - Sheikh Mohamed Refaat",
+            id = "egypt_mbc_hq",
+            nameArabic = "الأذان المصري الأصيل (MBC وإذاعة القرآن)",
+            nameEnglish = "Authentic Egyptian Adhan (MBC & Quran Radio)",
+            subtitleArabic = "الصوت الافتراضي الأساسي • يعمل بدون إنترنت",
+            bitrateLabel = "320\nkbps\nHD",
+            rawResName = "adhan_egypt_mbc_hq",
+            isDefaultPrimary = true,
             isOnlineAvailable = true,
             audioUrl = "https://raw.githubusercontent.com/Kiwifu/adhan-mp3/main/Muhammad_Refaat_-_Cairo_(%D9%85%D8%AD%D9%85%D8%AF_%D8%B1%D9%81%D8%B9%D8%AA_-_%D8%A7%D9%84%D9%82%D8%A7%D9%87%D8%B1%D8%A9).mp3",
             previewUrl = ""
         ),
         MuezzinVoice(
-            id = "morocco",
-            nameArabic = "أذان المغرب (كمال المرعوش) 🇲🇦",
-            nameEnglish = "Morocco Adhan - Kamal Al-Marush",
+            id = "makkah_hq",
+            nameArabic = "أذان الحرم المكي الشريف",
+            nameEnglish = "Makkah Al-Haram Adhan (Sheikh Ali Mulla)",
+            subtitleArabic = "بصوت الشيخ علي أحمد ملا • يعمل بدون إنترنت",
+            bitrateLabel = "320\nkbps\nHD",
+            rawResName = "adhan_makkah_hq",
+            isDefaultPrimary = false,
             isOnlineAvailable = true,
-            audioUrl = "https://raw.githubusercontent.com/Kiwifu/adhan-mp3/main/Kamal_Muhammad_Al_Marush_2_-_Morocco_(%D9%83%D9%85%D8%A7%D9%84_%D9%85%D8%AD%D9%85%D8%AF_%D8%A7%D9%84%D9%85%D8%B1%D8%B9%D9%88%D8%B4_-_%D8%A7%D9%84%D9%85%D8%BA%D8%B1%D8%A8).mp3",
+            audioUrl = "https://raw.githubusercontent.com/Kiwifu/adhan-mp3/main/Ali_Ibn_Ahmad_Mala_1_-_Al_Haram_Al_Maki_(%D8%B9%D9%84%D9%8A_%D8%A8%D9%86_%D8%A3%D8%AD%D9%85%D8%AF_%D9%85%D9%84%D8%A7_-_%D8%A7%D9%84%D8%AD%D8%B1%D9%85_%D8%A7%D9%84%D9%85%D9%83%D9%8A).mp3",
             previewUrl = ""
         ),
         MuezzinVoice(
-            id = "abdulbasit",
-            nameArabic = "أذان مصر (الشيخ عبد الباسط عبد الصمد) 🇪🇬",
-            nameEnglish = "Egypt Adhan - Sheikh Abdul Basit",
+            id = "madinah_hq",
+            nameArabic = "الأذان الخاشع فائق النقاء",
+            nameEnglish = "Serene Pure Adhan (Al-Madinah & Alafasy)",
+            subtitleArabic = "أذان المسجد النبوي والشيخ العفاسي • يعمل بدون إنترنت",
+            bitrateLabel = "320\nkbps\nHD",
+            rawResName = "adhan_madinah_hq",
+            isDefaultPrimary = false,
             isOnlineAvailable = true,
-            audioUrl = "https://raw.githubusercontent.com/Kiwifu/adhan-mp3/main/Abdulbasit_Abdusamad_5_-_Cairo_(%D8%B9%D8%A8%D8%AF_%D8%A7%D9%84%D8%A8%D8%A7%D8%B3%D8%B7_%D8%B9%D8%A8%D8%AF_%D8%A7%D9%84%D8%B5%D9%85%D8%AF_-_%D8%A7%D9%84%D9%82%D8%A7%D9%87%D8%B1%D8%A9).mp3",
-            previewUrl = ""
-        ),
-        MuezzinVoice(
-            id = "minshawi",
-            nameArabic = "أذان مصر (الشيخ محمد صديق المنشاوي) 🇪🇬",
-            nameEnglish = "Egypt Adhan - Sheikh Mohamed Siddiq El-Minshawi",
-            isOnlineAvailable = true,
-            audioUrl = "https://raw.githubusercontent.com/Kiwifu/adhan-mp3/main/Mohamed_Siddiq_El-Minshawi_-_Egypt_1_(%D9%85%D8%AD%D9%85%D8%AF_%D8%B5%D8%AF%D9%8A%D9%82_%D8%A7%D9%84%D9%85%D9%86%D8%B4%D8%A7%D9%88%D9%8A_-_%D9%85%D8%B5%D8%B1).mp3",
-            previewUrl = ""
-        ),
-        MuezzinVoice(
-            id = "hussary",
-            nameArabic = "أذان مصر (الشيخ محمود خليل الحصري) 🇪🇬",
-            nameEnglish = "Egypt Adhan - Sheikh Mahmoud Khalil Al-Hussary",
-            isOnlineAvailable = true,
-            audioUrl = "https://raw.githubusercontent.com/Kiwifu/adhan-mp3/main/Mahmoud_Khalil_Al_Hussary_-_Cairo_(%D9%85%D8%AD%D9%85%D9%88%D8%AF_%D8%AE%D9%84%D9%8A%D9%84_%D8%A7%D9%84%D8%AD%D8%B5%D8%B1%D9%8A_-_%D8%A7%D9%84%D9%82%D8%A7%D9%87%D8%B1%D8%A9).mp3",
+            audioUrl = "https://archive.org/download/Azan_Madina_HQ/Azan_Madina_HQ.mp3",
             previewUrl = ""
         )
     )

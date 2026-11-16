@@ -3,11 +3,8 @@ package com.example.ui.screens.quran
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,6 +13,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -51,7 +49,7 @@ object QuranPalette {
     val RoyalBlue = Color(0xFF1A6FE3)
     val RoyalBlueDark = Color(0xFF1356B5)
     val RoyalBlueSoft = Color(0xFFEFF6FF)
-    val RoyalBlueTint = Color(0xFFDBEAFE)
+    val RoyalBlueTint = Color(0xFFBFDBFE)
     val NavyInk = Color(0xFF0F172A)
     val SlateBody = Color(0xFF475569)
     val SlateMuted = Color(0xFF64748B)
@@ -67,9 +65,11 @@ object QuranPalette {
 fun QuranCalligraphicScreenHeader(
     firstWord: String,
     secondWord: String,
+    firstWordBlue: Boolean = true,
     subtitle: String,
     isEnglish: Boolean,
     onNavigateBack: (() -> Unit)?,
+    onOpenDownloads: (() -> Unit)? = null,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -77,9 +77,9 @@ fun QuranCalligraphicScreenHeader(
         modifier = modifier
             .fillMaxWidth()
             .background(QuranPalette.Background)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        // Top row: Back icon (start/right in RTL) & Settings icon (end/left in RTL)
+        // Top row matching Mockups 1, 4 & 5: Back arrow on start (right in RTL), Downloads + Settings on end (left in RTL)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -95,7 +95,7 @@ fun QuranCalligraphicScreenHeader(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = if (isEnglish) "Back" else "رجوع",
-                        tint = QuranPalette.RoyalBlue,
+                        tint = QuranPalette.NavyInk,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -103,28 +103,48 @@ fun QuranCalligraphicScreenHeader(
                 Spacer(modifier = Modifier.size(48.dp))
             }
 
-            IconButton(
-                onClick = onOpenSettings,
-                modifier = Modifier
-                    .size(48.dp)
-                    .testTag("quran_settings_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = if (isEnglish) "Quran Settings" else "إعدادات المصحف والقراءة",
-                    tint = QuranPalette.RoyalBlue,
-                    modifier = Modifier.size(24.dp)
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onOpenDownloads != null) {
+                    IconButton(
+                        onClick = onOpenDownloads,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("quran_header_downloads_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.CloudDownload,
+                            contentDescription = if (isEnglish) "Offline Downloads" else "تنزيل التلاوات بدون إنترنت",
+                            tint = QuranPalette.SlateMuted,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("quran_settings_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = if (isEnglish) "Quran Settings" else "إعدادات المصحف والقراءة",
+                        tint = QuranPalette.RoyalBlue,
+                        modifier = Modifier.size(23.dp)
+                    )
+                }
             }
         }
 
         // Calligraphic 28.sp Amiri Bold Title (color-only spans to preserve Arabic ligatures)
+        val firstColor = if (firstWordBlue) QuranPalette.RoyalBlue else QuranPalette.NavyInk
+        val secondColor = if (firstWordBlue) QuranPalette.NavyInk else QuranPalette.RoyalBlue
         val styledTitle = buildAnnotatedString {
-            withStyle(SpanStyle(color = QuranPalette.NavyInk)) {
+            withStyle(SpanStyle(color = firstColor)) {
                 append(firstWord)
             }
             append(" ")
-            withStyle(SpanStyle(color = QuranPalette.RoyalBlue)) {
+            withStyle(SpanStyle(color = secondColor)) {
                 append(secondWord)
             }
         }
@@ -135,7 +155,7 @@ fun QuranCalligraphicScreenHeader(
             fontWeight = FontWeight.Bold,
             fontSize = 28.sp,
             lineHeight = 38.sp,
-            textAlign = TextAlign.Start,
+            textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp)
@@ -150,6 +170,7 @@ fun QuranCalligraphicScreenHeader(
             fontWeight = FontWeight.Medium,
             fontSize = 13.sp,
             color = QuranPalette.SlateMuted,
+            textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Clip,
             modifier = Modifier
@@ -159,6 +180,7 @@ fun QuranCalligraphicScreenHeader(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuranFourTabBar(
     activeTab: QuranTab,
@@ -166,21 +188,21 @@ fun QuranFourTabBar(
     onSelectTab: (QuranTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    // FlowRow displays all 4 tabs visibly at once on phones (clean 2x2 grid like Mockup 1) and single row on wide tablets
+    FlowRow(
         modifier = modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
             .testTag("quran_tabs_row"),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         QuranTab.entries.forEach { tab ->
             val isSelected = tab == activeTab
             val label = if (isEnglish) tab.titleEn else tab.titleAr
             Surface(
                 modifier = Modifier
-                    .heightIn(min = 42.dp)
+                    .heightIn(min = 40.dp)
                     .clip(RoundedCornerShape(22.dp))
                     .clickable { onSelectTab(tab) }
                     .testTag("quran_tab_${tab.name.lowercase()}"),
@@ -190,14 +212,14 @@ fun QuranFourTabBar(
                 shadowElevation = if (isSelected) 2.dp else 0.dp
             ) {
                 Box(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = label,
                         fontFamily = ReadexProFontFamily,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 13.5.sp,
+                        fontSize = 13.sp,
                         color = if (isSelected) Color.White else QuranPalette.SlateBody,
                         maxLines = 1,
                         softWrap = false,

@@ -64,7 +64,9 @@ data class UserSettings(
     val dstMode: String = "AUTO",
     val isPrayerNotificationEnabled: Boolean = true,
     val isAdhanFullAudio: Boolean = true,
-    val muezzinVoice: String = "أذان مكة المكرمة",
+    val isSunriseAlertEnabled: Boolean = false,
+    val isAutoUpdateHighQualityAudio: Boolean = true,
+    val muezzinVoice: String = "الأذان المصري الأصيل (MBC وإذاعة القرآن)",
     val mutedPrayers: Set<String> = emptySet(),
     val isMorningAzkarEnabled: Boolean = true,
     val morningAzkarHour: Int = 6,
@@ -154,6 +156,8 @@ class UserPreferencesRepository(private val context: Context) {
         val KEY_DST_MODE = stringPreferencesKey("dst_mode")
         val KEY_IS_PRAYER_NOTIF = booleanPreferencesKey("is_prayer_notification_enabled")
         val KEY_IS_ADHAN_FULL_AUDIO = booleanPreferencesKey("is_adhan_full_audio")
+        val KEY_IS_SUNRISE_ALERT_ENABLED = booleanPreferencesKey("is_sunrise_alert_enabled")
+        val KEY_AUTO_UPDATE_HQ_AUDIO = booleanPreferencesKey("auto_update_hq_audio")
         val KEY_MUEZZIN_VOICE = stringPreferencesKey("muezzin_voice")
         val KEY_MUTED_PRAYERS = stringSetPreferencesKey("muted_prayers")
         val KEY_IS_MORNING_AZKAR = booleanPreferencesKey("is_morning_azkar_enabled")
@@ -265,7 +269,9 @@ class UserPreferencesRepository(private val context: Context) {
                 dstMode = prefs[KEY_DST_MODE] ?: "AUTO",
                 isPrayerNotificationEnabled = prefs[KEY_IS_PRAYER_NOTIF] ?: true,
                 isAdhanFullAudio = prefs[KEY_IS_ADHAN_FULL_AUDIO] ?: true,
-                muezzinVoice = prefs[KEY_MUEZZIN_VOICE] ?: "أذان مكة المكرمة",
+                isSunriseAlertEnabled = prefs[KEY_IS_SUNRISE_ALERT_ENABLED] ?: false,
+                isAutoUpdateHighQualityAudio = prefs[KEY_AUTO_UPDATE_HQ_AUDIO] ?: true,
+                muezzinVoice = prefs[KEY_MUEZZIN_VOICE] ?: "الأذان المصري الأصيل (MBC وإذاعة القرآن)",
                 mutedPrayers = prefs[KEY_MUTED_PRAYERS] ?: emptySet(),
                 isMorningAzkarEnabled = prefs[KEY_IS_MORNING_AZKAR] ?: true,
                 morningAzkarHour = prefs[KEY_MORNING_AZKAR_HOUR] ?: 6,
@@ -463,6 +469,14 @@ class UserPreferencesRepository(private val context: Context) {
 
     suspend fun updateMuezzinVoice(voice: String) {
         context.dataStore.edit { it[KEY_MUEZZIN_VOICE] = voice }
+    }
+
+    suspend fun updateSunriseAlertEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_IS_SUNRISE_ALERT_ENABLED] = enabled }
+    }
+
+    suspend fun updateAutoUpdateHighQualityAudio(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_AUTO_UPDATE_HQ_AUDIO] = enabled }
     }
 
     suspend fun toggleMutedPrayer(prayer: String) {

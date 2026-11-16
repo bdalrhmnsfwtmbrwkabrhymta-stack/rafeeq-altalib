@@ -28,6 +28,8 @@ class AdhanPlaybackService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private val fadeHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var fadeRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -56,8 +58,8 @@ class AdhanPlaybackService : Service() {
 
         val prayerName = intent?.getStringExtra(EXTRA_PRAYER_NAME) ?: "الصلاة"
         val cityName = intent?.getStringExtra(EXTRA_CITY_NAME) ?: "القاهرة"
-        val muezzinVoice = intent?.getStringExtra(EXTRA_MUEZZIN) ?: "أذان مكة المكرمة"
-        val rawResId = intent?.getIntExtra(EXTRA_RAW_RES_ID, R.raw.azan_makkah_1) ?: R.raw.azan_makkah_1
+        val muezzinVoice = intent?.getStringExtra(EXTRA_MUEZZIN) ?: "الأذان المصري الأصيل (MBC وإذاعة القرآن)"
+        val rawResId = intent?.getIntExtra(EXTRA_RAW_RES_ID, R.raw.adhan_egypt_mbc_hq) ?: R.raw.adhan_egypt_mbc_hq
         val shouldPlayAudio = intent?.getBooleanExtra(EXTRA_SHOULD_PLAY_AUDIO, true) ?: true
 
         createChannel()
@@ -108,6 +110,7 @@ class AdhanPlaybackService : Service() {
                 }
 
                 prepare()
+                setVolume(0.06f, 0.06f)
                 setOnCompletionListener {
                     stopPlayback()
                     stopSelf()
@@ -120,6 +123,7 @@ class AdhanPlaybackService : Service() {
                 }
                 start()
             }
+            startSmoothFadeIn()
             isPlayingAdhan = true
         } catch (e: Exception) {
             Log.e(TAG, "Error starting Adhan audio playback", e)
@@ -207,8 +211,33 @@ class AdhanPlaybackService : Service() {
         }
     }
 
+    private fun startSmoothFadeIn() {
+        fadeRunnable?.let { fadeHandler.removeCallbacks(it) }
+        var step = 1
+        val totalSteps = 18
+        val runnable = object : Runnable {
+            override fun run() {
+                val player = mediaPlayer ?: return
+                val vol = (step.toFloat() / totalSteps.toFloat()).coerceIn(0.06f, 1.0f)
+                try {
+                    player.setVolume(vol, vol)
+                } catch (_: Exception) {
+                    return
+                }
+                if (step < totalSteps) {
+                    step++
+                    fadeHandler.postDelayed(this, 100L)
+                }
+            }
+        }
+        fadeRunnable = runnable
+        fadeHandler.postDelayed(runnable, 100L)
+    }
+
     private fun stopPlayback() {
         isPlayingAdhan = false
+        fadeRunnable?.let { fadeHandler.removeCallbacks(it) }
+        fadeRunnable = null
         try {
             mediaPlayer?.let { player ->
                 try {

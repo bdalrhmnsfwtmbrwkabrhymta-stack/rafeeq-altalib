@@ -48,7 +48,7 @@ fun OnlineMuezzinBankDialog(
     val filteredList = remember(filterCategory) {
         when (filterCategory) {
             "harameyn" -> AdhanAudioDownloaderManager.ONLINE_MUEZZIN_LIST.filter { it.id.contains("makkah") || it.id.contains("madina") || it.id.contains("aqsa") }
-            "egypt" -> AdhanAudioDownloaderManager.ONLINE_MUEZZIN_LIST.filter { it.id.contains("cairo") || it.id.contains("abdulbasit") || it.id.contains("minshawi") || it.id.contains("hussary") }
+            "egypt" -> AdhanAudioDownloaderManager.ONLINE_MUEZZIN_LIST.filter { it.id.contains("egypt") || it.id.contains("cairo") || it.id.contains("abdulbasit") || it.id.contains("minshawi") || it.id.contains("hussary") }
             else -> AdhanAudioDownloaderManager.ONLINE_MUEZZIN_LIST
         }
     }

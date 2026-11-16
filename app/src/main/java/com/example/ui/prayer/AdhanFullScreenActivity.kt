@@ -86,25 +86,69 @@ class AdhanFullScreenActivity : ComponentActivity() {
 
         val prayerName = intent.getStringExtra(EXTRA_PRAYER_NAME) ?: "الفجر"
         val cityName = intent.getStringExtra(EXTRA_CITY_NAME) ?: "القاهرة"
-        val muezzinVoice = intent.getStringExtra(EXTRA_MUEZZIN) ?: "أذان القاهرة"
+        val muezzinVoice = intent.getStringExtra(EXTRA_MUEZZIN) ?: "الأذان المصري الأصيل (MBC وإذاعة القرآن)"
         val autoPlay = intent.getBooleanExtra(EXTRA_AUTO_PLAY, true)
 
         azanPlayer = AzanAudioPlayer(this)
         if (autoPlay && !com.example.domain.prayer.AdhanPlaybackService.isPlayingAdhan) {
-            azanPlayer?.playMuezzin(muezzinVoice, muezzinVoice)
+            azanPlayer?.playMuezzin(
+                muezzinId = muezzinVoice,
+                muezzinName = muezzinVoice,
+                useAlarmAttributes = true,
+                smoothFadeIn = true
+            )
+        }
+
+        val stopAllAdhan = {
+            com.example.domain.prayer.AdhanPlaybackService.stop(this)
+            azanPlayer?.stopAudio()
+            com.example.data.audio.AppAudioManager.stopAllNonAdhanAudio(this)
         }
 
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 RafiqTheme {
-                    AdhanFullScreenContent(
+                    RealisticAnimatedAdhanScreen(
                         prayerName = prayerName,
                         cityName = cityName,
                         muezzinVoice = muezzinVoice,
+                        onOpenQibla = {
+                            stopAllAdhan()
+                            val qiblaIntent = Intent(this, com.example.MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                putExtra("NAVIGATE_TO", "qibla")
+                            }
+                            startActivity(qiblaIntent)
+                            finish()
+                        },
+                        onOpenNearbyMosques = {
+                            // Nearby mosques maps intent handled inside RealisticAnimatedAdhanScreen
+                        },
+                        onOpenMorningAdhkar = {
+                            stopAllAdhan()
+                            val adhkarIntent = Intent(this, AthkarPopupActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_MORNING)
+                            }
+                            startActivity(adhkarIntent)
+                            finish()
+                        },
                         onStopAdhan = {
-                            com.example.domain.prayer.AdhanPlaybackService.stop(this)
-                            azanPlayer?.stopAudio()
-                            com.example.data.audio.AppAudioManager.stopAllNonAdhanAudio(this)
+                            stopAllAdhan()
+                            val norm = prayerName.trim().lowercase()
+                            if (norm.contains("فجر") || norm.contains("fajr")) {
+                                val morningIntent = Intent(this, AthkarPopupActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                    putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_MORNING)
+                                }
+                                startActivity(morningIntent)
+                            } else if (norm.contains("عصر") || norm.contains("asr")) {
+                                val eveningIntent = Intent(this, AthkarPopupActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                    putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_EVENING)
+                                }
+                                startActivity(eveningIntent)
+                            }
                             finish()
                         }
                     )
@@ -114,15 +158,14 @@ class AdhanFullScreenActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || 
-            keyCode == KeyEvent.KEYCODE_VOLUME_UP || 
-            keyCode == KeyEvent.KEYCODE_POWER || 
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
+            keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+            keyCode == KeyEvent.KEYCODE_POWER ||
             keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
-            
+
             com.example.domain.prayer.AdhanPlaybackService.stop(this)
             azanPlayer?.stopAudio()
             com.example.data.audio.AppAudioManager.stopAllNonAdhanAudio(this)
-            // Just silence the alarm, keep the screen active for user to dismiss
             return true
         }
         return super.onKeyDown(keyCode, event)

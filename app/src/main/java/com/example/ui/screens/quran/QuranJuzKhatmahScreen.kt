@@ -211,26 +211,27 @@ fun QuranJuzTabContent(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Circular Royal Blue Outlined Play Button (48.dp touch target)
+                    // Circular Royal Blue Outlined Play Button matching Mockup 4 (48.dp touch target)
                     IconButton(
                         onClick = { onPlayJuzAudio(juz.number) },
                         modifier = Modifier
                             .size(48.dp)
                             .testTag("juz_play_button_${juz.number}")
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(if (isThisPlaying) QuranPalette.RoyalBlue else QuranPalette.RoyalBlueSoft),
-                            contentAlignment = Alignment.Center
+                        Surface(
+                            modifier = Modifier.size(38.dp),
+                            shape = CircleShape,
+                            color = if (isThisPlaying) QuranPalette.RoyalBlue else Color.White,
+                            border = BorderStroke(1.8.dp, QuranPalette.RoyalBlue)
                         ) {
-                            Icon(
-                                imageVector = if (isThisPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isEnglish) "Play Juz Audio" else "تشغيل تلاوة الجزء",
-                                tint = if (isThisPlaying) Color.White else QuranPalette.RoyalBlue,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isThisPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isEnglish) "Play Juz Audio" else "تشغيل تلاوة الجزء",
+                                    tint = if (isThisPlaying) Color.White else QuranPalette.RoyalBlue,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            }
                         }
                     }
                 }

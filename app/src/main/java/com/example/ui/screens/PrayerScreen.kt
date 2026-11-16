@@ -1589,7 +1589,7 @@ fun SalawatAndAzkarTabContent(
 }
 
 /**
- * Tab 1: Adhan & Muezzin Voice selection, Muting per prayer, and Fullscreen preview
+ * Tab 1: Adhan & Muezzin Voice selection, Prayer Alerts (Sunrise OFF by default), and Fullscreen preview
  */
 @Composable
 fun AzanAndMuezzinTabContent(
@@ -1602,37 +1602,20 @@ fun AzanAndMuezzinTabContent(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val prayerTimesResult by viewModel.prayerTimes.collectAsState()
     var showOnlineBankDialog by remember { mutableStateOf(false) }
-
-    val prayerList = listOf(
-        Triple("fajr", if (isEnglish) "Fajr 🌙" else "الفجر 🌙", R.raw.azan_makkah_1),
-        Triple("sunrise", if (isEnglish) "Sunrise 🌅" else "الشروق 🌅", R.raw.adhan_cairo),
-        Triple("dhuhr", if (isEnglish) "Dhuhr ☀️" else "الظهر ☀️", R.raw.adhan_cairo),
-        Triple("asr", if (isEnglish) "Asr 🌤️" else "العصر 🌤️", R.raw.adhan_cairo),
-        Triple("maghrib", if (isEnglish) "Maghrib 🌇" else "المغرب 🌇", R.raw.adhan_morocco),
-        Triple("isha", if (isEnglish) "Isha 🌌" else "العشاء 🌌", R.raw.azan_makkah_1)
-    )
-
-    val muezzinVoices = listOf(
-        Pair("أذان القاهرة (الشيخ محمد رفعت) 🇪🇬", R.raw.adhan_cairo),
-        Pair("أذان الشيخ عبد الباسط عبد الصمد 🇪🇬", R.raw.adhan_cairo),
-        Pair("أذان الحرم المكي الشريف 🕋", R.raw.azan_makkah_1),
-        Pair("أذان الحرم النبوي الشريف 🕌", R.raw.azan_makkah_1),
-        Pair("أذان المسجد الأقصى المبارك 🇵🇸", R.raw.adhan_cairo),
-        Pair("أذان المملكة المغربية 🇲🇦", R.raw.adhan_morocco),
-        Pair("أذان الشيخ ناصر القطامي 🇸🇦", R.raw.azan_makkah_1)
-    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(scrollState)
+            .padding(bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Global Adhan Notification Switch & Full Audio Mode
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
         ) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1643,14 +1626,14 @@ fun AzanAndMuezzinTabContent(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (isEnglish) "General Adhan Notification 🔔" else "التنبيه العام لمواقيت الأذان 🔔",
+                            text = if (isEnglish) "General Adhan Notification" else "التنبيه العام لمواقيت الأذان",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
                         Text(
                             text = if (userSettings.isPrayerNotificationEnabled) (if (isEnglish) "Adhan is active" else "الأذان مفعل بصوت واضح")
                             else (if (isEnglish) "All Adhan notifications muted" else "كافة تنبيهات الأذان مكتومة"),
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -1670,14 +1653,14 @@ fun AzanAndMuezzinTabContent(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (isEnglish) "Full Muezzin Adhan Audio 🔊" else "أذان كامل بصوت المؤذن 🔊",
+                            text = if (isEnglish) "Full Muezzin Adhan Audio" else "أذان كامل بصوت المؤذن",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
                         Text(
                             text = if (userSettings.isAdhanFullAudio) (if (isEnglish) "Full Adhan recital plays" else "يتم تشغيل التكبير والأذان كاملاً")
                             else (if (isEnglish) "Short notification chime" else "نغمة تنبيه هادئة ومختصرة"),
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -1690,148 +1673,89 @@ fun AzanAndMuezzinTabContent(
             }
         }
 
-        // Per-Prayer Muting Section (كتم أي أذان بشكل فردي)
+        // Per-Prayer Alerts & Manual-Only Sunrise Toggle (Mockup 5)
+        com.example.ui.prayer.PrayerAlertsSettingsScreen(
+            prayerTimes = prayerTimesResult,
+            mutedPrayers = userSettings.mutedPrayers,
+            isSunriseAlertEnabled = userSettings.isSunriseAlertEnabled,
+            onTogglePrayerMute = { prayerId -> viewModel.toggleMutedPrayer(prayerId) },
+            onToggleSunriseAlert = { enabled -> viewModel.updateSunriseAlertEnabled(enabled) },
+            showTopBar = false
+        )
+
+        // Studio-Grade 3-Voice HD Adhan Selector (Mockup 6)
+        com.example.ui.prayer.AdhanAudioSelectorScreen(
+            selectedVoiceName = userSettings.muezzinVoice,
+            isAutoUpdateHighQualityAudio = userSettings.isAutoUpdateHighQualityAudio,
+            playingVoiceId = previewVoiceId,
+            azanAudioPlayer = azanAudioPlayer,
+            onSelectVoice = { voiceName -> viewModel.updateMuezzinVoice(voiceName) },
+            onPreviewVoiceChange = onPreviewVoiceChange,
+            onToggleAutoUpdate = { enabled -> viewModel.updateAutoUpdateHighQualityAudio(enabled) },
+            embedded = true
+        )
+
+        // Optional Cloud HQ Audio Pack Sync + Photorealistic Fullscreen Adhan Previews (Mockups 1-4)
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            border = BorderStroke(1.dp, Color(0xFFDBEAFE))
         ) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = if (isEnglish) "Mute / Unmute Per Prayer (كتم وتفعيل الأذان لكل صلاة):" else "كتم وتفعيل الأذان لكل صلاة على حدة:",
+                    text = if (isEnglish) "Photorealistic Fullscreen Adhan Preview" else "معاينة شاشات الأذان التفاعلية حسب الوقت",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
+                    fontSize = 13.5.sp,
+                    color = Color(0xFF0F3D99)
                 )
 
-                prayerList.chunked(2).forEach { pair ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        pair.forEach { (id, name, _) ->
-                            val isMuted = userSettings.mutedPrayers.contains(id)
-                            FilterChip(
-                                selected = !isMuted,
-                                onClick = { viewModel.toggleMutedPrayer(id) },
-                                label = {
-                                    Text(
-                                        text = if (isMuted) "$name (🔕 مكتوم)" else "$name (🔔 مفعل)",
-                                        fontSize = 11.sp,
-                                        fontWeight = if (!isMuted) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                },
-                                modifier = Modifier.weight(1f)
+                val previewThemes = listOf("الفجر", "الشروق", "العصر", "المغرب")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    previewThemes.forEach { targetPrayer ->
+                        OutlinedButton(
+                            onClick = {
+                                val intent = Intent(context, com.example.ui.prayer.AdhanFullScreenActivity::class.java).apply {
+                                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_PRAYER_NAME, targetPrayer)
+                                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_CITY_NAME, userSettings.cityLocation)
+                                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_MUEZZIN, userSettings.muezzinVoice)
+                                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_AUTO_PLAY, true)
+                                }
+                                context.startActivity(intent)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("preview_adhan_$targetPrayer"),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) {
+                            Text(
+                                text = targetPrayer,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
                             )
                         }
                     }
                 }
-            }
-        }
 
-        // Muezzin Voices List with Audios
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = { showOnlineBankDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isEnglish) "Online Adhan Audio Bank (HQ Downloads) ☁️" else "بنك أصوات الأذان السحابي (تحميل جودة عالية) ☁️",
+                        text = if (isEnglish) "HD Adhan Audio Pack Manager (320 kbps)" else "إدارة ومزامنة باقات الأذان 320 kbps HD",
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.5.sp
-                    )
-                }
-
-                Text(
-                    text = if (isEnglish) "Or Select Muezzin Voice:" else "أو اختر صوت المؤذن المفضل:",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
-
-                muezzinVoices.forEach { (voiceName, soundRes) ->
-                    val isSelected = userSettings.muezzinVoice == voiceName
-                    val isPlayingPreview = previewVoiceId == voiceName
-
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { viewModel.updateMuezzinVoice(voiceName) }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = voiceName,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 13.sp,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = {
-                                        if (isPlayingPreview) {
-                                            azanAudioPlayer.stopAudio()
-                                            onPreviewVoiceChange(null)
-                                        } else {
-                                            onPreviewVoiceChange(voiceName)
-                                            azanAudioPlayer.playRawSound(soundRes)
-                                        }
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = if (isPlayingPreview) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                                        contentDescription = "Preview Voice",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                if (isSelected) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Test Fullscreen Adhan Activity
-                OutlinedButton(
-                    onClick = {
-                        val intent = Intent(context, com.example.ui.prayer.AdhanFullScreenActivity::class.java).apply {
-                            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_PRAYER_NAME, "الفجر")
-                            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_CITY_NAME, userSettings.cityLocation)
-                            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_MUEZZIN, userSettings.muezzinVoice)
-                            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_AUTO_PLAY, true)
-                        }
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.Mosque, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isEnglish) "Preview Fullscreen Mosque Adhan 🕌" else "تجربة شاشة الأذان بملء الشاشة مع خلفية المسجد 🕌",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
                     )
                 }
             }

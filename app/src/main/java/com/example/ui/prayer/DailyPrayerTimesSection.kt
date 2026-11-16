@@ -421,8 +421,8 @@ fun DailyPrayerTimesSection(
                     ) {
                         Button(
                             onClick = {
-                                val adhanRaw = if (nextPrayer.id == "fajr") R.raw.azan_makkah_1 else R.raw.adhan_cairo
-                                azanAudioPlayer.playRawSound(adhanRaw)
+                                val adhanRaw = if (nextPrayer.id == "fajr") R.raw.adhan_makkah_hq else R.raw.adhan_egypt_mbc_hq
+                                azanAudioPlayer.playRawSoundWithFadeIn(adhanRaw, useAlarmAttributes = false)
                                 Toast.makeText(
                                     context,
                                     if (isEnglish) "Playing Adhan for $nextPrayerDisplayName 🔊"
@@ -666,8 +666,8 @@ fun PrayerTimeRowCard(
                 if (prayer.id != "sunrise") {
                     IconButton(
                         onClick = {
-                            val raw = if (prayer.id == "fajr") R.raw.azan_makkah_1 else R.raw.adhan_cairo
-                            azanAudioPlayer.playRawSound(raw)
+                            val raw = if (prayer.id == "fajr") R.raw.adhan_makkah_hq else R.raw.adhan_egypt_mbc_hq
+                            azanAudioPlayer.playRawSoundWithFadeIn(raw, useAlarmAttributes = false)
                             Toast.makeText(
                                 context,
                                 if (isEnglish) "Playing Adhan: $displayName 🔊"

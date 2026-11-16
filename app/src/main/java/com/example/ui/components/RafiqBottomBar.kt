@@ -13,13 +13,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Assignment
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Assignment
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Person
@@ -53,7 +53,7 @@ enum class RafiqTab(
     ACCOUNT("account", "شخصي", Icons.Filled.Person, Icons.Outlined.Person),
     QUESTS("quests", "الاختبار", Icons.Filled.Assignment, Icons.Outlined.Assignment),
     QURAN("quran", "القرآن", Icons.Filled.MenuBook, Icons.Outlined.MenuBook),
-    PAYMENTS("zakat", "الدفعات", Icons.Filled.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet)
+    PAYMENTS("dofaati", "الدفعات", Icons.Filled.Groups, Icons.Outlined.Groups)
 }
 
 /**
@@ -127,7 +127,7 @@ private fun isRafiqTabSelected(tab: RafiqTab, currentRoute: String): Boolean {
         RafiqTab.ACCOUNT -> currentRoute in listOf("account", "settings", "app_theme", "theme")
         RafiqTab.QUESTS -> currentRoute in listOf("quests", "games", "brain_games", "chess")
         RafiqTab.QURAN -> currentRoute in listOf("quran", "quran_audio")
-        RafiqTab.PAYMENTS -> currentRoute == "zakat"
+        RafiqTab.PAYMENTS -> currentRoute == "dofaati"
     }
 }
 

@@ -108,6 +108,20 @@ object AzkarScheduler {
         val triggerTimeMs = targetCalendar.timeInMillis
         Log.i(TAG, "Scheduling Morning Azkar for timestamp: $triggerTimeMs (${targetCalendar.time})")
 
+        scheduleMorningAzkarAtTimestamp(context, triggerTimeMs)
+    }
+
+    fun scheduleMorningAzkarAtTimestamp(context: Context, triggerTimeMs: Long) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+            action = ACTION_MORNING_AZKAR
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REQ_MORNING_AZKAR,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         scheduleExactAlarm(context, alarmManager, triggerTimeMs, pendingIntent, isMorning = true)
     }
 
@@ -143,6 +157,20 @@ object AzkarScheduler {
         val triggerTimeMs = targetCalendar.timeInMillis
         Log.i(TAG, "Scheduling Evening Azkar for timestamp: $triggerTimeMs (${targetCalendar.time})")
 
+        scheduleEveningAzkarAtTimestamp(context, triggerTimeMs)
+    }
+
+    fun scheduleEveningAzkarAtTimestamp(context: Context, triggerTimeMs: Long) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+            action = ACTION_EVENING_AZKAR
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REQ_EVENING_AZKAR,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         scheduleExactAlarm(context, alarmManager, triggerTimeMs, pendingIntent, isMorning = false)
     }
 
