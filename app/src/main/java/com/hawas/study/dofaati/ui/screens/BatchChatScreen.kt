@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
@@ -31,19 +32,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.dofaati.DofaatiViewModel
 import com.hawas.study.dofaati.models.DofaatiChatMessage
 import com.hawas.study.dofaati.ui.theme.DofaatiAdaptiveScreenContainer
 import com.hawas.study.dofaati.ui.theme.DofaatiAudioWaveform
+import com.hawas.study.dofaati.ui.theme.DofaatiCard
 import com.hawas.study.dofaati.ui.theme.DofaatiColors
 import com.hawas.study.dofaati.ui.theme.DofaatiLtrText
 import com.hawas.study.dofaati.ui.theme.DofaatiRoyalBlueHeader
 import com.hawas.study.dofaati.ui.theme.formatDurationLtr
-import com.example.ui.theme.ReadexProFontFamily
 
 @Composable
 fun BatchChatAndAdminContainerScreen(viewModel: DofaatiViewModel) {
@@ -91,16 +94,23 @@ fun BatchChatScreen(
     val batches by viewModel.batches.collectAsStateWithLifecycle()
     val activeBatchId by viewModel.activeBatchId.collectAsStateWithLifecycle()
     val batch = remember(batches, activeBatchId) {
-        batches.firstOrNull { it.id == activeBatchId } ?: batches.first()
+        batches.firstOrNull { it.id == activeBatchId } ?: batches.firstOrNull()
     }
-    val messages by viewModel.chatMessages.collectAsStateWithLifecycle()
+    val allMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
+    val messages = remember(allMessages, batch) {
+        if (batch == null) emptyList() else allMessages.filter { it.batchId == batch.id }
+    }
     val replyingTo by viewModel.replyingToMessage.collectAsStateWithLifecycle()
     val playingAudioId by viewModel.playingAudioId.collectAsStateWithLifecycle()
     val progressFraction by viewModel.audioProgressFraction.collectAsStateWithLifecycle()
     val isRecording by viewModel.isRecordingVoice.collectAsStateWithLifecycle()
-    val joinRequests by viewModel.joinRequests.collectAsStateWithLifecycle()
+    val allJoinRequests by viewModel.joinRequests.collectAsStateWithLifecycle()
+    val pendingCount = remember(allJoinRequests, batch) {
+        if (batch == null) 0 else allJoinRequests.count { it.batchId == batch.id }
+    }
 
     var inputMessage by remember { mutableStateOf("") }
+    var showEditNoticeDialog by remember { mutableStateOf(false) }
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -116,7 +126,7 @@ fun BatchChatScreen(
             .testTag("batch_chat_screen")
     ) {
         DofaatiRoyalBlueHeader(
-            title = "شات الدفعة - ${batch.name}",
+            title = if (batch != null) "شات الدفعة - ${batch.name}" else "شات الدفعة",
             onNavigateBack = { viewModel.navigateBack() },
             trailingContent = {
                 TextButton(
@@ -127,7 +137,7 @@ fun BatchChatScreen(
                     Icon(Icons.Default.ManageAccounts, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "الطلبات (${joinRequests.size})",
+                        text = "الطلبات ($pendingCount)",
                         fontFamily = ReadexProFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp
@@ -137,49 +147,114 @@ fun BatchChatScreen(
             testTag = "batch_chat_header"
         )
 
-        // Orange Pinned Announcement Capsule (#F97316) matching Mockup 3
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .testTag("chat_pinned_orange_banner"),
-            shape = RoundedCornerShape(24.dp),
-            color = DofaatiColors.PinnedOrange,
-            shadowElevation = 2.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+        if (batch == null) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Campaign, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = batch.pinnedNotice,
-                    fontFamily = ReadexProFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = Color.White
-                )
+                DofaatiCard {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "لا توجد دفعة محددة",
+                            fontFamily = ReadexProFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = DofaatiColors.NavyInk
+                        )
+                        Text(
+                            text = "أنشئ دفعة أو انضم بكود من الشاشة الرئيسية أولاً.",
+                            fontFamily = ReadexProFontFamily,
+                            fontSize = 13.sp,
+                            color = DofaatiColors.SlateMuted,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+            return@Column
+        }
+
+        if (batch.pinnedNotice.isNotBlank()) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .clickable { showEditNoticeDialog = true }
+                    .testTag("chat_pinned_orange_banner"),
+                shape = RoundedCornerShape(24.dp),
+                color = DofaatiColors.PinnedOrange,
+                shadowElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Campaign, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = batch.pinnedNotice,
+                            fontFamily = ReadexProFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = Color.White
+                        )
+                    }
+                    Icon(Icons.Default.Edit, contentDescription = "تعديل التنبيه", tint = Color.White, modifier = Modifier.size(16.dp))
+                }
+            }
+        } else {
+            TextButton(
+                onClick = { showEditNoticeDialog = true },
+                modifier = Modifier
+                    .padding(horizontal = 14.dp, vertical = 2.dp)
+                    .align(Alignment.End)
+            ) {
+                Icon(Icons.Default.Campaign, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("تثبيت تنبيه للدفعة", fontFamily = ReadexProFontFamily, fontSize = 12.sp)
             }
         }
 
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(messages, key = { it.id }) { msg ->
-                ChatMessageBubble(
-                    message = msg,
-                    isPlaying = playingAudioId == msg.id,
-                    progressFraction = if (playingAudioId == msg.id) progressFraction else 0.35f,
-                    onPlayToggle = { viewModel.toggleAudioPlayback(msg.id) },
-                    onReply = { viewModel.setReplyMessage(msg) },
-                    onReact = { emoji -> viewModel.toggleMessageReaction(msg.id, emoji) }
+        if (messages.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "لا توجد رسائل بعد — ابدأ المحادثة أو أرسل تسجيلاً صوتياً حقيقياً لزملائك.",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 13.5.sp,
+                    color = DofaatiColors.SlateMuted,
+                    textAlign = TextAlign.Center
                 )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(messages, key = { it.id }) { msg ->
+                    ChatMessageBubble(
+                        message = msg,
+                        isPlaying = playingAudioId == msg.id,
+                        progressFraction = if (playingAudioId == msg.id) progressFraction else 0f,
+                        onPlayToggle = { viewModel.toggleAudioPlayback(msg.id, msg.audioUri) },
+                        onReply = { viewModel.setReplyMessage(msg) },
+                        onReact = { emoji -> viewModel.toggleMessageReaction(msg.id, emoji) }
+                    )
+                }
             }
         }
 
@@ -211,7 +286,6 @@ fun BatchChatScreen(
             }
         }
 
-        // Composer Row with Text Field, Send & Voice Recording
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = Color.White,
@@ -281,6 +355,39 @@ fun BatchChatScreen(
                 }
             }
         }
+    }
+
+    if (showEditNoticeDialog && batch != null) {
+        var noticeInput by remember(batch.pinnedNotice) { mutableStateOf(batch.pinnedNotice) }
+        AlertDialog(
+            onDismissRequest = { showEditNoticeDialog = false },
+            containerColor = Color.White,
+            title = { Text("التنبيه المثبت للدفعة", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = noticeInput,
+                    onValueChange = { noticeInput = it },
+                    placeholder = { Text("اتركه فارغاً لإزالة التنبيه...", fontFamily = ReadexProFontFamily) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.updatePinnedNotice(noticeInput)
+                        showEditNoticeDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue)
+                ) {
+                    Text("حفظ", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditNoticeDialog = false }) {
+                    Text("إلغاء", fontFamily = ReadexProFontFamily)
+                }
+            }
+        )
     }
 }
 
@@ -368,7 +475,7 @@ private fun ChatMessageBubble(
                     FilledIconButton(
                         onClick = onPlayToggle,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = DofaatiColors.RoyalBlue),
-                        modifier = Modifier.size(42.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -404,7 +511,6 @@ private fun ChatMessageBubble(
                 )
             }
 
-            // Emoji Reactions & Reply Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,

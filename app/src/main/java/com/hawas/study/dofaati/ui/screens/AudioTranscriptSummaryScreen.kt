@@ -2,6 +2,7 @@ package com.hawas.study.dofaati.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -13,6 +14,8 @@ import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,22 +45,70 @@ fun AudioTranscriptSummaryScreen(viewModel: DofaatiViewModel) {
     val activeLessonId by viewModel.activeLessonId.collectAsStateWithLifecycle()
     val playingAudioId by viewModel.playingAudioId.collectAsStateWithLifecycle()
     val audioProgress by viewModel.audioProgressFraction.collectAsStateWithLifecycle()
+    val isTranscribing by viewModel.isTranscribingAudio.collectAsStateWithLifecycle()
+    val isConverting by viewModel.isConvertingTranscript.collectAsStateWithLifecycle()
 
     val lesson = remember(lessons, activeLessonId) {
-        lessons.firstOrNull { it.id == activeLessonId } ?: lessons.first()
+        lessons.firstOrNull { it.id == activeLessonId } ?: lessons.firstOrNull()
     }
-    var isConverting by remember { mutableStateOf(false) }
 
-    val triggerConvertTo50: () -> Unit = {
-        if (!isConverting) {
-            isConverting = true
-            viewModel.convertCurrentTranscriptTo50Questions { generated ->
-                isConverting = false
-                viewModel.launchQuizFromQuestions(
-                    title = "تحدي ${lesson.title} (50 سؤال)",
-                    questions = generated
-                )
+    if (lesson == null) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DofaatiColors.Background)
+                .testTag("audio_transcript_root")
+        ) {
+            DofaatiRoyalBlueHeader(
+                title = "تفريغ الريكورد والملخص الذكي",
+                subtitle = "لا يوجد تسجيل صوتي محدد",
+                onNavigateBack = { viewModel.navigateBack() },
+                testTag = "audio_transcript_header"
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                DofaatiCard {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "سجّل أو ارفع مقطعاً صوتياً من صفحة المادة أولاً لتفريغه وتلخيصه.",
+                            fontFamily = ReadexProFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.5.sp,
+                            color = DofaatiColors.NavyInk,
+                            textAlign = TextAlign.Center
+                        )
+                        Button(
+                            onClick = { viewModel.navigateBack() },
+                            colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue)
+                        ) {
+                            Text("رجوع", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
+        }
+        return
+    }
+
+    var editableTranscript by remember(lesson.id, lesson.transcriptText) {
+        mutableStateOf(lesson.transcriptText)
+    }
+    var selectedQuestionCount by remember { mutableIntStateOf(20) }
+
+    val triggerConvertToQuiz: () -> Unit = {
+        viewModel.convertCurrentTranscriptToQuestions(questionCount = selectedQuestionCount) { generated ->
+            viewModel.launchQuizFromQuestions(
+                title = "تحدي ${lesson.title} (${generated.size} سؤال)",
+                questions = generated
+            )
         }
     }
 
@@ -80,15 +132,21 @@ fun AudioTranscriptSummaryScreen(viewModel: DofaatiViewModel) {
                         shadowElevation = 8.dp,
                         border = BorderStroke(1.dp, DofaatiColors.BorderSoft)
                     ) {
-                        Box(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .navigationBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            ConvertTranscriptTo50Button(
+                            QuestionCountChipRow(
+                                selectedCount = selectedQuestionCount,
+                                onSelect = { selectedQuestionCount = it }
+                            )
+                            ConvertTranscriptToQuestionsButton(
+                                selectedCount = selectedQuestionCount,
                                 isConverting = isConverting,
-                                onClick = triggerConvertTo50
+                                onClick = triggerConvertToQuiz
                             )
                         }
                     }
@@ -105,9 +163,23 @@ fun AudioTranscriptSummaryScreen(viewModel: DofaatiViewModel) {
                     item {
                         SyncedTranscriptAudioCard(
                             lesson = lesson,
+                            editableTranscript = editableTranscript,
+                            onTranscriptChange = { editableTranscript = it },
                             isPlaying = playingAudioId == lesson.id,
-                            progress = if (playingAudioId == lesson.id) audioProgress else 0.32f,
-                            onTogglePlay = { viewModel.toggleAudioPlayback(lesson.id) }
+                            progress = if (playingAudioId == lesson.id) audioProgress else 0f,
+                            isTranscribing = isTranscribing,
+                            onTogglePlay = { viewModel.toggleAudioPlayback(lesson.id, lesson.audioUri) },
+                            onSaveNotes = {
+                                viewModel.updateLessonTranscriptManual(
+                                    lessonId = lesson.id,
+                                    transcriptText = editableTranscript,
+                                    laws = lesson.extractedLaws,
+                                    examPoints = lesson.importantExamPoints
+                                )
+                            },
+                            onAiTranscribe = {
+                                viewModel.transcribeLessonWithAi(lesson.id, editableTranscript)
+                            }
                         )
                     }
                     item {
@@ -122,7 +194,7 @@ fun AudioTranscriptSummaryScreen(viewModel: DofaatiViewModel) {
         landscapeLeftPane = {
             Column(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 DofaatiRoyalBlueHeader(
                     title = "تفريغ الريكورد والملخص الذكي",
@@ -138,16 +210,35 @@ fun AudioTranscriptSummaryScreen(viewModel: DofaatiViewModel) {
                         item {
                             SyncedTranscriptAudioCard(
                                 lesson = lesson,
+                                editableTranscript = editableTranscript,
+                                onTranscriptChange = { editableTranscript = it },
                                 isPlaying = playingAudioId == lesson.id,
-                                progress = if (playingAudioId == lesson.id) audioProgress else 0.32f,
-                                onTogglePlay = { viewModel.toggleAudioPlayback(lesson.id) }
+                                progress = if (playingAudioId == lesson.id) audioProgress else 0f,
+                                isTranscribing = isTranscribing,
+                                onTogglePlay = { viewModel.toggleAudioPlayback(lesson.id, lesson.audioUri) },
+                                onSaveNotes = {
+                                    viewModel.updateLessonTranscriptManual(
+                                        lessonId = lesson.id,
+                                        transcriptText = editableTranscript,
+                                        laws = lesson.extractedLaws,
+                                        examPoints = lesson.importantExamPoints
+                                    )
+                                },
+                                onAiTranscribe = {
+                                    viewModel.transcribeLessonWithAi(lesson.id, editableTranscript)
+                                }
                             )
                         }
                     }
                 }
-                ConvertTranscriptTo50Button(
+                QuestionCountChipRow(
+                    selectedCount = selectedQuestionCount,
+                    onSelect = { selectedQuestionCount = it }
+                )
+                ConvertTranscriptToQuestionsButton(
+                    selectedCount = selectedQuestionCount,
                     isConverting = isConverting,
-                    onClick = triggerConvertTo50
+                    onClick = triggerConvertToQuiz
                 )
             }
         },
@@ -165,11 +256,51 @@ fun AudioTranscriptSummaryScreen(viewModel: DofaatiViewModel) {
 }
 
 @Composable
+private fun QuestionCountChipRow(
+    selectedCount: Int,
+    onSelect: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        listOf(10, 20, 50).forEach { count ->
+            val active = selectedCount == count
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onSelect(count) },
+                shape = RoundedCornerShape(10.dp),
+                color = if (active) DofaatiColors.RoyalBlueSoft else DofaatiColors.Background,
+                border = BorderStroke(1.dp, if (active) DofaatiColors.RoyalBlue else DofaatiColors.BorderSoft)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "$count سؤال",
+                        fontFamily = ReadexProFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = if (active) DofaatiColors.RoyalBlueDark else DofaatiColors.SlateMuted
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SyncedTranscriptAudioCard(
     lesson: DofaatiAudioLesson,
+    editableTranscript: String,
+    onTranscriptChange: (String) -> Unit,
     isPlaying: Boolean,
     progress: Float,
-    onTogglePlay: () -> Unit
+    isTranscribing: Boolean,
+    onTogglePlay: () -> Unit,
+    onSaveNotes: () -> Unit,
+    onAiTranscribe: () -> Unit
 ) {
     DofaatiCard(
         borderColor = DofaatiColors.RoyalBlueTint,
@@ -221,7 +352,7 @@ private fun SyncedTranscriptAudioCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "تفريغ نصي متزامن مع الصوت",
+                                text = "تفريغ نصي وملاحظات الدرس",
                                 fontFamily = ReadexProFontFamily,
                                 fontSize = 12.sp,
                                 color = DofaatiColors.SlateMuted
@@ -252,21 +383,65 @@ private fun SyncedTranscriptAudioCard(
             HorizontalDivider(color = DofaatiColors.BorderSoft)
 
             Text(
-                text = "النص الكامل للتفريغ:",
+                text = "نص التفريغ أو الملاحظات:",
                 fontFamily = ReadexProFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.5.sp,
                 color = DofaatiColors.RoyalBlueDark
             )
-            Text(
-                text = lesson.transcriptText,
-                fontFamily = ReadexProFontFamily,
-                fontWeight = FontWeight.Normal,
-                fontSize = 13.5.sp,
-                lineHeight = 22.sp,
-                color = DofaatiColors.NavyInk,
-                modifier = Modifier.testTag("transcript_full_text")
+
+            OutlinedTextField(
+                value = editableTranscript,
+                onValueChange = onTranscriptChange,
+                placeholder = {
+                    Text(
+                        text = "اضغط «تفريغ وتلخيص بالذكاء الاصطناعي» لقراءة الصوت مباشرة أو اكتب ملخص المحاضرة هنا...",
+                        fontFamily = ReadexProFontFamily,
+                        fontSize = 12.5.sp
+                    )
+                },
+                minLines = 4,
+                maxLines = 8,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("transcript_full_text")
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onAiTranscribe,
+                    enabled = !isTranscribing,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 46.dp)
+                        .testTag("btn_ai_transcribe_audio")
+                ) {
+                    if (isTranscribing) {
+                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("جاري التفريغ...", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                    } else {
+                        Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("تفريغ وتلخيص AI", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onSaveNotes,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.heightIn(min = 46.dp)
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("حفظ", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                }
+            }
         }
     }
 }
@@ -295,48 +470,57 @@ private fun ExtractedLawsCard(laws: List<String>) {
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "أهم القوانين المستخرجة",
+                    text = "أهم القوانين والمفاهيم المستخرجة",
                     fontFamily = ReadexProFontFamily,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
+                    fontSize = 15.5.sp,
                     color = DofaatiColors.NavyInk
                 )
             }
 
-            laws.forEachIndexed { idx, law ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = DofaatiColors.RoyalBlueSoft,
-                    border = BorderStroke(1.dp, DofaatiColors.RoyalBlueTint)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            if (laws.isEmpty()) {
+                Text(
+                    text = "ستظهر القوانين والمصطلحات الأساسية هنا فور تشغيل التفريغ الذكي.",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 12.5.sp,
+                    color = DofaatiColors.SlateMuted
+                )
+            } else {
+                laws.forEachIndexed { idx, law ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = DofaatiColors.RoyalBlueSoft,
+                        border = BorderStroke(1.dp, DofaatiColors.RoyalBlueTint)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(DofaatiColors.RoyalBlue),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(DofaatiColors.RoyalBlue),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${idx + 1}",
+                                    fontFamily = ReadexProFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp,
+                                    color = Color.White
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "${idx + 1}",
+                                text = law,
                                 fontFamily = ReadexProFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.5.sp,
-                                color = Color.White
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = DofaatiColors.NavyInk
                             )
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = law,
-                            fontFamily = ReadexProFontFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            color = DofaatiColors.NavyInk
-                        )
                     }
                 }
             }
@@ -371,35 +555,44 @@ private fun ImportantExamPointsCard(points: List<String>) {
                     text = "نقاط الامتحانات الهامة",
                     fontFamily = ReadexProFontFamily,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
+                    fontSize = 15.5.sp,
                     color = DofaatiColors.NavyInk
                 )
             }
 
-            points.forEach { pt ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = DofaatiColors.EmeraldGreen.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, DofaatiColors.EmeraldGreen.copy(alpha = 0.3f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.Top
+            if (points.isEmpty()) {
+                Text(
+                    text = "لم تُستخرج نقاط امتحانية بعد.",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 12.5.sp,
+                    color = DofaatiColors.SlateMuted
+                )
+            } else {
+                points.forEach { pt ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = DofaatiColors.EmeraldGreen.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, DofaatiColors.EmeraldGreen.copy(alpha = 0.3f))
                     ) {
-                        Text(
-                            text = "★",
-                            fontSize = 14.sp,
-                            color = DofaatiColors.AmberGold
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = pt,
-                            fontFamily = ReadexProFontFamily,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp,
-                            color = DofaatiColors.NavyInk
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text(
+                                text = "★",
+                                fontSize = 14.sp,
+                                color = DofaatiColors.AmberGold
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = pt,
+                                fontFamily = ReadexProFontFamily,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 13.sp,
+                                color = DofaatiColors.NavyInk
+                            )
+                        }
                     }
                 }
             }
@@ -408,7 +601,8 @@ private fun ImportantExamPointsCard(points: List<String>) {
 }
 
 @Composable
-private fun ConvertTranscriptTo50Button(
+private fun ConvertTranscriptToQuestionsButton(
+    selectedCount: Int,
     isConverting: Boolean,
     onClick: () -> Unit
 ) {
@@ -430,7 +624,7 @@ private fun ConvertTranscriptTo50Button(
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "جاري تقسيم التفريغ وتوليد 50 سؤالاً...",
+                text = "جاري توليد $selectedCount سؤالاً حقيقياً...",
                 fontFamily = ReadexProFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp
@@ -443,7 +637,7 @@ private fun ConvertTranscriptTo50Button(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "تحويل التفريغ إلى 50 سؤال تفاعلي >",
+                text = "تحويل التفريغ إلى $selectedCount سؤال تفاعلي >",
                 fontFamily = ReadexProFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.5.sp

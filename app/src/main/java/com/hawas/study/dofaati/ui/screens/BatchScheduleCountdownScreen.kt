@@ -11,7 +11,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.*
@@ -22,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -34,18 +37,25 @@ import com.hawas.study.dofaati.ui.theme.DofaatiColors
 import com.hawas.study.dofaati.ui.theme.DofaatiLtrText
 import com.hawas.study.dofaati.ui.theme.DofaatiRoyalBlueHeader
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 @Composable
 fun BatchScheduleCountdownScreen(viewModel: DofaatiViewModel) {
     val events by viewModel.scheduleEvents.collectAsStateWithLifecycle()
     val remindersEnabled by viewModel.scheduleRemindersEnabled.collectAsStateWithLifecycle()
 
-    var remainingSecondsInDay by remember { mutableIntStateOf(4 * 3600 + 28 * 60 + 42) }
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
-            if (remainingSecondsInDay > 0) remainingSecondsInDay--
+            nowMillis = System.currentTimeMillis()
         }
+    }
+
+    var showAddEventDialog by remember { mutableStateOf(false) }
+
+    val nearestUpcoming = remember(events, nowMillis) {
+        events.filter { it.targetTimestampMillis > nowMillis }.minByOrNull { it.targetTimestampMillis }
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -74,7 +84,7 @@ fun BatchScheduleCountdownScreen(viewModel: DofaatiViewModel) {
             ) {
                 DofaatiRoyalBlueHeader(
                     title = "جدول المواعيد والامتحانات القادمة",
-                    subtitle = "تنبيهات تلقائية واستخراج ذكي من صور الجداول",
+                    subtitle = "مواعيدك الحقيقية واستخراج ذكي من صور الجداول",
                     onNavigateBack = { viewModel.navigateBack() },
                     testTag = "schedule_header"
                 )
@@ -85,13 +95,37 @@ fun BatchScheduleCountdownScreen(viewModel: DofaatiViewModel) {
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     item {
-                        HeroExamCountdownCard(remainingSeconds = remainingSecondsInDay)
+                        HeroExamCountdownCard(
+                            nearestEvent = nearestUpcoming,
+                            nowMillis = nowMillis
+                        )
                     }
                     item {
-                        OcrScheduleScanButton(onClick = launchScheduleScanner)
+                        ScheduleActionButtonsRow(
+                            onAddManual = { showAddEventDialog = true },
+                            onScanImage = launchScheduleScanner
+                        )
                     }
-                    items(events, key = { it.id }) { ev ->
-                        GlowingScheduleEventCard(event = ev)
+                    if (events.isEmpty()) {
+                        item {
+                            DofaatiCard {
+                                Text(
+                                    text = "الجدول فارغ حالياً. أضف موعد محاضرة أو امتحان يدوياً أو امسح صورة جدولك.",
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 13.sp,
+                                    color = DofaatiColors.SlateMuted,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(20.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        items(events, key = { it.id }) { ev ->
+                            GlowingScheduleEventCard(
+                                event = ev,
+                                onDelete = { viewModel.deleteScheduleEvent(ev.id) }
+                            )
+                        }
                     }
                     item {
                         ScheduleReminderSwitchCard(
@@ -112,8 +146,11 @@ fun BatchScheduleCountdownScreen(viewModel: DofaatiViewModel) {
                     onNavigateBack = { viewModel.navigateBack() },
                     testTag = "schedule_header_land"
                 )
-                HeroExamCountdownCard(remainingSeconds = remainingSecondsInDay)
-                OcrScheduleScanButton(onClick = launchScheduleScanner)
+                HeroExamCountdownCard(nearestEvent = nearestUpcoming, nowMillis = nowMillis)
+                ScheduleActionButtonsRow(
+                    onAddManual = { showAddEventDialog = true },
+                    onScanImage = launchScheduleScanner
+                )
                 ScheduleReminderSwitchCard(
                     enabled = remindersEnabled,
                     onToggle = { viewModel.toggleScheduleNotifications(it) }
@@ -126,21 +163,53 @@ fun BatchScheduleCountdownScreen(viewModel: DofaatiViewModel) {
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(events, key = { it.id }) { ev ->
-                    GlowingScheduleEventCard(event = ev)
+                if (events.isEmpty()) {
+                    item {
+                        DofaatiCard {
+                            Text(
+                                text = "لا توجد مواعيد مضافة بعد.",
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 13.sp,
+                                color = DofaatiColors.SlateMuted,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(20.dp)
+                            )
+                        }
+                    }
+                } else {
+                    items(events, key = { it.id }) { ev ->
+                        GlowingScheduleEventCard(
+                            event = ev,
+                            onDelete = { viewModel.deleteScheduleEvent(ev.id) }
+                        )
+                    }
                 }
             }
         }
     )
+
+    if (showAddEventDialog) {
+        AddScheduleEventDialog(
+            onAdd = { title, subj, dayLabel, isExam, hours ->
+                viewModel.addManualScheduleEvent(
+                    title = title,
+                    subjectName = subj,
+                    dayAndTimeLabel = dayLabel,
+                    isExam = isExam,
+                    hoursFromNow = hours
+                )
+                showAddEventDialog = false
+            },
+            onDismiss = { showAddEventDialog = false }
+        )
+    }
 }
 
 @Composable
-private fun HeroExamCountdownCard(remainingSeconds: Int) {
-    val hours = remainingSeconds / 3600
-    val mins = (remainingSeconds % 3600) / 60
-    val secs = remainingSeconds % 60
-    val formattedClock = "02d : %02dh : %02dm : %02ds".format(java.util.Locale.US, hours, mins, secs)
-
+private fun HeroExamCountdownCard(
+    nearestEvent: DofaatiScheduleEvent?,
+    nowMillis: Long
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -154,57 +223,105 @@ private fun HeroExamCountdownCard(remainingSeconds: Int) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.AccessTime, contentDescription = null, tint = Color.White)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "باقي يومان و 4 ساعات على الامتحان الشامل",
-                    fontFamily = ReadexProFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.5.sp,
-                    color = Color.White
-                )
-            }
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color.White.copy(alpha = 0.16f)
-            ) {
-                DofaatiLtrText(
-                    text = formattedClock,
-                    fontSize = 17.sp,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
+            if (nearestEvent == null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AccessTime, contentDescription = null, tint = Color.White)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "لا توجد مواعيد أو امتحانات قادمة حالياً",
+                        fontFamily = ReadexProFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                val totalSecs = ((nearestEvent.targetTimestampMillis - nowMillis) / 1000L).coerceAtLeast(0L)
+                val days = totalSecs / 86_400L
+                val hours = (totalSecs % 86_400L) / 3_600L
+                val mins = (totalSecs % 3_600L) / 60L
+                val secs = totalSecs % 60L
+                val formattedClock = "%02dd : %02dh : %02dm : %02ds".format(Locale.US, days, hours, mins, secs)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AccessTime, contentDescription = null, tint = Color.White)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "الموعد القادم: ${nearestEvent.title}",
+                        fontFamily = ReadexProFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color.White
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.White.copy(alpha = 0.16f)
+                ) {
+                    DofaatiLtrText(
+                        text = formattedClock,
+                        fontSize = 17.sp,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun OcrScheduleScanButton(onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.5.dp, DofaatiColors.RoyalBlue),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(50.dp)
-            .testTag("btn_extract_schedule_ocr")
-    ) {
-        Icon(Icons.Default.DocumentScanner, contentDescription = null, tint = DofaatiColors.RoyalBlue)
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = "استخراج الموعد تلقائياً من صورة الجدول",
-            fontFamily = ReadexProFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            color = DofaatiColors.RoyalBlue
-        )
+private fun ScheduleActionButtonsRow(
+    onAddManual: () -> Unit,
+    onScanImage: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = onAddManual,
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("btn_add_schedule_manual")
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "+ إضافة موعد أو امتحان",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+        }
+        OutlinedButton(
+            onClick = onScanImage,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.5.dp, DofaatiColors.RoyalBlue),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("btn_extract_schedule_ocr")
+        ) {
+            Icon(Icons.Default.DocumentScanner, contentDescription = null, tint = DofaatiColors.RoyalBlue)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "استخراج الموعد تلقائياً من صورة الجدول",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.5.sp,
+                color = DofaatiColors.RoyalBlue
+            )
+        }
     }
 }
 
 @Composable
-private fun GlowingScheduleEventCard(event: DofaatiScheduleEvent) {
+private fun GlowingScheduleEventCard(
+    event: DofaatiScheduleEvent,
+    onDelete: () -> Unit
+) {
     val borderAccent = if (event.isExam) DofaatiColors.PinnedOrange else DofaatiColors.RoyalBlue
     Surface(
         modifier = Modifier
@@ -265,6 +382,9 @@ private fun GlowingScheduleEventCard(event: DofaatiScheduleEvent) {
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                 )
             }
+            IconButton(onClick = onDelete, modifier = Modifier.size(38.dp)) {
+                Icon(Icons.Default.DeleteOutline, contentDescription = "حذف الموعد", tint = DofaatiColors.RedAlert)
+            }
         }
     }
 }
@@ -297,7 +417,7 @@ private fun ScheduleReminderSwitchCard(
                         color = DofaatiColors.NavyInk
                     )
                     Text(
-                        text = "تنبيه ذكي قبل المحاضرات والامتحانات بساعة",
+                        text = "تنبيه ذكي قبل المحاضرات والامتحانات",
                         fontFamily = ReadexProFontFamily,
                         fontSize = 11.5.sp,
                         color = DofaatiColors.SlateMuted
@@ -315,4 +435,77 @@ private fun ScheduleReminderSwitchCard(
             )
         }
     }
+}
+
+@Composable
+private fun AddScheduleEventDialog(
+    onAdd: (title: String, subject: String, dayAndTime: String, isExam: Boolean, hoursFromNow: Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var subject by remember { mutableStateOf("") }
+    var dayLabel by remember { mutableStateOf("") }
+    var hoursText by remember { mutableStateOf("24") }
+    var isExam by remember { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        title = {
+            Text("إضافة موعد أو امتحان", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("عنوان الموعد", fontFamily = ReadexProFontFamily) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = subject,
+                    onValueChange = { subject = it },
+                    label = { Text("المادة الدراسية", fontFamily = ReadexProFontFamily) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = dayLabel,
+                    onValueChange = { dayLabel = it },
+                    label = { Text("اليوم والساعة (مثال: الخميس 5 مساءً)", fontFamily = ReadexProFontFamily) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = hoursText,
+                    onValueChange = { hoursText = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("بعد كم ساعة من الآن؟", fontFamily = ReadexProFontFamily) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = isExam, onCheckedChange = { isExam = it })
+                    Text("امتحان / اختبار مهم", fontFamily = ReadexProFontFamily, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = title.trim().isNotEmpty(),
+                onClick = {
+                    val hrs = hoursText.toIntOrNull()?.coerceIn(1, 24 * 90) ?: 24
+                    onAdd(title, subject, dayLabel, isExam, hrs)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue)
+            ) {
+                Text("حفظ", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إلغاء", fontFamily = ReadexProFontFamily)
+            }
+        }
+    )
 }

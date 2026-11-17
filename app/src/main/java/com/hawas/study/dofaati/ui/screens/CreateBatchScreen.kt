@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.dofaati.DofaatiViewModel
 import com.hawas.study.dofaati.models.DofaatiBatch
 import com.hawas.study.dofaati.models.UploadPermissionMode
@@ -37,7 +38,6 @@ import com.hawas.study.dofaati.ui.theme.DofaatiCard
 import com.hawas.study.dofaati.ui.theme.DofaatiColors
 import com.hawas.study.dofaati.ui.theme.DofaatiLtrText
 import com.hawas.study.dofaati.ui.theme.DofaatiRoyalBlueHeader
-import com.example.ui.theme.ReadexProFontFamily
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -56,13 +56,29 @@ fun CreateBatchScreen(viewModel: DofaatiViewModel) {
     var colorIndex by remember { mutableIntStateOf(0) }
     var batchName by remember { mutableStateOf("") }
     var newSubjectText by remember { mutableStateOf("") }
-    val subjects = remember { mutableStateListOf("فيزيا", "كيميا", "أحياء") }
+    val subjects = remember { mutableStateListOf<String>() }
     var uploadPermission by remember { mutableStateOf(UploadPermissionMode.ADMIN_ONLY) }
     var requireApproval by remember { mutableStateOf(true) }
     var createdBatchDialog by remember { mutableStateOf<DofaatiBatch?>(null) }
 
     val logoColor = Color(logoPalette[colorIndex])
-    val displayChar = batchName.trim().firstOrNull()?.toString() ?: "ت"
+    val displayChar = batchName.trim().firstOrNull()?.toString() ?: "د"
+
+    val submitBatch = {
+        val pendingSubject = newSubjectText.trim()
+        if (pendingSubject.isNotEmpty() && !subjects.contains(pendingSubject)) {
+            subjects.add(pendingSubject)
+            newSubjectText = ""
+        }
+        viewModel.createBatch(
+            batchName = batchName,
+            logoColorHex = logoPalette[colorIndex],
+            subjectNames = subjects.toList(),
+            uploadPermission = uploadPermission,
+            requireApproval = requireApproval,
+            onCreated = { created -> createdBatchDialog = created }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -107,7 +123,7 @@ fun CreateBatchScreen(viewModel: DofaatiViewModel) {
                                     newSubjectText = ""
                                 }
                             },
-                            onRemoveSubject = { s -> if (subjects.size > 1) subjects.remove(s) }
+                            onRemoveSubject = { s -> subjects.remove(s) }
                         )
                     }
                     item {
@@ -120,15 +136,7 @@ fun CreateBatchScreen(viewModel: DofaatiViewModel) {
                     }
                     item {
                         Button(
-                            onClick = {
-                                createdBatchDialog = viewModel.createBatch(
-                                    batchName = batchName.ifBlank { "تالتة ثانوي 2026" },
-                                    logoColorHex = logoPalette[colorIndex],
-                                    subjectNames = subjects.toList(),
-                                    uploadPermission = uploadPermission,
-                                    requireApproval = requireApproval
-                                )
-                            },
+                            onClick = submitBatch,
                             shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue),
                             modifier = Modifier
@@ -137,7 +145,7 @@ fun CreateBatchScreen(viewModel: DofaatiViewModel) {
                                 .testTag("btn_submit_create_batch")
                         ) {
                             Text(
-                                text = "اعمل الدفعة",
+                                text = "إنشاء الدفعة",
                                 fontFamily = ReadexProFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
@@ -157,22 +165,14 @@ fun CreateBatchScreen(viewModel: DofaatiViewModel) {
                         onCycleColor = { colorIndex = (colorIndex + 1) % logoPalette.size }
                     )
                     Button(
-                        onClick = {
-                            createdBatchDialog = viewModel.createBatch(
-                                batchName = batchName.ifBlank { "تالتة ثانوي 2026" },
-                                logoColorHex = logoPalette[colorIndex],
-                                subjectNames = subjects.toList(),
-                                uploadPermission = uploadPermission,
-                                requireApproval = requireApproval
-                            )
-                        },
+                        onClick = submitBatch,
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp)
                     ) {
-                        Text("اعمل الدفعة", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                        Text("إنشاء الدفعة", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
                     }
                 }
             },
@@ -195,7 +195,7 @@ fun CreateBatchScreen(viewModel: DofaatiViewModel) {
                                     newSubjectText = ""
                                 }
                             },
-                            onRemoveSubject = { s -> if (subjects.size > 1) subjects.remove(s) }
+                            onRemoveSubject = { s -> subjects.remove(s) }
                         )
                     }
                     item {
@@ -292,7 +292,7 @@ fun CreateBatchScreen(viewModel: DofaatiViewModel) {
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("واتساب", fontFamily = ReadexProFontFamily, fontSize = 12.5.sp)
+                            Text("مشاركة", fontFamily = ReadexProFontFamily, fontSize = 12.5.sp)
                         }
                     }
                 }
@@ -388,7 +388,7 @@ private fun BatchNameAndSubjectsSection(
                 value = batchName,
                 onValueChange = onBatchNameChange,
                 label = { Text("اسم الدفعة", fontFamily = ReadexProFontFamily) },
-                placeholder = { Text("مثال: تالتة ثانوي 2026", fontFamily = ReadexProFontFamily) },
+                placeholder = { Text("اكتب اسم دفعتك أو شعبتك...", fontFamily = ReadexProFontFamily) },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -401,30 +401,39 @@ private fun BatchNameAndSubjectsSection(
             )
 
             Text(
-                text = "المواد الدراسية:",
+                text = "المواد الدراسية (${subjects.size}):",
                 fontFamily = ReadexProFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
                 color = DofaatiColors.NavyInk
             )
 
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                subjects.forEach { subject ->
-                    InputChip(
-                        selected = true,
-                        onClick = { onRemoveSubject(subject) },
-                        label = { Text(subject, fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Medium) },
-                        trailingIcon = {
-                            Icon(Icons.Default.Close, contentDescription = "حذف $subject", modifier = Modifier.size(16.dp))
-                        },
-                        colors = InputChipDefaults.inputChipColors(
-                            selectedContainerColor = DofaatiColors.RoyalBlueSoft,
-                            selectedLabelColor = DofaatiColors.RoyalBlueDark
+            if (subjects.isEmpty()) {
+                Text(
+                    text = "أضف المواد الخاصة بدفعتك بالأسفل.",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 12.sp,
+                    color = DofaatiColors.SlateMuted
+                )
+            } else {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    subjects.forEach { subject ->
+                        InputChip(
+                            selected = true,
+                            onClick = { onRemoveSubject(subject) },
+                            label = { Text(subject, fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Medium) },
+                            trailingIcon = {
+                                Icon(Icons.Default.Close, contentDescription = "حذف $subject", modifier = Modifier.size(16.dp))
+                            },
+                            colors = InputChipDefaults.inputChipColors(
+                                selectedContainerColor = DofaatiColors.RoyalBlueSoft,
+                                selectedLabelColor = DofaatiColors.RoyalBlueDark
+                            )
                         )
-                    )
+                    }
                 }
             }
 
@@ -439,12 +448,12 @@ private fun BatchNameAndSubjectsSection(
                     placeholder = { Text("أضف مادة...", fontFamily = ReadexProFontFamily, fontSize = 13.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).testTag("create_batch_subject_input")
                 )
                 FilledIconButton(
                     onClick = onAddSubject,
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = DofaatiColors.RoyalBlue),
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(48.dp).testTag("btn_add_subject_chip")
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "إضافة مادة")
                 }

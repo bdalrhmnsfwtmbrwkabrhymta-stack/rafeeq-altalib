@@ -311,6 +311,17 @@ fun QuickShortcutsGrid(
             gradientTop = Color(0xFFEC4899),
             gradientBottom = Color(0xFF8B5CF6),
             glowColor = Color(0xFFA855F7)
+        ),
+        RealisticQuickShortcut(
+            id = "rafid_downloader",
+            titleAr = "رَافِد الذكي",
+            titleEn = "Rafid Media",
+            titleFr = "Rafid Médias",
+            icon = Icons.Default.CloudDownload,
+            route = "rafid",
+            gradientTop = Color(0xFF1E88E5),
+            gradientBottom = Color(0xFF1565C0),
+            glowColor = Color(0xFF1565C0)
         )
     )
 

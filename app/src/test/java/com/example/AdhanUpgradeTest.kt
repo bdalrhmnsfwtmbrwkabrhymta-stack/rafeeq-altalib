@@ -13,6 +13,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.audio.AzanAudioPlayer
 import com.example.data.preferences.UserSettings
@@ -89,6 +91,13 @@ class AdhanUpgradeTest {
             AdhkarWindow.NONE,
             AdhkarAutoTriggerManager.detectActiveAdhkarWindow(
                 fajrMs, sunriseMs, dhuhrMs, asrMs, maghribMs,
+                nowMs = sunriseMs + 1_000L
+            )
+        )
+        assertEquals(
+            AdhkarWindow.NONE,
+            AdhkarAutoTriggerManager.detectActiveAdhkarWindow(
+                fajrMs, sunriseMs, dhuhrMs, asrMs, maghribMs,
                 nowMs = dhuhrMs + 60_000L
             )
         )
@@ -103,7 +112,7 @@ class AdhanUpgradeTest {
             AdhkarWindow.NONE,
             AdhkarAutoTriggerManager.detectActiveAdhkarWindow(
                 fajrMs, sunriseMs, dhuhrMs, asrMs, maghribMs,
-                nowMs = maghribMs + 60 * 60_000L
+                nowMs = maghribMs + 1_000L
             )
         )
     }
@@ -178,13 +187,22 @@ class AdhanUpgradeTest {
     }
 
     @Test
-    fun realisticAnimatedAdhanRendersSunriseWithMorningAdhkarCtaAndFajrTheme() {
+    fun realisticAnimatedAdhanRendersSunriseWithMorningAdhkarCtaAndAllSixRealMosqueSlots() {
         assertEquals(PrayerTimeVisualTheme.FAJR, resolvePrayerVisualTheme("الفجر"))
         assertEquals(PrayerTimeVisualTheme.SUNRISE, resolvePrayerVisualTheme("الشروق"))
         assertEquals(PrayerTimeVisualTheme.DHUHR_ASR, resolvePrayerVisualTheme("العصر"))
         assertEquals(PrayerTimeVisualTheme.MAGHRIB_ISHA, resolvePrayerVisualTheme("المغرب"))
 
+        assertEquals(R.drawable.bg_mosque_fajr, com.example.ui.prayer.resolvePrayerBackgroundSlot("الفجر").photoRes)
+        assertEquals(R.drawable.bg_mosque_sunrise, com.example.ui.prayer.resolvePrayerBackgroundSlot("الشروق").photoRes)
+        assertEquals(R.drawable.bg_mosque_dhuhr, com.example.ui.prayer.resolvePrayerBackgroundSlot("الظهر").photoRes)
+        assertEquals(R.drawable.bg_mosque_asr, com.example.ui.prayer.resolvePrayerBackgroundSlot("العصر").photoRes)
+        assertEquals(R.drawable.bg_mosque_maghrib, com.example.ui.prayer.resolvePrayerBackgroundSlot("المغرب").photoRes)
+        assertEquals(R.drawable.bg_mosque_isha, com.example.ui.prayer.resolvePrayerBackgroundSlot("العشاء").photoRes)
+
         var morningClicked = false
+        var qiblaClicked = false
+        var stoppedBySwipe = false
         composeTestRule.setContent {
             RafiqTheme {
                 var prayer by remember { mutableStateOf("الشروق") }
@@ -194,21 +212,38 @@ class AdhanUpgradeTest {
                     muezzinVoice = "الأذان المصري الأصيل (MBC وإذاعة القرآن)",
                     formattedClockTime = "06:18",
                     formattedAmPm = "ص",
-                    onOpenQibla = {},
+                    onOpenQibla = { qiblaClicked = true },
                     onOpenNearbyMosques = {},
                     onOpenMorningAdhkar = { morningClicked = true },
-                    onStopAdhan = { prayer = "الفجر" }
+                    onStopAdhan = {
+                        stoppedBySwipe = true
+                        prayer = "الفجر"
+                    }
                 )
             }
         }
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("realistic_adhan_root").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("adhan_unified_glass_header").assertIsDisplayed()
         composeTestRule.onNodeWithTag("adhan_prayer_title").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("adhan_qibla_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("adhan_nearby_mosques_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("adhan_swipe_dismiss_pill").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("adhan_swipe_thumb").assertIsDisplayed()
+
         composeTestRule.onNodeWithTag("sunrise_morning_adhkar_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("sunrise_morning_adhkar_button").performClick()
+        composeTestRule.onNodeWithTag("adhan_qibla_button").performClick()
+
+        // Drag thumb right-to-left (from its start position on the right toward the left end)
+        composeTestRule.onNodeWithTag("adhan_swipe_thumb").performTouchInput {
+            swipeLeft(startX = centerX, endX = -220f, durationMillis = 300)
+        }
         composeTestRule.waitForIdle()
         assertTrue(morningClicked)
+        assertTrue(qiblaClicked)
+        assertTrue(stoppedBySwipe)
     }
 
     @Test

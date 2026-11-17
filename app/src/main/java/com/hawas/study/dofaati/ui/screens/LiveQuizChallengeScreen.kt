@@ -14,7 +14,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,10 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,21 +37,65 @@ import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.dofaati.DofaatiViewModel
 import com.hawas.study.dofaati.models.DofaatiQuestionItem
 import com.hawas.study.dofaati.models.LiveChallengeSessionState
+import com.hawas.study.dofaati.ui.theme.DofaatiCard
 import com.hawas.study.dofaati.ui.theme.DofaatiColors
 import com.hawas.study.dofaati.ui.theme.DofaatiLtrText
 
 private val QuizPillPalette = listOf(
-    Color(0xFFEF4444), // Red
     Color(0xFF1D4ED8), // Royal Blue
-    Color(0xFFD97706), // Amber
-    Color(0xFF10B981)  // Emerald
+    Color(0xFF2563EB), // Bright Blue
+    Color(0xFF0284C7), // Sky Deep
+    Color(0xFF334155)  // Slate
 )
 
 @Composable
 fun LiveQuizChallengeScreen(viewModel: DofaatiViewModel) {
     val state by viewModel.liveChallenge.collectAsStateWithLifecycle()
     val currentQuestion = state.questions.getOrNull(state.currentQuestionIndex)
-        ?: DofaatiViewModel.buildDefaultLiveChallengeQuestions().first()
+
+    if (currentQuestion == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DofaatiColors.QuizDarkGradient)
+                .safeDrawingPadding()
+                .padding(24.dp)
+                .testTag("live_quiz_challenge_root"),
+            contentAlignment = Alignment.Center
+        ) {
+            DofaatiCard {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "لا توجد أسئلة نشطة في التحدي",
+                        fontFamily = ReadexProFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = DofaatiColors.NavyInk,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "ابدأ اختباراً من بنك الأسئلة أو مولّد الأسئلة أو منشئ الامتحانات.",
+                        fontFamily = ReadexProFontFamily,
+                        fontSize = 13.sp,
+                        color = DofaatiColors.SlateMuted,
+                        textAlign = TextAlign.Center
+                    )
+                    Button(
+                        onClick = { viewModel.navigateBack() },
+                        colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue)
+                    ) {
+                        Text("رجوع", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val selectedOption = state.selectedAnswers[currentQuestion.id]
 
     BoxWithConstraints(
@@ -63,7 +106,6 @@ fun LiveQuizChallengeScreen(viewModel: DofaatiViewModel) {
     ) {
         val isLandscape = maxWidth > maxHeight && maxWidth >= 520.dp
 
-        // Subtle scientific chalkboard formulas & orbits in background
         ScientificQuizCanvasBackdrop(modifier = Modifier.fillMaxSize())
 
         Column(
@@ -100,7 +142,7 @@ fun LiveQuizChallengeScreen(viewModel: DofaatiViewModel) {
                         LiveQuestionWhiteCard(
                             question = currentQuestion,
                             questionIndex = state.currentQuestionIndex,
-                            totalQuestions = state.questions.size.coerceAtLeast(1)
+                            totalQuestions = state.questions.size
                         )
                     }
                     Column(
@@ -116,6 +158,12 @@ fun LiveQuizChallengeScreen(viewModel: DofaatiViewModel) {
                             correctOptionIndex = currentQuestion.correctOptionIndex,
                             onSelectOption = { idx -> viewModel.submitLiveQuizAnswer(idx) }
                         )
+                        if (selectedOption != null) {
+                            AnswerFeedbackBanner(
+                                isCorrect = selectedOption == currentQuestion.correctOptionIndex,
+                                explanation = currentQuestion.detailedExplanation
+                            )
+                        }
                     }
                 }
             } else {
@@ -134,7 +182,7 @@ fun LiveQuizChallengeScreen(viewModel: DofaatiViewModel) {
                     LiveQuestionWhiteCard(
                         question = currentQuestion,
                         questionIndex = state.currentQuestionIndex,
-                        totalQuestions = state.questions.size.coerceAtLeast(1)
+                        totalQuestions = state.questions.size
                     )
                     QuizColoredAnswerPills(
                         options = currentQuestion.options,
@@ -142,13 +190,22 @@ fun LiveQuizChallengeScreen(viewModel: DofaatiViewModel) {
                         correctOptionIndex = currentQuestion.correctOptionIndex,
                         onSelectOption = { idx -> viewModel.submitLiveQuizAnswer(idx) }
                     )
+                    if (selectedOption != null) {
+                        AnswerFeedbackBanner(
+                            isCorrect = selectedOption == currentQuestion.correctOptionIndex,
+                            explanation = currentQuestion.detailedExplanation
+                        )
+                    }
                 }
             }
 
             LiveParticipantsBottomBar(
-                answeredCount = state.answeredParticipantsCount,
-                totalOnline = state.onlineParticipantsCount,
-                earnedPoints = state.earnedPoints
+                currentNumber = state.currentQuestionIndex + 1,
+                totalQuestions = state.questions.size,
+                earnedPoints = state.earnedPoints,
+                canAdvance = selectedOption != null,
+                isLastQuestion = state.currentQuestionIndex >= state.questions.lastIndex,
+                onAdvanceNow = { viewModel.advanceLiveQuizNow() }
             )
         }
     }
@@ -156,13 +213,6 @@ fun LiveQuizChallengeScreen(viewModel: DofaatiViewModel) {
 
 @Composable
 private fun ScientificQuizCanvasBackdrop(modifier: Modifier = Modifier) {
-    val textMeasurer = rememberTextMeasurer()
-    val formulaStyle = TextStyle(
-        fontFamily = ReadexProFontFamily,
-        fontWeight = FontWeight.Medium,
-        fontSize = 14.sp,
-        color = Color.White.copy(alpha = 0.08f)
-    )
     Canvas(modifier = modifier) {
         drawCircle(
             color = Color(0xFF3B82F6).copy(alpha = 0.10f),
@@ -176,15 +226,6 @@ private fun ScientificQuizCanvasBackdrop(modifier: Modifier = Modifier) {
             center = Offset(size.width * 0.14f, size.height * 0.78f),
             style = Stroke(width = 1.5.dp.toPx())
         )
-        val formulas = listOf(
-            "V = I · R" to Offset(size.width * 0.08f, size.height * 0.14f),
-            "I = Q / t" to Offset(size.width * 0.68f, size.height * 0.24f),
-            "Req = R₁ + R₂" to Offset(size.width * 0.10f, size.height * 0.56f),
-            "Pw = V² / R" to Offset(size.width * 0.65f, size.height * 0.72f)
-        )
-        formulas.forEach { (formula, pos) ->
-            drawText(textMeasurer.measure(formula, formulaStyle), topLeft = pos)
-        }
     }
 }
 
@@ -214,7 +255,7 @@ private fun LiveChallengeTopBar(
         }
 
         AutoSizeText(
-            text = state.quizTitle,
+            text = state.quizTitle.ifBlank { "اختبار مباشر" },
             fontFamily = ReadexProFontFamily,
             fontWeight = FontWeight.Bold,
             maxFontSize = 15.5.sp,
@@ -228,22 +269,17 @@ private fun LiveChallengeTopBar(
 
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = DofaatiColors.RedAlert,
+            color = Color.White.copy(alpha = 0.18f),
             modifier = Modifier.testTag("live_online_pill")
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                )
+                Icon(Icons.Default.Quiz, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 DofaatiLtrText(
-                    text = "${state.onlineParticipantsCount}",
+                    text = "${state.currentQuestionIndex + 1}/${state.questions.size}",
                     fontSize = 13.sp,
                     color = Color.White,
                     letterSpacing = 0.5.sp
@@ -356,20 +392,27 @@ private fun QuizColoredAnswerPills(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         options.forEachIndexed { idx, optionText ->
-            val baseColor = QuizPillPalette[idx % QuizPillPalette.size]
+            val answered = selectedOptionIndex != null
             val isSelected = selectedOptionIndex == idx
-            val showCorrect = selectedOptionIndex != null && idx == correctOptionIndex
+            val isCorrect = idx == correctOptionIndex
+
+            val containerColor = when {
+                !answered -> QuizPillPalette[idx % QuizPillPalette.size]
+                isCorrect -> DofaatiColors.EmeraldGreen
+                isSelected -> DofaatiColors.RedAlert
+                else -> QuizPillPalette[idx % QuizPillPalette.size].copy(alpha = 0.45f)
+            }
 
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 56.dp)
                     .clip(RoundedCornerShape(28.dp))
-                    .clickable(enabled = selectedOptionIndex == null) { onSelectOption(idx) }
+                    .clickable(enabled = !answered) { onSelectOption(idx) }
                     .testTag("live_quiz_option_$idx"),
                 shape = RoundedCornerShape(28.dp),
-                color = baseColor,
-                border = if (isSelected || showCorrect) BorderStroke(3.dp, Color.White) else null,
+                color = containerColor,
+                border = if (answered && (isCorrect || isSelected)) BorderStroke(2.5.dp, Color.White) else null,
                 shadowElevation = 4.dp
             ) {
                 Row(
@@ -384,12 +427,20 @@ private fun QuizColoredAnswerPills(
                         fontFamily = ReadexProFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
-                        color = Color.White
+                        color = Color.White,
+                        modifier = Modifier.weight(1f)
                     )
-                    if (showCorrect) {
+                    if (answered && isCorrect) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "إجابة صحيحة",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    } else if (answered && isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "إجابة خاطئة",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )
@@ -401,10 +452,50 @@ private fun QuizColoredAnswerPills(
 }
 
 @Composable
+private fun AnswerFeedbackBanner(
+    isCorrect: Boolean,
+    explanation: String
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = if (isCorrect) DofaatiColors.EmeraldGreen.copy(alpha = 0.18f) else DofaatiColors.RedAlert.copy(alpha = 0.18f),
+        border = BorderStroke(
+            1.dp,
+            if (isCorrect) DofaatiColors.EmeraldGreen else DofaatiColors.RedAlert
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = if (isCorrect) "إجابة صحيحة!" else "إجابة غير صحيحة",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.5.sp,
+                color = Color.White
+            )
+            if (explanation.isNotBlank()) {
+                Text(
+                    text = explanation,
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.92f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun LiveParticipantsBottomBar(
-    answeredCount: Int,
-    totalOnline: Int,
-    earnedPoints: Int
+    currentNumber: Int,
+    totalQuestions: Int,
+    earnedPoints: Int,
+    canAdvance: Boolean,
+    isLastQuestion: Boolean,
+    onAdvanceNow: () -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -417,21 +508,10 @@ private fun LiveParticipantsBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Groups, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "$answeredCount من $totalOnline جاوبوا",
-                    fontFamily = ReadexProFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = Color.White
-                )
-            }
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = DofaatiColors.BrightGold
@@ -443,6 +523,32 @@ private fun LiveParticipantsBottomBar(
                     fontSize = 12.5.sp,
                     color = DofaatiColors.NavyInk,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+
+            if (canAdvance) {
+                Button(
+                    onClick = onAdvanceNow,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = if (isLastQuestion) "عرض النتيجة" else "السؤال التالي",
+                        fontFamily = ReadexProFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.5.sp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.NavigateNext, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+            } else {
+                Text(
+                    text = "السؤال $currentNumber من $totalQuestions",
+                    fontFamily = ReadexProFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp,
+                    color = Color.White
                 )
             }
         }

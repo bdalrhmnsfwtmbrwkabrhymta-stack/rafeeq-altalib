@@ -160,6 +160,14 @@ fun AddonsScreen(
             icon = Icons.Default.Lightbulb,
             iconBgColor = Color(0xFFF59E0B), // Warm Amber Lightbulb
             badge = "جديد"
+        ),
+        AddonItem(
+            id = "rafid",
+            title = "رَافِد • التحميل الذكي",
+            route = "rafid",
+            icon = Icons.Default.CloudDownload,
+            iconBgColor = Color(0xFF1565C0),
+            badge = "جديد"
         )
     )
 

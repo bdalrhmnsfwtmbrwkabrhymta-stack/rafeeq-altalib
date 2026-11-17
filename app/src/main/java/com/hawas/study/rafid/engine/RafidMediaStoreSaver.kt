@@ -1,0 +1,124 @@
+package com.hawas.study.rafid.engine
+
+import android.content.ContentValues
+import android.content.Context
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import com.hawas.study.rafid.models.RafidMediaCategory
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+
+data class SavedMediaResult(
+    val uriString: String,
+    val displayPath: String,
+    val fileSizeBytes: Long
+)
+
+object RafidMediaStoreSaver {
+
+    fun buildDisplaySubfolder(category: RafidMediaCategory, saveToStudyFolder: Boolean): String {
+        return if (saveToStudyFolder) {
+            "Download/Rafid/Study"
+        } else {
+            "Download/Rafid/${category.folderName}"
+        }
+    }
+
+    fun sanitizeFileName(rawTitle: String, extension: String): String {
+        val cleanBase = rawTitle
+            .replace(Regex("""[\\/:*?"<>|\r\n\t]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .take(64)
+            .ifBlank { "rafid_media_${System.currentTimeMillis()}" }
+        val cleanExt = extension.trim().lowercase().removePrefix(".").ifBlank { "mp4" }
+        return if (cleanBase.endsWith(".$cleanExt", ignoreCase = true)) {
+            cleanBase
+        } else {
+            "$cleanBase.$cleanExt"
+        }
+    }
+
+    fun saveFileToRafidDownloads(
+        context: Context,
+        sourceFile: File,
+        title: String,
+        extension: String,
+        mimeType: String,
+        category: RafidMediaCategory,
+        saveToStudyFolder: Boolean
+    ): SavedMediaResult {
+        val fileName = sanitizeFileName(title, extension)
+        val relativeFolder = if (saveToStudyFolder) {
+            "${Environment.DIRECTORY_DOWNLOADS}/Rafid/Study"
+        } else {
+            "${Environment.DIRECTORY_DOWNLOADS}/Rafid/${category.folderName}"
+        }
+        val displayPath = if (saveToStudyFolder) "Download/Rafid/Study/$fileName" else "Download/Rafid/${category.folderName}/$fileName"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = context.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.RELATIVE_PATH, relativeFolder)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val insertedUri = resolver.insert(collection, values)
+            if (insertedUri != null) {
+                try {
+                    resolver.openOutputStream(insertedUri)?.use { out ->
+                        FileInputStream(sourceFile).use { input ->
+                            input.copyTo(out, bufferSize = 64 * 1024)
+                        }
+                    } ?: throw IllegalStateException("Failed to open MediaStore output stream")
+
+                    val readyValues = ContentValues().apply {
+                        put(MediaStore.Downloads.IS_PENDING, 0)
+                    }
+                    resolver.update(insertedUri, readyValues, null, null)
+                    return SavedMediaResult(
+                        uriString = insertedUri.toString(),
+                        displayPath = displayPath,
+                        fileSizeBytes = sourceFile.length()
+                    )
+                } catch (e: Exception) {
+                    runCatching { resolver.delete(insertedUri, null, null) }
+                    throw e
+                }
+            }
+        }
+
+        // Fallback for API 24-28 (app-scoped external downloads directory -> zero permission required)
+        val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        val subDir = if (saveToStudyFolder) {
+            File(baseDir, "Rafid/Study")
+        } else {
+            File(baseDir, "Rafid/${category.folderName}")
+        }
+        subDir.mkdirs()
+
+        var outFile = File(subDir, fileName)
+        if (outFile.exists()) {
+            val stem = fileName.substringBeforeLast('.')
+            val ext = fileName.substringAfterLast('.', extension)
+            outFile = File(subDir, "${stem}_${System.currentTimeMillis() % 10000}.$ext")
+        }
+
+        FileInputStream(sourceFile).use { input ->
+            FileOutputStream(outFile).use { output ->
+                input.copyTo(output, bufferSize = 64 * 1024)
+            }
+        }
+
+        return SavedMediaResult(
+            uriString = Uri.fromFile(outFile).toString(),
+            displayPath = "$displayPath",
+            fileSizeBytes = outFile.length()
+        )
+    }
+}

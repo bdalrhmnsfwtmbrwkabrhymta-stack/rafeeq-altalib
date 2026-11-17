@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,15 +30,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.dofaati.DofaatiViewModel
 import com.hawas.study.dofaati.ui.theme.DofaatiCard
 import com.hawas.study.dofaati.ui.theme.DofaatiColors
 import com.hawas.study.dofaati.ui.theme.DofaatiLtrText
 import com.hawas.study.dofaati.ui.theme.DofaatiRoyalBlueHeader
-import com.example.ui.theme.ReadexProFontFamily
 
 @Composable
 fun JoinRequestsAdminScreen(
@@ -48,10 +50,18 @@ fun JoinRequestsAdminScreen(
     val batches by viewModel.batches.collectAsStateWithLifecycle()
     val activeBatchId by viewModel.activeBatchId.collectAsStateWithLifecycle()
     val batch = remember(batches, activeBatchId) {
-        batches.firstOrNull { it.id == activeBatchId } ?: batches.first()
+        batches.firstOrNull { it.id == activeBatchId } ?: batches.firstOrNull()
     }
-    val joinRequests by viewModel.joinRequests.collectAsStateWithLifecycle()
-    val members by viewModel.batchMembers.collectAsStateWithLifecycle()
+    val allJoinRequests by viewModel.joinRequests.collectAsStateWithLifecycle()
+    val allMembers by viewModel.batchMembers.collectAsStateWithLifecycle()
+
+    val joinRequests = remember(allJoinRequests, batch) {
+        if (batch == null) emptyList() else allJoinRequests.filter { it.batchId == batch.id }
+    }
+    val members = remember(allMembers, batch) {
+        if (batch == null) emptyList() else allMembers.filter { it.batchId == batch.id }
+    }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -77,12 +87,27 @@ fun JoinRequestsAdminScreen(
             testTag = "admin_requests_header"
         )
 
+        if (batch == null) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "أنشئ دفعة أولاً لعرض كود الانضمام والأعضاء.",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 14.sp,
+                    color = DofaatiColors.SlateMuted,
+                    textAlign = TextAlign.Center
+                )
+            }
+            return@Column
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Prominent White Card showing 8-digit Batch Code in bold LTR Royal Blue (4861 3927)
             item {
                 DofaatiCard(modifier = Modifier.testTag("admin_batch_code_card")) {
                     Column(
@@ -254,14 +279,14 @@ fun JoinRequestsAdminScreen(
                             )
                         }
                         if (!member.isAdmin) {
-                            IconButton(onClick = { viewModel.toggleMuteMember(member.id) }, modifier = Modifier.size(44.dp)) {
+                            IconButton(onClick = { viewModel.toggleMuteMember(member.id) }, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     imageVector = if (member.isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                                     contentDescription = "كتم العضو",
                                     tint = DofaatiColors.AmberGold
                                 )
                             }
-                            IconButton(onClick = { viewModel.removeMember(member.id) }, modifier = Modifier.size(44.dp)) {
+                            IconButton(onClick = { viewModel.removeMember(member.id) }, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     imageVector = Icons.Default.DeleteOutline,
                                     contentDescription = "حذف العضو",
@@ -272,6 +297,45 @@ fun JoinRequestsAdminScreen(
                     }
                 }
             }
+
+            item {
+                OutlinedButton(
+                    onClick = { showDeleteConfirm = true },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DofaatiColors.RedAlert),
+                    border = BorderStroke(1.dp, DofaatiColors.RedAlert.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("حذف الدفعة", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                }
+            }
         }
+    }
+
+    if (showDeleteConfirm && batch != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = Color.White,
+            title = { Text("تأكيد حذف الدفعة", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold) },
+            text = { Text("هل تريد حذف دفعة «${batch.name}» وموادها نهائياً؟", fontFamily = ReadexProFontFamily) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        viewModel.deleteBatch(batch.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RedAlert)
+                ) {
+                    Text("حذف", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("إلغاء", fontFamily = ReadexProFontFamily)
+                }
+            }
+        )
     }
 }

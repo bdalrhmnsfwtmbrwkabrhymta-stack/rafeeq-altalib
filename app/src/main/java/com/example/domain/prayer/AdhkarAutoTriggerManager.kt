@@ -3,7 +3,11 @@ package com.example.domain.prayer
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.example.data.preferences.UserPreferencesRepository
+import com.example.data.preferences.UserSettings
 import com.example.ui.prayer.AthkarPopupActivity
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import java.util.Calendar
 
 enum class AdhkarWindow {
@@ -13,20 +17,19 @@ enum class AdhkarWindow {
 }
 
 /**
- * Coordinates automatic Morning & Evening Adhkar windows anchored dynamically
- * to Fajr (Morning Adhkar start) and Asr (Evening Adhkar start), as well as
- * exact AlarmManager scheduling and seamless launching of AutoAdhkarScreen.
+ * Coordinates automatic Morning & Evening Adhkar windows anchored strictly to
+ * Fajr -> Sunrise (Morning) and Asr -> Maghrib (Evening), blocking any random
+ * out-of-window triggers and scheduling dynamic AlarmManager wakeups.
  */
 object AdhkarAutoTriggerManager {
 
     private const val TAG = "AdhkarAutoTrigger"
     private const val FIVE_MINUTES_MS = 5 * 60 * 1000L
-    private const val FORTY_FIVE_MINUTES_MS = 45 * 60 * 1000L
 
     /**
-     * Determines which Adhkar window is currently active based on solar prayer times:
-     * - Morning Adhkar: [Fajr .. Dhuhr)
-     * - Evening Adhkar: [Asr .. Maghrib + 45m)
+     * Strictly locks automatic Adhkar windows to astronomical prayer spans:
+     * - Morning Adhkar: [Fajr .. Sunrise)
+     * - Evening Adhkar: [Asr .. Maghrib)
      */
     fun detectActiveAdhkarWindow(
         fajrMs: Long,
@@ -37,12 +40,12 @@ object AdhkarAutoTriggerManager {
         nowMs: Long = System.currentTimeMillis()
     ): AdhkarWindow {
         val morningStart = fajrMs.coerceAtMost(sunriseMs)
-        val morningEnd = dhuhrMs
+        val morningEnd = sunriseMs
         if (nowMs in morningStart until morningEnd) {
             return AdhkarWindow.MORNING
         }
         val eveningStart = asrMs
-        val eveningEnd = maghribMs + FORTY_FIVE_MINUTES_MS
+        val eveningEnd = maghribMs
         if (nowMs in eveningStart until eveningEnd) {
             return AdhkarWindow.EVENING
         }
@@ -61,6 +64,40 @@ object AdhkarAutoTriggerManager {
             maghribMs = result.maghrib.timestampMillis,
             nowMs = nowMs
         )
+    }
+
+    fun detectActiveWindowForSettings(
+        settings: UserSettings,
+        nowMs: Long = System.currentTimeMillis()
+    ): AdhkarWindow {
+        val calcMethod = try {
+            CalculationMethod.valueOf(settings.calculationMethod.uppercase())
+        } catch (_: Exception) {
+            CalculationMethod.EGYPTIAN
+        }
+        val todayResult = PrayerTimesCalculator.calculatePrayerTimes(
+            latitude = settings.latitude,
+            longitude = settings.longitude,
+            method = calcMethod,
+            isEnglish = settings.appLanguage != "ar",
+            dstMode = settings.dstMode
+        )
+        return detectActiveAdhkarWindow(todayResult, nowMs = nowMs)
+    }
+
+    fun detectCurrentWindowForContext(
+        context: Context,
+        nowMs: Long = System.currentTimeMillis()
+    ): AdhkarWindow {
+        return try {
+            val settings = runBlocking {
+                UserPreferencesRepository(context.applicationContext).userSettingsFlow.first()
+            }
+            detectActiveWindowForSettings(settings, nowMs = nowMs)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed resolving current Adhkar window from prefs", e)
+            AdhkarWindow.NONE
+        }
     }
 
     fun recommendedCategoryForClock(nowMs: Long = System.currentTimeMillis()): AdhkarWindow {

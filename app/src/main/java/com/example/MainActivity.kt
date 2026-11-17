@@ -72,7 +72,14 @@ enum class NavItem(val route: String, val titleArabic: String, val titleEnglish:
 }
 
 class MainActivity : FragmentActivity() {
+    companion object {
+        const val EXTRA_OPEN_DIRECT_SCREEN = "EXTRA_OPEN_DIRECT_SCREEN"
+        const val DIRECT_SCREEN_QIBLA = "QIBLA_SCREEN"
+    }
+
     private var pendingIntent by mutableStateOf<Intent?>(null)
+    private var pendingDirectRoute by mutableStateOf<String?>(null)
+    private var pendingSharedRafidUrl by mutableStateOf<String?>(null)
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -83,6 +90,8 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         pendingIntent = intent
+        pendingDirectRoute = resolveDirectRouteFromIntent(intent)
+        pendingSharedRafidUrl = intent?.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
         try {
             enableEdgeToEdge()
@@ -105,6 +114,18 @@ class MainActivity : FragmentActivity() {
 
             LaunchedEffect(pendingIntent) {
                 pendingIntent?.let { intentToProcess ->
+                    val directRoute = resolveDirectRouteFromIntent(intentToProcess)
+                    if (!directRoute.isNullOrBlank()) {
+                        pendingDirectRoute = directRoute
+                    }
+                    intentToProcess.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { sharedUrl ->
+                            pendingSharedRafidUrl = sharedUrl
+                            if (pendingDirectRoute.isNullOrBlank()) {
+                                pendingDirectRoute = "rafid"
+                            }
+                        }
                     try {
                         handleIncomingPdfIntent(this@MainActivity, intentToProcess, mainViewModel)
                     } catch (t: Throwable) {
@@ -120,7 +141,14 @@ class MainActivity : FragmentActivity() {
             RafiqTheme(userSettings = userSettings, darkTheme = isDarkTheme) {
                 CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        MainAppContent(mainViewModel = mainViewModel, userSettings = userSettings)
+                        MainAppContent(
+                            mainViewModel = mainViewModel,
+                            userSettings = userSettings,
+                            directRouteRequest = pendingDirectRoute,
+                            onDirectRouteConsumed = { pendingDirectRoute = null },
+                            initialRafidUrl = pendingSharedRafidUrl,
+                            onRafidUrlConsumed = { pendingSharedRafidUrl = null }
+                        )
                     }
                 }
             }
@@ -203,6 +231,15 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingIntent = intent
+        resolveDirectRouteFromIntent(intent)?.let { directRoute ->
+            pendingDirectRoute = directRoute
+        }
+        intent.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { sharedUrl ->
+                pendingSharedRafidUrl = sharedUrl
+                pendingDirectRoute = "rafid"
+            }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -313,15 +350,37 @@ fun PermissionOptimizationDialog() {
     }
 }
 
+private fun resolveDirectRouteFromIntent(intent: Intent?): String? {
+    if (intent == null) return null
+    val directFlag = intent.getStringExtra(MainActivity.EXTRA_OPEN_DIRECT_SCREEN)
+    if (directFlag == MainActivity.DIRECT_SCREEN_QIBLA) return "qibla"
+    return intent.getStringExtra("NAVIGATE_TO")?.takeIf { it.isNotBlank() }
+}
+
 @Composable
-fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
-    var showSplash by remember { mutableStateOf(true) }
+fun MainAppContent(
+    mainViewModel: MainViewModel,
+    userSettings: UserSettings,
+    directRouteRequest: String? = null,
+    onDirectRouteConsumed: () -> Unit = {},
+    initialRafidUrl: String? = null,
+    onRafidUrlConsumed: () -> Unit = {}
+) {
+    var showSplash by remember { mutableStateOf(directRouteRequest == null) }
     var showLoginGateway by remember { mutableStateOf(false) }
-    var currentRoute by remember { mutableStateOf("home") }
+    var currentRoute by remember { mutableStateOf(directRouteRequest ?: "home") }
     var subRouteOrigin by remember { mutableStateOf("home") }
     var calculatorOriginRoute by remember { mutableStateOf("home") }
     var isMushafFullScreen by remember { mutableStateOf(false) }
     var isDofaatiFullScreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(directRouteRequest) {
+        if (!directRouteRequest.isNullOrBlank()) {
+            showSplash = false
+            currentRoute = directRouteRequest
+            onDirectRouteConsumed()
+        }
+    }
 
     LaunchedEffect(currentRoute) {
         if (currentRoute != "quran" && currentRoute != "quran_audio") {
@@ -415,7 +474,7 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
             ) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val isLandscape = maxWidth > maxHeight && maxWidth >= 480.dp
-                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
+                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || currentRoute == "rafid" || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
                     val showMainNav = currentRoute in listOf(
                         "home", "account", "quests", "quran", "quran_audio",
                         "dofaati", "zakat", "library", "community", "games", "plans", "tools",
@@ -571,6 +630,11 @@ fun MainAppContent(mainViewModel: MainViewModel, userSettings: UserSettings) {
                                         currentRoute = "home"
                                     },
                                     onFullScreenChanged = { isDofaatiFullScreen = it }
+                                )
+                                "rafid" -> com.hawas.study.rafid.ui.screens.RafidRootHost(
+                                    initialSharedUrl = initialRafidUrl,
+                                    onConsumeSharedUrl = onRafidUrlConsumed,
+                                    onNavigateBackToApp = { currentRoute = "home" }
                                 )
                                 "zakat" -> ZakatCalculatorScreen(viewModel = mainViewModel, onNavigateBack = { currentRoute = "home" })
                                 "god_names" -> GodNamesScreen(viewModel = mainViewModel, onNavigateBack = { currentRoute = "home" })

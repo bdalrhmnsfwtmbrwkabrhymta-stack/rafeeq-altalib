@@ -59,7 +59,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
 
                     val prayerName = intent.getStringExtra(EXTRA_PRAYER_NAME) ?: "الصلاة"
                     val cityName = intent.getStringExtra(EXTRA_CITY_NAME) ?: "القاهرة"
-                    val muezzinVoice = intent.getStringExtra(EXTRA_MUEZZIN) ?: "أذان مكة المكرمة"
+                    val muezzinVoice = intent.getStringExtra(EXTRA_MUEZZIN) ?: "الأذان المصري الأصيل (MBC وإذاعة القرآن)"
                     val isFullAudio = intent.getBooleanExtra(EXTRA_IS_FULL_AUDIO, true)
 
                     val player = AzanAudioPlayer(context)
@@ -109,8 +109,12 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                 }
 
                 ACTION_MORNING_AZKAR, AzkarScheduler.ACTION_MORNING_AZKAR -> {
-                    // Reschedule for tomorrow reading saved custom user hours & minutes
                     AzkarScheduler.rescheduleAzkar(context)
+                    val activeWindow = AdhkarAutoTriggerManager.detectCurrentWindowForContext(context)
+                    if (activeWindow != AdhkarWindow.MORNING) {
+                        Log.i(TAG, "Suppressing out-of-window Morning Adhkar trigger (active=$activeWindow)")
+                        return
+                    }
 
                     // 1. Immediately launch audio playback in foreground service so sound plays right away
                     AzkarAudioService.startMorning(context)
@@ -144,8 +148,12 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                 }
 
                 ACTION_EVENING_AZKAR, AzkarScheduler.ACTION_EVENING_AZKAR -> {
-                    // Reschedule for tomorrow reading saved custom user hours & minutes
                     AzkarScheduler.rescheduleAzkar(context)
+                    val activeWindow = AdhkarAutoTriggerManager.detectCurrentWindowForContext(context)
+                    if (activeWindow != AdhkarWindow.EVENING) {
+                        Log.i(TAG, "Suppressing out-of-window Evening Adhkar trigger (active=$activeWindow)")
+                        return
+                    }
 
                     // 1. Immediately launch audio playback in foreground service so sound plays right away
                     AzkarAudioService.startEvening(context)

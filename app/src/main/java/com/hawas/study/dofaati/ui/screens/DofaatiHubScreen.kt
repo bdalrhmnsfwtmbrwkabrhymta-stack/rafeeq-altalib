@@ -13,6 +13,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Biotech
@@ -20,10 +22,10 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Quiz
@@ -45,17 +47,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ui.components.AutoSizeText
+import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.dofaati.DofaatiViewModel
 import com.hawas.study.dofaati.models.DofaatiBatch
 import com.hawas.study.dofaati.models.DofaatiRoute
+import com.hawas.study.dofaati.models.DofaatiScheduleEvent
 import com.hawas.study.dofaati.models.DofaatiSubject
 import com.hawas.study.dofaati.ui.theme.DofaatiAdaptiveScreenContainer
 import com.hawas.study.dofaati.ui.theme.DofaatiAmiriTitleText
 import com.hawas.study.dofaati.ui.theme.DofaatiCard
 import com.hawas.study.dofaati.ui.theme.DofaatiColors
 import com.hawas.study.dofaati.ui.theme.DofaatiLtrText
-import com.example.ui.components.AutoSizeText
-import com.example.ui.theme.ReadexProFontFamily
 
 @Composable
 fun DofaatiNavigation(
@@ -105,7 +108,7 @@ fun DofaatiNavigation(
 
             if (statusBanner != null) {
                 LaunchedEffect(statusBanner) {
-                    kotlinx.coroutines.delay(2800)
+                    kotlinx.coroutines.delay(3200)
                     viewModel.clearStatusBanner()
                 }
                 Surface(
@@ -134,7 +137,7 @@ fun DofaatiNavigation(
 }
 
 private enum class HubBottomTab(val label: String) {
-    SUBJECTS("المواد 4"),
+    SUBJECTS("المواد"),
     SCHEDULE("المواعيد"),
     UPDATES("المستجدات"),
     EXAMS("امتحانات")
@@ -148,12 +151,19 @@ fun DofaatiHubScreen(
     val batches by viewModel.batches.collectAsStateWithLifecycle()
     val activeBatchId by viewModel.activeBatchId.collectAsStateWithLifecycle()
     val activeBatch = remember(batches, activeBatchId) {
-        batches.firstOrNull { it.id == activeBatchId } ?: batches.first()
+        batches.firstOrNull { it.id == activeBatchId } ?: batches.firstOrNull()
     }
     val questionBank by viewModel.questionBankItems.collectAsStateWithLifecycle()
+    val scheduleEvents by viewModel.scheduleEvents.collectAsStateWithLifecycle()
+    val joinRequests by viewModel.joinRequests.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableStateOf(HubBottomTab.SUBJECTS) }
     var showJoinCodeDialog by remember { mutableStateOf(false) }
+    var showAddSubjectDialog by remember { mutableStateOf(false) }
+
+    val activeJoinRequestsCount = remember(joinRequests, activeBatch) {
+        if (activeBatch == null) 0 else joinRequests.count { it.batchId == activeBatch.id }
+    }
 
     DofaatiAdaptiveScreenContainer(
         useSafeDrawing = false,
@@ -177,32 +187,63 @@ fun DofaatiHubScreen(
                     )
                 }
                 item {
-                    BatchDashboardCard(
-                        batch = activeBatch,
-                        onOpenChat = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) },
-                        onSwitchBatch = { nextId -> viewModel.selectBatch(nextId) },
-                        allBatches = batches
-                    )
+                    if (activeBatch != null) {
+                        BatchDashboardCard(
+                            batch = activeBatch,
+                            allBatches = batches,
+                            onOpenChat = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) },
+                            onSwitchBatch = { nextId -> viewModel.selectBatch(nextId) }
+                        )
+                    } else {
+                        EmptyBatchWelcomeCard(
+                            onCreateBatch = { viewModel.navigateTo(DofaatiRoute.CREATE_BATCH) },
+                            onEnterCode = { showJoinCodeDialog = true }
+                        )
+                    }
                 }
                 item {
                     HubSegmentedTabBar(
                         selectedTab = selectedTab,
-                        subjectCount = activeBatch.subjects.size,
+                        subjectCount = activeBatch?.subjects?.size ?: 0,
                         onSelectTab = { selectedTab = it }
                     )
                 }
                 when (selectedTab) {
                     HubBottomTab.SUBJECTS -> {
-                        items(activeBatch.subjects, key = { it.id }) { subject ->
-                            SubjectListRowCard(
-                                subject = subject,
-                                onClick = { viewModel.selectSubject(subject.id) }
-                            )
+                        if (activeBatch == null) {
+                            item {
+                                HubEmptySectionCard(
+                                    title = "لا توجد مواد بعد",
+                                    subtitle = "أنشئ دفعتك الأولى أو انضم بكود لتظهر موادك وملفاتك هنا."
+                                )
+                            }
+                        } else if (activeBatch.subjects.isEmpty()) {
+                            item {
+                                HubEmptySectionCard(
+                                    title = "لم تتم إضافة مواد لهذه الدفعة",
+                                    subtitle = "أضف مادة الآن لبدء رفع الريكوردات والملفات."
+                                )
+                            }
+                            item {
+                                AddSubjectButton(onClick = { showAddSubjectDialog = true })
+                            }
+                        } else {
+                            items(activeBatch.subjects, key = { it.id }) { subject ->
+                                SubjectListRowCard(
+                                    subject = subject,
+                                    onClick = { viewModel.selectSubject(subject.id) },
+                                    onDelete = { viewModel.deleteSubject(subject.id) }
+                                )
+                            }
+                            item {
+                                AddSubjectButton(onClick = { showAddSubjectDialog = true })
+                            }
                         }
                     }
                     HubBottomTab.SCHEDULE -> {
                         item {
                             HubSchedulePreviewCard(
+                                events = scheduleEvents,
                                 onOpenFullSchedule = { viewModel.navigateTo(DofaatiRoute.SCHEDULE_COUNTDOWN) }
                             )
                         }
@@ -210,7 +251,8 @@ fun DofaatiHubScreen(
                     HubBottomTab.UPDATES -> {
                         item {
                             HubUpdatesAndAdminCard(
-                                pinnedNotice = activeBatch.pinnedNotice,
+                                batch = activeBatch,
+                                pendingRequestsCount = activeJoinRequestsCount,
                                 onOpenAdminRequests = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) },
                                 onOpenChat = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) }
                             )
@@ -219,12 +261,13 @@ fun DofaatiHubScreen(
                     HubBottomTab.EXAMS -> {
                         item {
                             HubExamsSuiteCard(
-                                totalBankCount = questionBank.size.coerceAtLeast(500),
+                                totalBankCount = questionBank.size,
                                 onOpenBulkGenerator = { viewModel.navigateTo(DofaatiRoute.BULK_AI_GENERATOR) },
                                 onOpenQuestionBank = { viewModel.navigateTo(DofaatiRoute.QUESTION_BANK) },
                                 onOpenAdminExamCreator = { viewModel.navigateTo(DofaatiRoute.ADMIN_EXAM_CREATOR) },
-                                onStartLiveChallenge = { viewModel.startDefaultLiveChallenge() },
-                                onOpenLeaderboard = { viewModel.navigateTo(DofaatiRoute.LEADERBOARD_RESULTS) }
+                                onStartLiveChallenge = { viewModel.startQuizFromQuestionBank() },
+                                onOpenLeaderboard = { viewModel.navigateTo(DofaatiRoute.LEADERBOARD_RESULTS) },
+                                onOpenMindMaps = { viewModel.navigateTo(DofaatiRoute.MIND_MAP_FLASHCARDS) }
                             )
                         }
                     }
@@ -245,12 +288,19 @@ fun DofaatiHubScreen(
                     )
                 }
                 item {
-                    BatchDashboardCard(
-                        batch = activeBatch,
-                        onOpenChat = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) },
-                        onSwitchBatch = { viewModel.selectBatch(it) },
-                        allBatches = batches
-                    )
+                    if (activeBatch != null) {
+                        BatchDashboardCard(
+                            batch = activeBatch,
+                            allBatches = batches,
+                            onOpenChat = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) },
+                            onSwitchBatch = { viewModel.selectBatch(it) }
+                        )
+                    } else {
+                        EmptyBatchWelcomeCard(
+                            onCreateBatch = { viewModel.navigateTo(DofaatiRoute.CREATE_BATCH) },
+                            onEnterCode = { showJoinCodeDialog = true }
+                        )
+                    }
                 }
             }
         },
@@ -263,22 +313,46 @@ fun DofaatiHubScreen(
                 item {
                     HubSegmentedTabBar(
                         selectedTab = selectedTab,
-                        subjectCount = activeBatch.subjects.size,
+                        subjectCount = activeBatch?.subjects?.size ?: 0,
                         onSelectTab = { selectedTab = it }
                     )
                 }
                 when (selectedTab) {
                     HubBottomTab.SUBJECTS -> {
-                        items(activeBatch.subjects, key = { it.id }) { subject ->
-                            SubjectListRowCard(
-                                subject = subject,
-                                onClick = { viewModel.selectSubject(subject.id) }
-                            )
+                        if (activeBatch == null) {
+                            item {
+                                HubEmptySectionCard(
+                                    title = "لا توجد مواد بعد",
+                                    subtitle = "أنشئ دفعتك الأولى أو انضم بكود لتظهر موادك وملفاتك هنا."
+                                )
+                            }
+                        } else if (activeBatch.subjects.isEmpty()) {
+                            item {
+                                HubEmptySectionCard(
+                                    title = "لم تتم إضافة مواد لهذه الدفعة",
+                                    subtitle = "أضف مادة الآن لبدء رفع الريكوردات والملفات."
+                                )
+                            }
+                            item {
+                                AddSubjectButton(onClick = { showAddSubjectDialog = true })
+                            }
+                        } else {
+                            items(activeBatch.subjects, key = { it.id }) { subject ->
+                                SubjectListRowCard(
+                                    subject = subject,
+                                    onClick = { viewModel.selectSubject(subject.id) },
+                                    onDelete = { viewModel.deleteSubject(subject.id) }
+                                )
+                            }
+                            item {
+                                AddSubjectButton(onClick = { showAddSubjectDialog = true })
+                            }
                         }
                     }
                     HubBottomTab.SCHEDULE -> {
                         item {
                             HubSchedulePreviewCard(
+                                events = scheduleEvents,
                                 onOpenFullSchedule = { viewModel.navigateTo(DofaatiRoute.SCHEDULE_COUNTDOWN) }
                             )
                         }
@@ -286,7 +360,8 @@ fun DofaatiHubScreen(
                     HubBottomTab.UPDATES -> {
                         item {
                             HubUpdatesAndAdminCard(
-                                pinnedNotice = activeBatch.pinnedNotice,
+                                batch = activeBatch,
+                                pendingRequestsCount = activeJoinRequestsCount,
                                 onOpenAdminRequests = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) },
                                 onOpenChat = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) }
                             )
@@ -295,12 +370,13 @@ fun DofaatiHubScreen(
                     HubBottomTab.EXAMS -> {
                         item {
                             HubExamsSuiteCard(
-                                totalBankCount = questionBank.size.coerceAtLeast(500),
+                                totalBankCount = questionBank.size,
                                 onOpenBulkGenerator = { viewModel.navigateTo(DofaatiRoute.BULK_AI_GENERATOR) },
                                 onOpenQuestionBank = { viewModel.navigateTo(DofaatiRoute.QUESTION_BANK) },
                                 onOpenAdminExamCreator = { viewModel.navigateTo(DofaatiRoute.ADMIN_EXAM_CREATOR) },
-                                onStartLiveChallenge = { viewModel.startDefaultLiveChallenge() },
-                                onOpenLeaderboard = { viewModel.navigateTo(DofaatiRoute.LEADERBOARD_RESULTS) }
+                                onStartLiveChallenge = { viewModel.startQuizFromQuestionBank() },
+                                onOpenLeaderboard = { viewModel.navigateTo(DofaatiRoute.LEADERBOARD_RESULTS) },
+                                onOpenMindMaps = { viewModel.navigateTo(DofaatiRoute.MIND_MAP_FLASHCARDS) }
                             )
                         }
                     }
@@ -317,6 +393,16 @@ fun DofaatiHubScreen(
                 showJoinCodeDialog = false
             },
             onDismiss = { showJoinCodeDialog = false }
+        )
+    }
+
+    if (showAddSubjectDialog) {
+        AddSubjectDialog(
+            onAdd = { name ->
+                viewModel.addSubjectToActiveBatch(name)
+                showAddSubjectDialog = false
+            },
+            onDismiss = { showAddSubjectDialog = false }
         )
     }
 }
@@ -350,13 +436,173 @@ private fun DofaatiHubTopHeader(onNavigateBackToApp: () -> Unit) {
             }
         }
         Text(
-            text = "جروب دفعتك: شات وريكوردات وملفات كل مادة",
+            text = "مساحة دفعتك النظيفة للشات والملفات والاختبارات",
             fontFamily = ReadexProFontFamily,
             fontWeight = FontWeight.Medium,
             fontSize = 13.5.sp,
             color = DofaatiColors.SlateMuted
         )
     }
+}
+
+@Composable
+private fun EmptyBatchWelcomeCard(
+    onCreateBatch: () -> Unit,
+    onEnterCode: () -> Unit
+) {
+    DofaatiCard(
+        modifier = Modifier.testTag("empty_batch_welcome_card"),
+        borderColor = DofaatiColors.RoyalBlueTint,
+        borderWidth = 1.5.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(DofaatiColors.RoyalBlueSoft),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Groups,
+                    contentDescription = null,
+                    tint = DofaatiColors.RoyalBlue,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+            Text(
+                text = "لا توجد دفعات مضافة بعد",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = DofaatiColors.NavyInk,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "أنشئ دفعتك الخاصة واختر موادك، أو انضم إلى دفعة باستخدام كود من 8 أرقام.",
+                fontFamily = ReadexProFontFamily,
+                fontSize = 13.sp,
+                color = DofaatiColors.SlateMuted,
+                textAlign = TextAlign.Center
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onCreateBatch,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) {
+                    Text("إنشاء دفعة", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = onEnterCode,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) {
+                    Text("لدي كود", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HubEmptySectionCard(title: String, subtitle: String) {
+    DofaatiCard {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = title,
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.5.sp,
+                color = DofaatiColors.NavyInk,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = subtitle,
+                fontFamily = ReadexProFontFamily,
+                fontSize = 12.5.sp,
+                color = DofaatiColors.SlateMuted,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddSubjectButton(onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.5.dp, DofaatiColors.RoyalBlue),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .testTag("btn_add_subject")
+    ) {
+        Icon(Icons.Default.Add, contentDescription = null, tint = DofaatiColors.RoyalBlue)
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "إضافة مادة جديدة",
+            fontFamily = ReadexProFontFamily,
+            fontWeight = FontWeight.Bold,
+            color = DofaatiColors.RoyalBlue
+        )
+    }
+}
+
+@Composable
+private fun AddSubjectDialog(
+    onAdd: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        title = {
+            Text("إضافة مادة جديدة", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = { Text("اكتب اسم المادة (مثل: رياضيات)", fontFamily = ReadexProFontFamily) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().testTag("new_subject_input")
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = { onAdd(name) },
+                enabled = name.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue)
+            ) {
+                Text("إضافة", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إلغاء", fontFamily = ReadexProFontFamily)
+            }
+        }
+    )
 }
 
 @Composable
@@ -469,7 +715,7 @@ fun BatchDashboardCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = batch.name.take(1),
+                            text = batch.name.take(1).ifBlank { "د" },
                             fontFamily = ReadexProFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
@@ -492,7 +738,7 @@ fun BatchDashboardCard(
                             color = Color.White
                         )
                         Text(
-                            text = "${batch.studentsCount} طالب · ${batch.subjects.size.coerceAtLeast(6)} مواد",
+                            text = "${batch.studentsCount} عضو · ${batch.subjects.size} مادة",
                             fontFamily = ReadexProFontFamily,
                             fontWeight = FontWeight.Medium,
                             fontSize = 13.sp,
@@ -542,7 +788,6 @@ fun BatchDashboardCard(
                 }
             }
 
-            // Connected full-width Royal Blue button "شات الدفعة"
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -634,7 +879,8 @@ private fun HubSegmentedTabBar(
 @Composable
 private fun SubjectListRowCard(
     subject: DofaatiSubject,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val icon = when {
         subject.name.contains("فيزيا") -> Icons.Default.Bolt
@@ -649,7 +895,7 @@ private fun SubjectListRowCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -676,11 +922,22 @@ private fun SubjectListRowCard(
                     color = DofaatiColors.NavyInk
                 )
                 Text(
-                    text = "${subject.recordingsCount} ريكوردات · ${subject.filesCount} ملفات PDF",
+                    text = "${subject.recordingsCount} ريكورد · ${subject.filesCount} ملف",
                     fontFamily = ReadexProFontFamily,
                     fontWeight = FontWeight.Medium,
                     fontSize = 12.5.sp,
                     color = DofaatiColors.SlateMuted
+                )
+            }
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = "حذف ${subject.name}",
+                    tint = DofaatiColors.SlateMuted,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             Surface(
@@ -701,7 +958,17 @@ private fun SubjectListRowCard(
 }
 
 @Composable
-private fun HubSchedulePreviewCard(onOpenFullSchedule: () -> Unit) {
+private fun HubSchedulePreviewCard(
+    events: List<DofaatiScheduleEvent>,
+    onOpenFullSchedule: () -> Unit
+) {
+    val upcomingSummary = remember(events) {
+        if (events.isEmpty()) {
+            "لا توجد مواعيد أو امتحانات مجدولة بعد. أضف موعدك يدوياً أو صوّر الجدول."
+        } else {
+            events.take(3).joinToString(" • ") { "${it.title} (${it.dayAndTime})" }
+        }
+    }
     DofaatiCard(onClick = onOpenFullSchedule) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -716,7 +983,7 @@ private fun HubSchedulePreviewCard(onOpenFullSchedule: () -> Unit) {
                 )
             }
             Text(
-                text = "باقي يومان و 4 ساعات على الامتحان الشامل • الأحد 6 مساءً • الأربعاء 8 مساءً",
+                text = upcomingSummary,
                 fontFamily = ReadexProFontFamily,
                 fontSize = 13.sp,
                 color = DofaatiColors.SlateBody
@@ -731,7 +998,7 @@ private fun HubSchedulePreviewCard(onOpenFullSchedule: () -> Unit) {
                     .testTag("btn_open_schedule_screen")
             ) {
                 Text(
-                    text = "عرض الجدول الذكي واستخراج من صورة",
+                    text = "فتح الجدول وإضافة المواعيد",
                     fontFamily = ReadexProFontFamily,
                     fontWeight = FontWeight.Bold
                 )
@@ -742,29 +1009,40 @@ private fun HubSchedulePreviewCard(onOpenFullSchedule: () -> Unit) {
 
 @Composable
 private fun HubUpdatesAndAdminCard(
-    pinnedNotice: String,
+    batch: DofaatiBatch?,
+    pendingRequestsCount: Int,
     onOpenAdminRequests: () -> Unit,
     onOpenChat: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = DofaatiColors.PinnedOrange
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
+        if (batch == null) {
+            HubEmptySectionCard(
+                title = "لا توجد مستجدات",
+                subtitle = "أنشئ دفعة أولاً لإرسال الإعلانات المثبتة وإدارة طلبات الانضمام."
+            )
+            return@Column
+        }
+
+        if (batch.pinnedNotice.isNotBlank()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = DofaatiColors.PinnedOrange
             ) {
-                Icon(Icons.Default.Campaign, contentDescription = null, tint = Color.White)
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = pinnedNotice,
-                    fontFamily = ReadexProFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = Color.White
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Campaign, contentDescription = null, tint = Color.White)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = batch.pinnedNotice,
+                        fontFamily = ReadexProFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = Color.White
+                    )
+                }
             }
         }
 
@@ -776,8 +1054,8 @@ private fun HubUpdatesAndAdminCard(
                 Icon(Icons.Default.ManageAccounts, contentDescription = null, tint = DofaatiColors.RoyalBlue, modifier = Modifier.size(28.dp))
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("إدارة الدفعة - طلبات الانضمام", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = DofaatiColors.NavyInk)
-                    Text("قبول أو رفض الطلاب الجدد ومشاركة كود 4861 3927", fontFamily = ReadexProFontFamily, fontSize = 12.sp, color = DofaatiColors.SlateMuted)
+                    Text("إدارة الدفعة - طلبات الانضمام ($pendingRequestsCount)", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = DofaatiColors.NavyInk)
+                    Text("إدارة الأعضاء ومشاركة كود الدفعة ${batch.code}", fontFamily = ReadexProFontFamily, fontSize = 12.sp, color = DofaatiColors.SlateMuted)
                 }
             }
         }
@@ -800,44 +1078,53 @@ private fun HubExamsSuiteCard(
     onOpenQuestionBank: () -> Unit,
     onOpenAdminExamCreator: () -> Unit,
     onStartLiveChallenge: () -> Unit,
-    onOpenLeaderboard: () -> Unit
+    onOpenLeaderboard: () -> Unit,
+    onOpenMindMaps: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         ExamActionSuiteRow(
-            title = "مولد الأسئلة الضخم بالذكاء الاصطناعي",
-            subtitle = "توليد حتى 100 سؤال بدون انقطاع عبر دفعات متتالية",
+            title = "مولد الأسئلة بالذكاء الاصطناعي",
+            subtitle = "توليد أسئلة مخصصة متدرجة من نص منهجك مباشرة",
             icon = Icons.Default.AutoAwesome,
             accent = DofaatiColors.RoyalBlue,
             testTag = "btn_open_bulk_ai_generator",
             onClick = onOpenBulkGenerator
         )
         ExamActionSuiteRow(
-            title = "بنك الأسئلة الشامل ($totalBankCount+ سؤال)",
-            subtitle = "استيراد ملفات PDF مع رسوم الدوائر الكهربية",
+            title = "بنك الأسئلة ($totalBankCount سؤال)",
+            subtitle = "إضافة أسئلة يدوياً أو استيرادها من PDF مع التفسير",
             icon = Icons.Default.Storage,
             accent = DofaatiColors.RoyalBlueDark,
             testTag = "btn_open_question_bank",
             onClick = onOpenQuestionBank
         )
         ExamActionSuiteRow(
-            title = "إدارة الدفعة ولصق 100 سؤال دفعة واحدة",
-            subtitle = "لصق ونشر تحدي مباشر أو امتحان فوري للدفعة",
+            title = "منشئ الامتحانات باللصق السريع",
+            subtitle = "لصق ونشر امتحان مباشر للدفعة مع مراجعة الإجابات",
             icon = Icons.Default.ContentPaste,
             accent = DofaatiColors.AmberGold,
             testTag = "btn_open_admin_paste_creator",
             onClick = onOpenAdminExamCreator
         )
         ExamActionSuiteRow(
-            title = "التحدي المباشر اللحظي للدفعة (Live Quiz)",
-            subtitle = "مؤقت دائري حي + 37 متصل الآن + حساب نقاط السرعة",
+            title = "التحدي التفاعلي المباشر",
+            subtitle = if (totalBankCount > 0) "اختبر نفسك في $totalBankCount سؤال من بنكك بمؤقت السرعة" else "أضف أسئلة في البنك أو المنشئ لبدء التحدي",
             icon = Icons.Default.Quiz,
             accent = DofaatiColors.EmeraldGreen,
             testTag = "btn_start_live_challenge",
             onClick = onStartLiveChallenge
         )
         ExamActionSuiteRow(
-            title = "نتيجة الاختبار ولوحة الشرف الثلاثية",
-            subtitle = "منصة التتويج الثلاثية ومراجعة التفسير التفصيلي",
+            title = "الخرائط الذهنية وبطاقات الاستذكار",
+            subtitle = "خرائط مفاهيم وبطاقات قلب ثلاثية الأبعاد للمراجعة",
+            icon = Icons.Default.AccountTree,
+            accent = DofaatiColors.PurpleNode,
+            testTag = "btn_open_mindmaps_from_hub",
+            onClick = onOpenMindMaps
+        )
+        ExamActionSuiteRow(
+            title = "نتائج الاختبارات ولوحة الشرف",
+            subtitle = "سجل درجاتك الحقيقية ومراجعة الإجابات والتفسير",
             icon = Icons.Default.EmojiEvents,
             accent = DofaatiColors.PinnedOrange,
             testTag = "btn_open_leaderboard_results",
@@ -883,7 +1170,7 @@ private fun ExamActionSuiteRow(
 
 @Composable
 private fun JoinByCodeDialog(
-    previewLookup: (String) -> Pair<String, String>,
+    previewLookup: (String) -> Pair<String, String>?,
     onRequestJoin: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -894,8 +1181,8 @@ private fun JoinByCodeDialog(
     } else {
         cleanDigits
     }
-    val (batchPreviewName, adminPreviewName) = remember(cleanDigits) {
-        if (cleanDigits.length == 8) previewLookup(cleanDigits) else ("" to "")
+    val matchedBatch = remember(cleanDigits) {
+        if (cleanDigits.length == 8) previewLookup(cleanDigits) else null
     }
 
     AlertDialog(
@@ -925,7 +1212,7 @@ private fun JoinByCodeDialog(
                     OutlinedTextField(
                         value = formattedPreview,
                         onValueChange = { next -> codeInput = next.filter { it.isDigit() }.take(8) },
-                        placeholder = { Text("4861 3927", fontFamily = ReadexProFontFamily) },
+                        placeholder = { Text("1234 5678", fontFamily = ReadexProFontFamily) },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
@@ -935,31 +1222,32 @@ private fun JoinByCodeDialog(
                 }
 
                 if (cleanDigits.length == 8) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        color = DofaatiColors.RoyalBlueSoft,
-                        border = BorderStroke(1.dp, DofaatiColors.RoyalBlueTint)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (matchedBatch != null) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = DofaatiColors.RoyalBlueSoft,
+                            border = BorderStroke(1.dp, DofaatiColors.RoyalBlueTint)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("معاينة الدفعة:", fontFamily = ReadexProFontFamily, fontSize = 11.5.sp, color = DofaatiColors.RoyalBlue)
+                                Text(matchedBatch.first, fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = DofaatiColors.NavyInk)
+                                Text("المشرف: ${matchedBatch.second}", fontFamily = ReadexProFontFamily, fontSize = 12.5.sp, color = DofaatiColors.SlateBody)
+                            }
+                        }
+                    } else {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = DofaatiColors.RedAlert.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, DofaatiColors.RedAlert.copy(alpha = 0.4f))
+                        ) {
                             Text(
-                                text = "معاينة الدفعة:",
-                                fontFamily = ReadexProFontFamily,
-                                fontSize = 11.5.sp,
-                                color = DofaatiColors.RoyalBlue
-                            )
-                            Text(
-                                text = batchPreviewName,
-                                fontFamily = ReadexProFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.5.sp,
-                                color = DofaatiColors.NavyInk
-                            )
-                            Text(
-                                text = "المشرف: $adminPreviewName",
+                                text = "لا توجد دفعة مسجلة بهذا الكود.",
                                 fontFamily = ReadexProFontFamily,
                                 fontSize = 12.5.sp,
-                                color = DofaatiColors.SlateBody
+                                color = DofaatiColors.RedAlert,
+                                modifier = Modifier.padding(12.dp)
                             )
                         }
                     }
@@ -968,8 +1256,8 @@ private fun JoinByCodeDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onRequestJoin(cleanDigits.ifBlank { "48613927" }) },
-                enabled = cleanDigits.length == 8,
+                onClick = { onRequestJoin(cleanDigits) },
+                enabled = cleanDigits.length == 8 && matchedBatch != null,
                 colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue),
                 modifier = Modifier.testTag("btn_confirm_join_request")
             ) {

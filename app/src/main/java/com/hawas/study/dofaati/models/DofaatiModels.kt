@@ -39,7 +39,8 @@ data class BulkGenerationProgress(
     val latestBatchQuestions: List<DofaatiQuestionItem>,
     val accumulatedQuestions: List<DofaatiQuestionItem>,
     val isCompleted: Boolean,
-    val statusText: String
+    val statusText: String,
+    val errorMessage: String? = null
 )
 
 data class PodiumStudent(
@@ -49,23 +50,30 @@ data class PodiumStudent(
     val points: Int
 )
 
+data class DofaatiQuizAttempt(
+    val id: String,
+    val quizTitle: String,
+    val participantName: String,
+    val correctCount: Int,
+    val totalQuestions: Int,
+    val scorePercent: Int,
+    val earnedPoints: Int,
+    val timestampMillis: Long
+)
+
 data class LiveChallengeSessionState(
-    val quizTitle: String = "كويز الكهربية — الأسبوع 3",
-    val onlineParticipantsCount: Int = 37,
-    val answeredParticipantsCount: Int = 21,
+    val quizTitle: String = "",
+    val onlineParticipantsCount: Int = 1,
+    val answeredParticipantsCount: Int = 0,
     val currentQuestionIndex: Int = 0,
-    val remainingSeconds: Int = 13,
+    val remainingSeconds: Int = 15,
     val questions: List<DofaatiQuestionItem> = emptyList(),
     val selectedAnswers: Map<String, Int> = emptyMap(),
     val earnedPoints: Int = 0,
     val isFinished: Boolean = false,
-    val leaderboardTopThree: List<PodiumStudent> = listOf(
-        PodiumStudent(rank = 1, name = "يوسف محمود", scorePercent = 98, points = 980),
-        PodiumStudent(rank = 2, name = "سلمى طارق", scorePercent = 95, points = 950),
-        PodiumStudent(rank = 3, name = "عمر خالد", scorePercent = 92, points = 920)
-    ),
-    val batchAveragePercentage: Int = 88,
-    val totalBatchParticipants: Int = 86
+    val leaderboardTopThree: List<PodiumStudent> = emptyList(),
+    val batchAveragePercentage: Int = 0,
+    val totalBatchParticipants: Int = 0
 )
 
 data class DofaatiBatch(
@@ -78,14 +86,15 @@ data class DofaatiBatch(
     val subjects: List<DofaatiSubject>,
     val uploadPermission: UploadPermissionMode = UploadPermissionMode.ADMIN_ONLY,
     val requireApproval: Boolean = true,
-    val pinnedNotice: String = "امتحان الفيزيا الخميس الساعة 10"
+    val pinnedNotice: String = ""
 )
 
 data class DofaatiSubject(
     val id: String,
+    val batchId: String = "",
     val name: String,
-    val recordingsCount: Int,
-    val filesCount: Int
+    val recordingsCount: Int = 0,
+    val filesCount: Int = 0
 )
 
 data class DofaatiAudioLesson(
@@ -94,9 +103,10 @@ data class DofaatiAudioLesson(
     val title: String,
     val durationSec: Int,
     val waveformPeaks: List<Float>,
-    val transcriptText: String,
-    val extractedLaws: List<String>,
-    val importantExamPoints: List<String>
+    val audioUri: String = "",
+    val transcriptText: String = "",
+    val extractedLaws: List<String> = emptyList(),
+    val importantExamPoints: List<String> = emptyList()
 )
 
 data class DofaatiStudyFile(
@@ -104,17 +114,21 @@ data class DofaatiStudyFile(
     val subjectId: String,
     val title: String,
     val pageCount: Int,
-    val fileSizeLabel: String
+    val fileSizeLabel: String,
+    val fileUri: String = "",
+    val extractedText: String = ""
 )
 
 data class DofaatiChatMessage(
     val id: String,
+    val batchId: String = "",
     val senderName: String,
     val senderInitial: String,
     val isAdmin: Boolean,
     val isMe: Boolean,
     val isAudio: Boolean,
     val text: String,
+    val audioUri: String = "",
     val audioDurationSec: Int = 0,
     val waveformPeaks: List<Float> = emptyList(),
     val timestamp: String,
@@ -124,6 +138,7 @@ data class DofaatiChatMessage(
 
 data class DofaatiJoinRequest(
     val id: String,
+    val batchId: String = "",
     val studentName: String,
     val studentInitial: String,
     val requestedAt: String,
@@ -132,6 +147,7 @@ data class DofaatiJoinRequest(
 
 data class DofaatiBatchMember(
     val id: String,
+    val batchId: String = "",
     val name: String,
     val roleLabel: String,
     val isAdmin: Boolean,
@@ -169,7 +185,8 @@ data class DofaatiScheduleEvent(
     val dayAndTime: String,
     val subjectName: String,
     val title: String,
-    val isExam: Boolean
+    val isExam: Boolean,
+    val targetTimestampMillis: Long = 0L
 )
 
 enum class DofaatiRoute(val isFullScreen: Boolean) {

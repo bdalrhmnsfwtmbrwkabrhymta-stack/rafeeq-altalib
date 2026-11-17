@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
@@ -41,21 +42,23 @@ fun BulkAiQuestionGeneratorScreen(viewModel: DofaatiViewModel) {
     val bulkProgress by viewModel.bulkProgress.collectAsStateWithLifecycle()
     val isGenerating by viewModel.isGeneratingBulk.collectAsStateWithLifecycle()
 
-    var questionCount by remember { mutableIntStateOf(100) }
+    var questionCount by remember { mutableIntStateOf(25) }
     var selectedDifficulties by remember {
         mutableStateOf(setOf(DifficultyLevel.EASY, DifficultyLevel.MEDIUM, DifficultyLevel.HIGHER_ORDER))
     }
     var selectedTypes by remember {
         mutableStateOf(setOf(QuestionType.MCQ, QuestionType.TRUE_FALSE))
     }
-    var topicText by remember { mutableStateOf("التيار الكهربي وقانون أوم وتوصيل المقاومات وكيرشوف") }
+    var subjectText by remember { mutableStateOf("") }
+    var topicText by remember { mutableStateOf("") }
 
     val onStartGenerate: () -> Unit = {
         viewModel.startBulkGeneration(
             totalCount = questionCount,
             difficulties = selectedDifficulties,
             types = selectedTypes,
-            sourceText = topicText
+            sourceText = topicText,
+            subjectNameOverride = subjectText
         )
     }
 
@@ -128,28 +131,12 @@ fun BulkAiQuestionGeneratorScreen(viewModel: DofaatiViewModel) {
                         )
                     }
                     item {
-                        DofaatiCard {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = "نطاق المنهج أو الدرس المطلوب:",
-                                    fontFamily = ReadexProFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = DofaatiColors.NavyInk
-                                )
-                                OutlinedTextField(
-                                    value = topicText,
-                                    onValueChange = { topicText = it },
-                                    minLines = 2,
-                                    maxLines = 3,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth().testTag("bulk_topic_input")
-                                )
-                            }
-                        }
+                        BulkTopicInputCard(
+                            subjectText = subjectText,
+                            onSubjectChange = { subjectText = it },
+                            topicText = topicText,
+                            onTopicChange = { topicText = it }
+                        )
                     }
                     if (bulkProgress != null) {
                         item {
@@ -218,6 +205,14 @@ fun BulkAiQuestionGeneratorScreen(viewModel: DofaatiViewModel) {
                         }
                     )
                 }
+                item {
+                    BulkTopicInputCard(
+                        subjectText = subjectText,
+                        onSubjectChange = { subjectText = it },
+                        topicText = topicText,
+                        onTopicChange = { topicText = it }
+                    )
+                }
                 if (bulkProgress != null) {
                     item {
                         BulkGenerationProgressCard(
@@ -235,6 +230,54 @@ fun BulkAiQuestionGeneratorScreen(viewModel: DofaatiViewModel) {
             }
         }
     )
+}
+
+@Composable
+private fun BulkTopicInputCard(
+    subjectText: String,
+    onSubjectChange: (String) -> Unit,
+    topicText: String,
+    onTopicChange: (String) -> Unit
+) {
+    DofaatiCard {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "المادة وموضوع الأسئلة:",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = DofaatiColors.NavyInk
+            )
+            OutlinedTextField(
+                value = subjectText,
+                onValueChange = onSubjectChange,
+                placeholder = { Text("اسم المادة (اختياري)", fontFamily = ReadexProFontFamily) },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = topicText,
+                onValueChange = onTopicChange,
+                placeholder = {
+                    Text(
+                        text = "اكتب عنوان الدرس أو الصق النص الدراسي لتوليد الأسئلة منه بدقة...",
+                        fontFamily = ReadexProFontFamily,
+                        fontSize = 12.5.sp
+                    )
+                },
+                minLines = 3,
+                maxLines = 5,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("bulk_topic_input")
+            )
+        }
+    }
 }
 
 @Composable
@@ -311,7 +354,7 @@ private fun QuestionCountSliderCard(
                     color = DofaatiColors.RoyalBlueSoft
                 ) {
                     Text(
-                        text = "${((questionCount + 24) / 25)} دفعات",
+                        text = "${((questionCount + 19) / 20)} دفعات",
                         fontFamily = ReadexProFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
@@ -336,7 +379,7 @@ private fun QuestionCountSliderCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(25, 50, 75, 100).forEach { preset ->
+                listOf(15, 25, 50, 100).forEach { preset ->
                     val active = questionCount == preset
                     Surface(
                         modifier = Modifier
@@ -470,12 +513,19 @@ private fun BulkGenerationProgressCard(
     onStartQuiz: () -> Unit,
     onOpenBank: () -> Unit
 ) {
+    val hasError = !progress.errorMessage.isNullOrBlank()
     val fraction = if (progress.totalRequested > 0) {
         (progress.generatedCount.toFloat() / progress.totalRequested.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
+    val borderTint = when {
+        hasError -> DofaatiColors.RedAlert
+        progress.isCompleted -> DofaatiColors.EmeraldGreen
+        else -> DofaatiColors.RoyalBlue
+    }
+
     DofaatiCard(
-        borderColor = if (progress.isCompleted) DofaatiColors.EmeraldGreen else DofaatiColors.RoyalBlue,
+        borderColor = borderTint,
         borderWidth = 1.5.dp
     ) {
         Column(
@@ -484,23 +534,27 @@ private fun BulkGenerationProgressCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if (progress.isCompleted) Icons.Default.CheckCircle else Icons.Default.AutoAwesome,
+                    imageVector = when {
+                        hasError -> Icons.Default.ErrorOutline
+                        progress.isCompleted -> Icons.Default.CheckCircle
+                        else -> Icons.Default.AutoAwesome
+                    },
                     contentDescription = null,
-                    tint = if (progress.isCompleted) DofaatiColors.EmeraldGreen else DofaatiColors.RoyalBlue
+                    tint = borderTint
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = progress.statusText,
+                    text = progress.errorMessage ?: progress.statusText,
                     fontFamily = ReadexProFontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
-                    color = DofaatiColors.NavyInk,
+                    color = if (hasError) DofaatiColors.RedAlert else DofaatiColors.NavyInk,
                     modifier = Modifier.testTag("bulk_progress_status")
                 )
             }
             LinearProgressIndicator(
                 progress = { fraction },
-                color = if (progress.isCompleted) DofaatiColors.EmeraldGreen else DofaatiColors.RoyalBlue,
+                color = borderTint,
                 trackColor = DofaatiColors.RoyalBlueTint,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -508,7 +562,7 @@ private fun BulkGenerationProgressCard(
                     .clip(RoundedCornerShape(6.dp))
             )
             Text(
-                text = "الدفعة ${progress.currentBatchIndex} من ${progress.totalBatches} • تم منع التكرار وحفظ الأسئلة",
+                text = "الدفعة ${progress.currentBatchIndex} من ${progress.totalBatches} • تم توليد ${progress.generatedCount} سؤال",
                 fontFamily = ReadexProFontFamily,
                 fontSize = 12.sp,
                 color = DofaatiColors.SlateMuted

@@ -29,24 +29,45 @@ object AzkarScheduler {
     const val ACTION_EVENING_AZKAR = "com.example.ACTION_EVENING_AZKAR"
 
     /**
-     * Reschedules both Morning and Evening Azkar reading user preferences asynchronously.
+     * Reschedules both Morning and Evening Azkar strictly anchored to calculated
+     * Fajr (+5m) and Asr (+5m) prayer times from user preferences.
      */
     fun rescheduleAzkar(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val prefsRepo = UserPreferencesRepository(context)
+                val appContext = context.applicationContext
+                val prefsRepo = UserPreferencesRepository(appContext)
                 val settings = prefsRepo.userSettingsFlow.first()
-                scheduleAzkar(
-                    context = context,
+                val calcMethod = try {
+                    CalculationMethod.valueOf(settings.calculationMethod.uppercase())
+                } catch (_: Exception) {
+                    CalculationMethod.EGYPTIAN
+                }
+                val todayResult = PrayerTimesCalculator.calculatePrayerTimes(
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    method = calcMethod,
+                    isEnglish = settings.appLanguage != "ar",
+                    dstMode = settings.dstMode
+                )
+                val tomorrowCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+                val tomorrowResult = PrayerTimesCalculator.calculatePrayerTimes(
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    date = tomorrowCal.time,
+                    method = calcMethod,
+                    isEnglish = settings.appLanguage != "ar",
+                    dstMode = settings.dstMode
+                )
+                AdhkarAutoTriggerManager.scheduleDynamicWindowAlarms(
+                    context = appContext,
                     morningEnabled = settings.isMorningAzkarEnabled,
                     eveningEnabled = settings.isEveningAzkarEnabled,
-                    morningHour = settings.morningAzkarHour,
-                    morningMinute = settings.morningAzkarMinute,
-                    eveningHour = settings.eveningAzkarHour,
-                    eveningMinute = settings.eveningAzkarMinute
+                    todayResult = todayResult,
+                    tomorrowResult = tomorrowResult
                 )
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to reschedule Azkar from prefs", e)
+                Log.e(TAG, "Failed to reschedule Azkar dynamically from prayer times", e)
             }
         }
     }

@@ -7,9 +7,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Publish
@@ -29,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.dofaati.DofaatiViewModel
+import com.hawas.study.dofaati.models.DofaatiQuestionItem
 import com.hawas.study.dofaati.models.DofaatiRoute
 import com.hawas.study.dofaati.ui.theme.DofaatiAdaptiveScreenContainer
 import com.hawas.study.dofaati.ui.theme.DofaatiCard
@@ -46,14 +50,18 @@ fun BatchAdminExamCreatorScreen(viewModel: DofaatiViewModel) {
     val batches by viewModel.batches.collectAsStateWithLifecycle()
     val activeBatchId by viewModel.activeBatchId.collectAsStateWithLifecycle()
     val batch = remember(batches, activeBatchId) {
-        batches.firstOrNull { it.id == activeBatchId } ?: batches.first()
+        batches.firstOrNull { it.id == activeBatchId } ?: batches.firstOrNull()
     }
     val parsedQuestions by viewModel.adminParsedQuestions.collectAsStateWithLifecycle()
-    val members by viewModel.batchMembers.collectAsStateWithLifecycle()
+    val allMembers by viewModel.batchMembers.collectAsStateWithLifecycle()
+    val batchMembers = remember(allMembers, batch) {
+        if (batch == null) emptyList() else allMembers.filter { it.batchId == batch.id || it.batchId.isBlank() }
+    }
 
     var activeTopTab by remember { mutableStateOf(ExamAdminTopTab.SETTINGS) }
-    var examTitle by remember { mutableStateOf("كويز الكهربية — الأسبوع 3") }
+    var examTitle by remember { mutableStateOf("") }
     var bulkText by remember { mutableStateOf("") }
+    var allowAiFallback by remember { mutableStateOf(false) }
 
     val pdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -63,9 +71,11 @@ fun BatchAdminExamCreatorScreen(viewModel: DofaatiViewModel) {
         }
     }
 
-    LaunchedEffect(bulkText) {
+    LaunchedEffect(bulkText, allowAiFallback) {
         if (bulkText.isNotBlank()) {
-            viewModel.parseAdminBulkPastePreview(bulkText)
+            viewModel.parseAdminBulkPastePreview(bulkText, allowAiFallback = allowAiFallback)
+        } else {
+            viewModel.parseAdminBulkPastePreview("", allowAiFallback = false)
         }
     }
 
@@ -81,7 +91,7 @@ fun BatchAdminExamCreatorScreen(viewModel: DofaatiViewModel) {
             ) {
                 DofaatiRoyalBlueHeader(
                     title = "إدارة الدفعة ومنشئ الامتحانات",
-                    subtitle = batch.name,
+                    subtitle = batch?.name ?: "منشئ الامتحانات",
                     onNavigateBack = { viewModel.navigateBack() },
                     testTag = "admin_exam_header"
                 )
@@ -101,25 +111,36 @@ fun BatchAdminExamCreatorScreen(viewModel: DofaatiViewModel) {
                             onExamTitleChange = { examTitle = it },
                             bulkText = bulkText,
                             onBulkTextChange = { bulkText = it },
+                            allowAiFallback = allowAiFallback,
+                            onToggleAiFallback = { allowAiFallback = it },
                             parsedCount = parsedQuestions.size,
                             onImportPdf = {
                                 pdfLauncher.launch(arrayOf("application/pdf", "text/plain"))
                             },
-                            onInsertSampleBatch = {
-                                bulkText = buildSampleBulkPasteText()
-                            },
                             onPublish = {
-                                viewModel.publishBulkExamToBatch(bulkText, examTitle)
+                                viewModel.publishBulkExamToBatch(examTitle)
                             }
                         )
+                    }
+
+                    if (parsedQuestions.isNotEmpty()) {
+                        items(parsedQuestions, key = { it.id }) { q ->
+                            EditableParsedQuestionPreviewCard(
+                                item = q,
+                                onSelectCorrect = { idx ->
+                                    viewModel.updateAdminParsedQuestionCorrectOption(q.id, idx)
+                                },
+                                onDelete = { viewModel.removeAdminParsedQuestion(q.id) }
+                            )
+                        }
                     }
 
                     item {
                         AdminContextTabPanel(
                             tab = activeTopTab,
-                            batchSubjectsCount = batch.subjects.size,
-                            membersCount = members.size,
-                            uploadPermissionLabel = batch.uploadPermission.labelAr,
+                            batchSubjectsCount = batch?.subjects?.size ?: 0,
+                            membersCount = batchMembers.size,
+                            uploadPermissionLabel = batch?.uploadPermission?.labelAr ?: "—",
                             onOpenBatchManagement = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) }
                         )
                     }
@@ -133,7 +154,7 @@ fun BatchAdminExamCreatorScreen(viewModel: DofaatiViewModel) {
             ) {
                 DofaatiRoyalBlueHeader(
                     title = "إدارة الدفعة ومنشئ الامتحانات",
-                    subtitle = batch.name,
+                    subtitle = batch?.name ?: "منشئ الامتحانات",
                     onNavigateBack = { viewModel.navigateBack() },
                     testTag = "admin_exam_header_land"
                 )
@@ -143,9 +164,9 @@ fun BatchAdminExamCreatorScreen(viewModel: DofaatiViewModel) {
                 )
                 AdminContextTabPanel(
                     tab = activeTopTab,
-                    batchSubjectsCount = batch.subjects.size,
-                    membersCount = members.size,
-                    uploadPermissionLabel = batch.uploadPermission.labelAr,
+                    batchSubjectsCount = batch?.subjects?.size ?: 0,
+                    membersCount = batchMembers.size,
+                    uploadPermissionLabel = batch?.uploadPermission?.labelAr ?: "—",
                     onOpenBatchManagement = { viewModel.navigateTo(DofaatiRoute.CHAT_AND_ADMIN) }
                 )
             }
@@ -153,7 +174,8 @@ fun BatchAdminExamCreatorScreen(viewModel: DofaatiViewModel) {
         landscapeRightPane = {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 8.dp)
+                contentPadding = PaddingValues(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
                     BulkExamCreatorCard(
@@ -161,17 +183,27 @@ fun BatchAdminExamCreatorScreen(viewModel: DofaatiViewModel) {
                         onExamTitleChange = { examTitle = it },
                         bulkText = bulkText,
                         onBulkTextChange = { bulkText = it },
+                        allowAiFallback = allowAiFallback,
+                        onToggleAiFallback = { allowAiFallback = it },
                         parsedCount = parsedQuestions.size,
                         onImportPdf = {
                             pdfLauncher.launch(arrayOf("application/pdf", "text/plain"))
                         },
-                        onInsertSampleBatch = {
-                            bulkText = buildSampleBulkPasteText()
-                        },
                         onPublish = {
-                            viewModel.publishBulkExamToBatch(bulkText, examTitle)
+                            viewModel.publishBulkExamToBatch(examTitle)
                         }
                     )
+                }
+                if (parsedQuestions.isNotEmpty()) {
+                    items(parsedQuestions, key = { it.id }) { q ->
+                        EditableParsedQuestionPreviewCard(
+                            item = q,
+                            onSelectCorrect = { idx ->
+                                viewModel.updateAdminParsedQuestionCorrectOption(q.id, idx)
+                            },
+                            onDelete = { viewModel.removeAdminParsedQuestion(q.id) }
+                        )
+                    }
                 }
             }
         }
@@ -226,9 +258,10 @@ private fun BulkExamCreatorCard(
     onExamTitleChange: (String) -> Unit,
     bulkText: String,
     onBulkTextChange: (String) -> Unit,
+    allowAiFallback: Boolean,
+    onToggleAiFallback: (Boolean) -> Unit,
     parsedCount: Int,
     onImportPdf: () -> Unit,
-    onInsertSampleBatch: () -> Unit,
     onPublish: () -> Unit
 ) {
     DofaatiCard {
@@ -252,6 +285,7 @@ private fun BulkExamCreatorCard(
                 value = examTitle,
                 onValueChange = onExamTitleChange,
                 label = { Text("عنوان التحدي أو الامتحان", fontFamily = ReadexProFontFamily) },
+                placeholder = { Text("مثال: اختبار الفصل الأول", fontFamily = ReadexProFontFamily) },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().testTag("admin_exam_title_input")
@@ -262,13 +296,14 @@ private fun BulkExamCreatorCard(
                 onValueChange = onBulkTextChange,
                 placeholder = {
                     Text(
-                        text = "لصق أو استيراد 100 سؤال دفعة واحدة",
+                        text = "الصق أسئلتك المرقمة هنا:\n1- ما وحدة شدة التيار؟\nأ) الفولت\nب) الأمبير *\nالإجابة: ب",
                         fontFamily = ReadexProFontFamily,
+                        fontSize = 12.5.sp,
                         color = DofaatiColors.SlateMuted
                     )
                 },
                 minLines = 6,
-                maxLines = 10,
+                maxLines = 12,
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -276,27 +311,36 @@ private fun BulkExamCreatorCard(
             )
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onToggleAiFallback(!allowAiFallback) }
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
-                    onClick = onInsertSampleBatch,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f).height(46.dp).testTag("btn_fill_sample_bulk")
-                ) {
-                    Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("نموذج سريع", fontFamily = ReadexProFontFamily, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(
-                    onClick = onImportPdf,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f).height(46.dp).testTag("btn_admin_import_pdf")
-                ) {
-                    Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("ملف PDF", fontFamily = ReadexProFontFamily, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                }
+                Checkbox(
+                    checked = allowAiFallback,
+                    onCheckedChange = onToggleAiFallback,
+                    colors = CheckboxDefaults.colors(checkedColor = DofaatiColors.RoyalBlue)
+                )
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = DofaatiColors.RoyalBlue, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "استخراج ذكي بالـ AI إذا كان النص غير منسق",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 12.5.sp,
+                    color = DofaatiColors.NavyInk
+                )
+            }
+
+            OutlinedButton(
+                onClick = onImportPdf,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(46.dp).testTag("btn_admin_import_pdf")
+            ) {
+                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("استيراد أسئلة من ملف PDF أو نص", fontFamily = ReadexProFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
 
             Surface(
@@ -307,9 +351,9 @@ private fun BulkExamCreatorCard(
             ) {
                 Text(
                     text = if (parsedCount > 0) {
-                        "تم التعرف تلقائياً على $parsedCount سؤالاً جاهزاً للنشر المباشر"
+                        "تم تحليل $parsedCount سؤالاً بنجاح — راجع الإجابة الصحيحة أدناه قبل النشر"
                     } else {
-                        "يدعم الصيغ المرقمة (1- / س1:) والاختيارات (أ/ب/ج/د) أو (A/B/C/D)"
+                        "يدعم الصيغ المرقمة (1- / س1:) والاختيارات (أ/ب/ج/د) أو (A/B/C/D) ووسم الإجابة الصحيحة (* أو الإجابة:)"
                     },
                     fontFamily = ReadexProFontFamily,
                     fontWeight = FontWeight.SemiBold,
@@ -323,6 +367,7 @@ private fun BulkExamCreatorCard(
 
             Button(
                 onClick = onPublish,
+                enabled = parsedCount > 0,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue),
                 modifier = Modifier
@@ -333,11 +378,75 @@ private fun BulkExamCreatorCard(
                 Icon(Icons.Default.Publish, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "نشر الامتحان للدفعة",
+                    text = if (parsedCount > 0) "نشر الامتحان ($parsedCount سؤال)" else "نشر الامتحان للدفعة",
                     fontFamily = ReadexProFontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.5.sp
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditableParsedQuestionPreviewCard(
+    item: DofaatiQuestionItem,
+    onSelectCorrect: (Int) -> Unit,
+    onDelete: () -> Unit
+) {
+    DofaatiCard(
+        borderColor = DofaatiColors.RoyalBlueTint,
+        borderWidth = 1.2.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "س${item.questionNumber}: ${item.questionText}",
+                    fontFamily = ReadexProFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp,
+                    color = DofaatiColors.NavyInk,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "إزالة السؤال", tint = DofaatiColors.RedAlert)
+                }
+            }
+            item.options.forEachIndexed { idx, opt ->
+                val isCorrect = idx == item.correctOptionIndex
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onSelectCorrect(idx) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isCorrect) DofaatiColors.EmeraldGreen.copy(alpha = 0.12f) else DofaatiColors.Background,
+                    border = BorderStroke(1.dp, if (isCorrect) DofaatiColors.EmeraldGreen else DofaatiColors.BorderSoft)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = opt,
+                            fontFamily = ReadexProFontFamily,
+                            fontWeight = if (isCorrect) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 12.5.sp,
+                            color = DofaatiColors.NavyInk
+                        )
+                        if (isCorrect) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = "إجابة صحيحة", tint = DofaatiColors.EmeraldGreen, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
             }
         }
     }
@@ -364,7 +473,7 @@ private fun AdminContextTabPanel(
             val desc = when (tab) {
                 ExamAdminTopTab.SETTINGS -> "صلاحية الرفع الحالية: $uploadPermissionLabel • تقييم تلقائي فوري"
                 ExamAdminTopTab.SUBJECTS -> "$batchSubjectsCount مواد مفعلة لربط الامتحانات المباشرة"
-                ExamAdminTopTab.MEMBERS -> "$membersCount أعضاء نشطين جاهزين لدخول التحدي الحي"
+                ExamAdminTopTab.MEMBERS -> "$membersCount أعضاء في الدفعة"
             }
             Icon(icon, contentDescription = null, tint = DofaatiColors.RoyalBlue)
             Spacer(modifier = Modifier.width(10.dp))
@@ -381,23 +490,3 @@ private fun AdminContextTabPanel(
         }
     }
 }
-
-private fun buildSampleBulkPasteText(): String = """
-1- وحدة قياس شدة التيار الكهربي هي:
-أ) الفولت
-ب) الأمبير *
-ج) الأوم
-د) الوات
-
-2- المقاومة المكافئة لثلاث مقاومات متساوية قيمة كل منها 9 أوم متصلة على التوازي تساوي:
-أ) 27 أوم
-ب) 3 أوم *
-ج) 9 أوم
-د) 6 أوم
-
-3- عند زيادة طول موصل للضعف مع ثبوت مساحة مقطعه فإن مقاومته:
-أ) تقل للنصف
-ب) تظل ثابتة
-ج) تزداد للضعف *
-د) تزداد أربع مرات
-""".trimIndent()

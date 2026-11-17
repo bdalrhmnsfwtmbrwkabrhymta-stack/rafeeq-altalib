@@ -1,5 +1,9 @@
 package com.hawas.study.dofaati.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,23 +14,31 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.dofaati.DofaatiViewModel
 import com.hawas.study.dofaati.models.DofaatiAudioLesson
 import com.hawas.study.dofaati.models.DofaatiRoute
@@ -38,10 +50,10 @@ import com.hawas.study.dofaati.ui.theme.DofaatiColors
 import com.hawas.study.dofaati.ui.theme.DofaatiLtrText
 import com.hawas.study.dofaati.ui.theme.DofaatiRoyalBlueHeader
 import com.hawas.study.dofaati.ui.theme.formatDurationLtr
-import com.example.ui.theme.ReadexProFontFamily
 
 @Composable
 fun SubjectResourcesScreen(viewModel: DofaatiViewModel) {
+    val context = LocalContext.current
     val batches by viewModel.batches.collectAsStateWithLifecycle()
     val activeBatchId by viewModel.activeBatchId.collectAsStateWithLifecycle()
     val selectedSubjectId by viewModel.selectedSubjectId.collectAsStateWithLifecycle()
@@ -49,16 +61,104 @@ fun SubjectResourcesScreen(viewModel: DofaatiViewModel) {
     val allFiles by viewModel.studyFiles.collectAsStateWithLifecycle()
     val playingAudioId by viewModel.playingAudioId.collectAsStateWithLifecycle()
     val progressFraction by viewModel.audioProgressFraction.collectAsStateWithLifecycle()
+    val isRecordingLesson by viewModel.isRecordingLesson.collectAsStateWithLifecycle()
 
     val batch = remember(batches, activeBatchId) {
-        batches.firstOrNull { it.id == activeBatchId } ?: batches.first()
+        batches.firstOrNull { it.id == activeBatchId } ?: batches.firstOrNull()
     }
     val subject = remember(batch, selectedSubjectId) {
-        batch.subjects.firstOrNull { it.id == selectedSubjectId } ?: batch.subjects.first()
+        batch?.subjects?.firstOrNull { it.id == selectedSubjectId } ?: batch?.subjects?.firstOrNull()
     }
 
-    var activeResourceTab by remember { mutableIntStateOf(0) } // 0 = Recordings (4), 1 = Files (3)
+    if (batch == null || subject == null) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DofaatiColors.Background)
+                .testTag("subject_resources_screen")
+        ) {
+            DofaatiRoyalBlueHeader(
+                title = "محتوى المادة",
+                subtitle = "لا توجد مادة محددة",
+                onNavigateBack = { viewModel.navigateBack() },
+                testTag = "subject_resources_header"
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                DofaatiCard {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "اختر مادة دراسية من الدفعة أولاً",
+                            fontFamily = ReadexProFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = DofaatiColors.NavyInk,
+                            textAlign = TextAlign.Center
+                        )
+                        Button(
+                            onClick = { viewModel.navigateBack() },
+                            colors = ButtonDefaults.buttonColors(containerColor = DofaatiColors.RoyalBlue)
+                        ) {
+                            Text("رجوع", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    val subjectLessons = remember(allLessons, subject.id) {
+        allLessons.filter { it.subjectId == subject.id }
+    }
+    val subjectFiles = remember(allFiles, subject.id) {
+        allFiles.filter { it.subjectId == subject.id }
+    }
+
+    var activeResourceTab by remember { mutableIntStateOf(0) }
     var selectedFileForAiSheet by remember { mutableStateOf<DofaatiStudyFile?>(null) }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.toggleLessonVoiceRecording(granted, subject.id)
+    }
+
+    val onToggleLessonRecord: () -> Unit = {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            viewModel.toggleLessonVoiceRecording(true, subject.id)
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importAudioLessonFromUri(uri, subject.id)
+        }
+    }
+
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importStudyPdfFromUri(uri, subject.id)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -73,16 +173,23 @@ fun SubjectResourcesScreen(viewModel: DofaatiViewModel) {
             testTag = "subject_resources_header"
         )
 
+        SubjectResourceActionsBar(
+            isRecording = isRecordingLesson,
+            onToggleRecord = onToggleLessonRecord,
+            onUploadAudio = { audioPickerLauncher.launch(arrayOf("audio/*")) },
+            onUploadPdf = { pdfPickerLauncher.launch(arrayOf("application/pdf", "text/plain")) }
+        )
+
         DofaatiAdaptiveScreenContainer(
             modifier = Modifier.weight(1f),
             useSafeDrawing = false,
-            landscapeLeftWeight = 0.52f,
+            landscapeLeftWeight = 0.50f,
             portraitContent = {
                 Column(modifier = Modifier.fillMaxSize()) {
                     SegmentedResourcesToggle(
                         selectedIndex = activeResourceTab,
-                        recordingsCount = allLessons.size,
-                        filesCount = allFiles.size,
+                        recordingsCount = subjectLessons.size,
+                        filesCount = subjectFiles.size,
                         onSelect = { activeResourceTab = it }
                     )
 
@@ -92,27 +199,41 @@ fun SubjectResourcesScreen(viewModel: DofaatiViewModel) {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         if (activeResourceTab == 0) {
-                            items(allLessons, key = { it.id }) { lesson ->
-                                AudioLessonPlayerCard(
-                                    lesson = lesson,
-                                    isPlaying = playingAudioId == lesson.id,
-                                    progressFraction = if (playingAudioId == lesson.id) progressFraction else 0.32f,
-                                    onTogglePlay = { viewModel.toggleAudioPlayback(lesson.id) },
-                                    onOpenAiTranscript = { viewModel.openAudioTranscript(lesson.id) }
-                                )
-                            }
-                            items(allFiles.take(1), key = { "preview_${it.id}" }) { file ->
-                                StudyFileRowCard(
-                                    file = file,
-                                    onOpenAiSheet = { selectedFileForAiSheet = file }
-                                )
+                            if (subjectLessons.isEmpty()) {
+                                item {
+                                    EmptyResourceStateCard(
+                                        title = "لا توجد تسجيلات صوتية لهذه المادة بعد",
+                                        subtitle = "اضغط على «تسجيل صوتي» أو «رفع صوت» لإضافة محاضرة والبدء بتفريغها بالذكاء الاصطناعي."
+                                    )
+                                }
+                            } else {
+                                items(subjectLessons, key = { it.id }) { lesson ->
+                                    AudioLessonPlayerCard(
+                                        lesson = lesson,
+                                        isPlaying = playingAudioId == lesson.id,
+                                        progressFraction = if (playingAudioId == lesson.id) progressFraction else 0f,
+                                        onTogglePlay = { viewModel.toggleAudioPlayback(lesson.id, lesson.audioUri) },
+                                        onOpenAiTranscript = { viewModel.openAudioTranscript(lesson.id) },
+                                        onDelete = { viewModel.deleteAudioLesson(lesson.id) }
+                                    )
+                                }
                             }
                         } else {
-                            items(allFiles, key = { it.id }) { file ->
-                                StudyFileRowCard(
-                                    file = file,
-                                    onOpenAiSheet = { selectedFileForAiSheet = file }
-                                )
+                            if (subjectFiles.isEmpty()) {
+                                item {
+                                    EmptyResourceStateCard(
+                                        title = "لا توجد ملازم أو ملفات PDF لهذه المادة بعد",
+                                        subtitle = "اضغط على «رفع PDF» لإضافة ملزمة وتحليل محتواها لإنشاء اختبارات وخرائط ذهنية."
+                                    )
+                                }
+                            } else {
+                                items(subjectFiles, key = { it.id }) { file ->
+                                    StudyFileRowCard(
+                                        file = file,
+                                        onOpenAiSheet = { selectedFileForAiSheet = file },
+                                        onDelete = { viewModel.deleteStudyFile(file.id) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -124,14 +245,24 @@ fun SubjectResourcesScreen(viewModel: DofaatiViewModel) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    items(allLessons, key = { it.id }) { lesson ->
-                        AudioLessonPlayerCard(
-                            lesson = lesson,
-                            isPlaying = playingAudioId == lesson.id,
-                            progressFraction = if (playingAudioId == lesson.id) progressFraction else 0.32f,
-                            onTogglePlay = { viewModel.toggleAudioPlayback(lesson.id) },
-                            onOpenAiTranscript = { viewModel.openAudioTranscript(lesson.id) }
-                        )
+                    if (subjectLessons.isEmpty()) {
+                        item {
+                            EmptyResourceStateCard(
+                                title = "لا توجد تسجيلات صوتية",
+                                subtitle = "استخدم أزرار الأعلى لتسجيل أو رفع ملف صوتي."
+                            )
+                        }
+                    } else {
+                        items(subjectLessons, key = { it.id }) { lesson ->
+                            AudioLessonPlayerCard(
+                                lesson = lesson,
+                                isPlaying = playingAudioId == lesson.id,
+                                progressFraction = if (playingAudioId == lesson.id) progressFraction else 0f,
+                                onTogglePlay = { viewModel.toggleAudioPlayback(lesson.id, lesson.audioUri) },
+                                onOpenAiTranscript = { viewModel.openAudioTranscript(lesson.id) },
+                                onDelete = { viewModel.deleteAudioLesson(lesson.id) }
+                            )
+                        }
                     }
                 }
             },
@@ -141,11 +272,21 @@ fun SubjectResourcesScreen(viewModel: DofaatiViewModel) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    items(allFiles, key = { it.id }) { file ->
-                        StudyFileRowCard(
-                            file = file,
-                            onOpenAiSheet = { selectedFileForAiSheet = file }
-                        )
+                    if (subjectFiles.isEmpty()) {
+                        item {
+                            EmptyResourceStateCard(
+                                title = "لا توجد ملفات PDF",
+                                subtitle = "ارفع ملزمة أو ملفاً نصياً لاستخراج الأسئلة والبطاقات."
+                            )
+                        }
+                    } else {
+                        items(subjectFiles, key = { it.id }) { file ->
+                            StudyFileRowCard(
+                                file = file,
+                                onOpenAiSheet = { selectedFileForAiSheet = file },
+                                onDelete = { viewModel.deleteStudyFile(file.id) }
+                            )
+                        }
                     }
                 }
             }
@@ -161,14 +302,136 @@ fun SubjectResourcesScreen(viewModel: DofaatiViewModel) {
                 viewModel.navigateTo(DofaatiRoute.BULK_AI_GENERATOR)
             },
             onQuestionBankAndFlashcards = {
+                val contextText = file.extractedText.ifBlank { file.title }
                 selectedFileForAiSheet = null
+                viewModel.generateMindMapAndCardsWithAi(contextText, file.title)
                 viewModel.navigateTo(DofaatiRoute.MIND_MAP_FLASHCARDS)
             },
             onMindMap = {
+                val contextText = file.extractedText.ifBlank { file.title }
                 selectedFileForAiSheet = null
+                viewModel.generateMindMapAndCardsWithAi(contextText, file.title)
                 viewModel.navigateTo(DofaatiRoute.MIND_MAP_FLASHCARDS)
             }
         )
+    }
+}
+
+@Composable
+private fun SubjectResourceActionsBar(
+    isRecording: Boolean,
+    onToggleRecord: () -> Unit,
+    onUploadAudio: () -> Unit,
+    onUploadPdf: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Button(
+            onClick = onToggleRecord,
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isRecording) DofaatiColors.RedAlert else DofaatiColors.RoyalBlue
+            ),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp)
+                .testTag("btn_record_audio_lesson")
+        ) {
+            Icon(
+                imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = if (isRecording) "إيقاف الحفظ" else "تسجيل صوتي",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp
+            )
+        }
+
+        OutlinedButton(
+            onClick = onUploadAudio,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.2.dp, DofaatiColors.RoyalBlue),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp)
+                .testTag("btn_upload_audio_lesson")
+        ) {
+            Icon(Icons.Default.AudioFile, contentDescription = null, tint = DofaatiColors.RoyalBlue, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "رفع صوت",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = DofaatiColors.RoyalBlue
+            )
+        }
+
+        OutlinedButton(
+            onClick = onUploadPdf,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.2.dp, DofaatiColors.RedAlert.copy(alpha = 0.7f)),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp)
+                .testTag("btn_upload_pdf_file")
+        ) {
+            Icon(Icons.Default.UploadFile, contentDescription = null, tint = DofaatiColors.RedAlert, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "رفع PDF",
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = DofaatiColors.RedAlert
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyResourceStateCard(
+    title: String,
+    subtitle: String
+) {
+    DofaatiCard(
+        borderColor = DofaatiColors.RoyalBlueTint,
+        borderWidth = 1.2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = title,
+                fontFamily = ReadexProFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.5.sp,
+                color = DofaatiColors.NavyInk,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = subtitle,
+                fontFamily = ReadexProFontFamily,
+                fontSize = 12.5.sp,
+                color = DofaatiColors.SlateMuted,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
@@ -182,7 +445,7 @@ private fun SegmentedResourcesToggle(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         shape = RoundedCornerShape(24.dp),
         color = DofaatiColors.RoyalBlueTint
     ) {
@@ -224,7 +487,8 @@ private fun AudioLessonPlayerCard(
     isPlaying: Boolean,
     progressFraction: Float,
     onTogglePlay: () -> Unit,
-    onOpenAiTranscript: () -> Unit
+    onOpenAiTranscript: () -> Unit,
+    onDelete: () -> Unit
 ) {
     DofaatiCard(modifier = Modifier.testTag("audio_lesson_card_${lesson.id}")) {
         Column(
@@ -244,8 +508,12 @@ private fun AudioLessonPlayerCard(
                     color = DofaatiColors.NavyInk,
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                // Outlined Royal Blue pill CTA "فرّغه AI" with AI Brain icon matching Mockup 4
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "حذف التسجيل", tint = DofaatiColors.RedAlert)
+                }
                 OutlinedButton(
                     onClick = onOpenAiTranscript,
                     shape = RoundedCornerShape(20.dp),
@@ -292,13 +560,17 @@ private fun AudioLessonPlayerCard(
                 )
             }
 
-            // Bottom audio scrubber + Repeat / Volume controls matching Mockup 4
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(Icons.Default.Repeat, contentDescription = "تكرار", tint = DofaatiColors.SlateMuted, modifier = Modifier.size(20.dp))
+                Text(
+                    text = if (lesson.transcriptText.isNotBlank()) "تم التفريغ" else "جاهز للتفريغ",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 11.5.sp,
+                    color = if (lesson.transcriptText.isNotBlank()) DofaatiColors.EmeraldGreen else DofaatiColors.SlateMuted
+                )
                 DofaatiLtrText(
                     text = "${formatDurationLtr((lesson.durationSec * progressFraction).toInt())} / ${formatDurationLtr(lesson.durationSec)}",
                     fontSize = 12.sp,
@@ -313,7 +585,8 @@ private fun AudioLessonPlayerCard(
 @Composable
 private fun StudyFileRowCard(
     file: DofaatiStudyFile,
-    onOpenAiSheet: () -> Unit
+    onOpenAiSheet: () -> Unit,
+    onDelete: () -> Unit
 ) {
     DofaatiCard(
         modifier = Modifier.testTag("study_file_card_${file.id}"),
@@ -349,6 +622,9 @@ private fun StudyFileRowCard(
                     fontSize = 12.sp,
                     color = DofaatiColors.SlateMuted
                 )
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(42.dp)) {
+                Icon(Icons.Default.DeleteOutline, contentDescription = "حذف الملف", tint = DofaatiColors.RedAlert)
             }
             FilledTonalIconButton(
                 onClick = onOpenAiSheet,

@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,7 +35,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.AutoSizeText
 import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.dofaati.DofaatiViewModel
+import com.hawas.study.dofaati.engine.LiveQuizScoringEngine
 import com.hawas.study.dofaati.models.DofaatiQuestionItem
+import com.hawas.study.dofaati.models.DofaatiQuizAttempt
 import com.hawas.study.dofaati.models.PodiumStudent
 import com.hawas.study.dofaati.ui.theme.DofaatiAdaptiveScreenContainer
 import com.hawas.study.dofaati.ui.theme.DofaatiCard
@@ -43,12 +46,17 @@ import com.hawas.study.dofaati.ui.theme.DofaatiColors
 @Composable
 fun QuizLeaderboardResultsScreen(viewModel: DofaatiViewModel) {
     val state by viewModel.liveChallenge.collectAsStateWithLifecycle()
+    val quizAttempts by viewModel.quizAttempts.collectAsStateWithLifecycle()
     var showAnswerReviewSheet by remember { mutableStateOf(false) }
 
-    val top3 = state.leaderboardTopThree
-    val first = top3.firstOrNull { it.rank == 1 } ?: PodiumStudent(1, "يوسف محمود", 98, 980)
-    val second = top3.firstOrNull { it.rank == 2 } ?: PodiumStudent(2, "سلمى طارق", 95, 950)
-    val third = top3.firstOrNull { it.rank == 3 } ?: PodiumStudent(3, "عمر خالد", 92, 920)
+    val (top3, avgPct, participantsCount) = remember(state, quizAttempts) {
+        if (state.leaderboardTopThree.isNotEmpty()) {
+            Triple(state.leaderboardTopThree, state.batchAveragePercentage, state.totalBatchParticipants)
+        } else {
+            val (computedTop, computedAvg) = LiveQuizScoringEngine.computeLeaderboardFromAttempts(quizAttempts)
+            Triple(computedTop, computedAvg, quizAttempts.size)
+        }
+    }
 
     DofaatiAdaptiveScreenContainer(
         useSafeDrawing = false,
@@ -60,17 +68,19 @@ fun QuizLeaderboardResultsScreen(viewModel: DofaatiViewModel) {
                     GoldFramedLeaderboardHeader(onNavigateBack = { viewModel.navigateBack() })
                 },
                 bottomBar = {
-                    Surface(
-                        color = Color.White,
-                        shadowElevation = 8.dp
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                    if (state.questions.isNotEmpty()) {
+                        Surface(
+                            color = Color.White,
+                            shadowElevation = 8.dp
                         ) {
-                            GoldFramedReviewButton(onClick = { showAnswerReviewSheet = true })
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                GoldFramedReviewButton(onClick = { showAnswerReviewSheet = true })
+                            }
                         }
                     }
                 }
@@ -84,18 +94,19 @@ fun QuizLeaderboardResultsScreen(viewModel: DofaatiViewModel) {
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     item {
-                        ThreeRankPodiumCard(
-                            first = first,
-                            second = second,
-                            third = third
-                        )
+                        ThreeRankPodiumCard(topThree = top3)
                     }
                     item {
                         DoubleGoldStatsCard(
-                            batchAverage = state.batchAveragePercentage,
-                            participantsCount = state.totalBatchParticipants,
+                            batchAverage = avgPct,
+                            participantsCount = participantsCount,
                             yourPoints = state.earnedPoints
                         )
+                    }
+                    if (quizAttempts.isNotEmpty()) {
+                        items(quizAttempts.take(10), key = { it.id }) { attempt ->
+                            QuizAttemptHistoryRow(attempt)
+                        }
                     }
                 }
             }
@@ -106,7 +117,7 @@ fun QuizLeaderboardResultsScreen(viewModel: DofaatiViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 GoldFramedLeaderboardHeader(onNavigateBack = { viewModel.navigateBack() })
-                ThreeRankPodiumCard(first = first, second = second, third = third)
+                ThreeRankPodiumCard(topThree = top3)
             }
         },
         landscapeRightPane = {
@@ -117,12 +128,14 @@ fun QuizLeaderboardResultsScreen(viewModel: DofaatiViewModel) {
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 DoubleGoldStatsCard(
-                    batchAverage = state.batchAveragePercentage,
-                    participantsCount = state.totalBatchParticipants,
+                    batchAverage = avgPct,
+                    participantsCount = participantsCount,
                     yourPoints = state.earnedPoints
                 )
                 Spacer(modifier = Modifier.weight(1f))
-                GoldFramedReviewButton(onClick = { showAnswerReviewSheet = true })
+                if (state.questions.isNotEmpty()) {
+                    GoldFramedReviewButton(onClick = { showAnswerReviewSheet = true })
+                }
             }
         }
     )
@@ -133,6 +146,48 @@ fun QuizLeaderboardResultsScreen(viewModel: DofaatiViewModel) {
             selectedAnswers = state.selectedAnswers,
             onDismiss = { showAnswerReviewSheet = false }
         )
+    }
+}
+
+@Composable
+private fun QuizAttemptHistoryRow(attempt: DofaatiQuizAttempt) {
+    DofaatiCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = attempt.quizTitle,
+                    fontFamily = ReadexProFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp,
+                    color = DofaatiColors.NavyInk
+                )
+                Text(
+                    text = "${attempt.participantName} • ${attempt.correctCount}/${attempt.totalQuestions} صحيح",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 12.sp,
+                    color = DofaatiColors.SlateMuted
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (attempt.scorePercent >= 50) DofaatiColors.EmeraldGreen.copy(alpha = 0.14f) else DofaatiColors.RedAlert.copy(alpha = 0.14f)
+            ) {
+                Text(
+                    text = "${attempt.scorePercent}% • ${attempt.earnedPoints} ن",
+                    fontFamily = ReadexProFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = if (attempt.scorePercent >= 50) DofaatiColors.EmeraldGreen else DofaatiColors.RedAlert,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+        }
     }
 }
 
@@ -198,9 +253,7 @@ private fun GoldFramedLeaderboardHeader(onNavigateBack: () -> Unit) {
 
 @Composable
 private fun ThreeRankPodiumCard(
-    first: PodiumStudent,
-    second: PodiumStudent,
-    third: PodiumStudent
+    topThree: List<PodiumStudent>
 ) {
     DofaatiCard(
         borderColor = DofaatiColors.BrightGold,
@@ -214,55 +267,73 @@ private fun ThreeRankPodiumCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "أبطال التحدي — منصة التتويج",
+                text = "نتائجك ومنصة التتويج",
                 fontFamily = ReadexProFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.5.sp,
                 color = DofaatiColors.NavyInk
             )
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                // Rank 2 (Silver)
-                PodiumColumnPedestal(
-                    student = second,
-                    rankTitle = "المركز الثاني",
-                    pedestalHeight = 112.dp,
-                    gradient = Brush.verticalGradient(listOf(Color(0xFFE2E8F0), Color(0xFF94A3B8))),
-                    textColor = DofaatiColors.NavyInk,
-                    badgeIcon = Icons.Default.EmojiEvents,
-                    badgeTint = Color(0xFF64748B),
-                    modifier = Modifier.weight(1f).testTag("podium_rank_2")
+            if (topThree.isEmpty()) {
+                Text(
+                    text = "لم تُسجل أي محاولات اختبار بعد. أكمل اختباراً واحداً لتظهر نتيجتك الحقيقية هنا.",
+                    fontFamily = ReadexProFontFamily,
+                    fontSize = 13.sp,
+                    color = DofaatiColors.SlateMuted,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(vertical = 12.dp)
                 )
+            } else {
+                val first = topThree.firstOrNull { it.rank == 1 }
+                val second = topThree.firstOrNull { it.rank == 2 }
+                val third = topThree.firstOrNull { it.rank == 3 }
 
-                // Rank 1 (Gold - Center Highest)
-                PodiumColumnPedestal(
-                    student = first,
-                    rankTitle = "المركز الأول",
-                    pedestalHeight = 148.dp,
-                    gradient = Brush.verticalGradient(listOf(Color(0xFFFDE047), Color(0xFFD97706))),
-                    textColor = DofaatiColors.NavyInk,
-                    badgeIcon = Icons.Default.Star,
-                    badgeTint = Color(0xFFD97706),
-                    modifier = Modifier.weight(1.1f).testTag("podium_rank_1")
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    if (second != null) {
+                        PodiumColumnPedestal(
+                            student = second,
+                            rankTitle = "المركز الثاني",
+                            pedestalHeight = 112.dp,
+                            gradient = Brush.verticalGradient(listOf(Color(0xFFE2E8F0), Color(0xFF94A3B8))),
+                            textColor = DofaatiColors.NavyInk,
+                            badgeIcon = Icons.Default.EmojiEvents,
+                            badgeTint = Color(0xFF64748B),
+                            modifier = Modifier.weight(1f).testTag("podium_rank_2")
+                        )
+                    }
 
-                // Rank 3 (Bronze)
-                PodiumColumnPedestal(
-                    student = third,
-                    rankTitle = "المركز الثالث",
-                    pedestalHeight = 92.dp,
-                    gradient = Brush.verticalGradient(listOf(Color(0xFFFDBA74), Color(0xFF9A3412))),
-                    textColor = Color.White,
-                    badgeIcon = Icons.Default.MilitaryTech,
-                    badgeTint = Color(0xFF9A3412),
-                    modifier = Modifier.weight(1f).testTag("podium_rank_3")
-                )
+                    if (first != null) {
+                        PodiumColumnPedestal(
+                            student = first,
+                            rankTitle = "المركز الأول",
+                            pedestalHeight = 148.dp,
+                            gradient = Brush.verticalGradient(listOf(Color(0xFFFDE047), Color(0xFFD97706))),
+                            textColor = DofaatiColors.NavyInk,
+                            badgeIcon = Icons.Default.Star,
+                            badgeTint = Color(0xFFD97706),
+                            modifier = Modifier.weight(1.1f).testTag("podium_rank_1")
+                        )
+                    }
+
+                    if (third != null) {
+                        PodiumColumnPedestal(
+                            student = third,
+                            rankTitle = "المركز الثالث",
+                            pedestalHeight = 92.dp,
+                            gradient = Brush.verticalGradient(listOf(Color(0xFFFDBA74), Color(0xFF9A3412))),
+                            textColor = Color.White,
+                            badgeIcon = Icons.Default.MilitaryTech,
+                            badgeTint = Color(0xFF9A3412),
+                            modifier = Modifier.weight(1f).testTag("podium_rank_3")
+                        )
+                    }
+                }
             }
         }
     }
@@ -362,7 +433,11 @@ private fun DoubleGoldStatsCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "متوسط الدفعة: $batchAverage% — عدد المشاركين: $participantsCount",
+                    text = if (participantsCount > 0) {
+                        "متوسط الدرجات: $batchAverage% — المحاولات المسجلة: $participantsCount"
+                    } else {
+                        "لا توجد محاولات مسجلة بعد"
+                    },
                     fontFamily = ReadexProFontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
@@ -375,7 +450,7 @@ private fun DoubleGoldStatsCard(
                         color = DofaatiColors.RoyalBlueSoft
                     ) {
                         Text(
-                            text = "نقاطك المكتسبة في التحدي: $yourPoints نقطة",
+                            text = "نقاطك المكتسبة في التحدي الأخير: $yourPoints نقطة",
                             fontFamily = ReadexProFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
@@ -484,13 +559,22 @@ private fun DetailedAnswersReviewDialog(
                                     fontSize = 12.sp,
                                     color = DofaatiColors.RedAlert
                                 )
+                            } else if (chosenIdx == null) {
+                                Text(
+                                    text = "لم تُجب على هذا السؤال",
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 12.sp,
+                                    color = DofaatiColors.SlateMuted
+                                )
                             }
-                            Text(
-                                text = q.detailedExplanation,
-                                fontFamily = ReadexProFontFamily,
-                                fontSize = 12.sp,
-                                color = DofaatiColors.SlateBody
-                            )
+                            if (q.detailedExplanation.isNotBlank()) {
+                                Text(
+                                    text = q.detailedExplanation,
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 12.sp,
+                                    color = DofaatiColors.SlateBody
+                                )
+                            }
                         }
                     }
                 }
