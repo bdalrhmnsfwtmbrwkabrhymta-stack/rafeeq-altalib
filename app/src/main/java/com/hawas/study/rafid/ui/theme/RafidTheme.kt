@@ -1,8 +1,11 @@
 package com.hawas.study.rafid.ui.theme
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -87,7 +90,22 @@ fun RafidTheme(
     content: @Composable () -> Unit
 ) {
     val isDark = darkOverride ?: isSystemInDarkTheme()
-    val palette = RafidColors.palette(isDark)
+    val rawPalette = RafidColors.palette(isDark)
+    val animSpec = tween<Color>(durationMillis = 320)
+    val bg by animateColorAsState(rawPalette.background, animSpec, label = "rafid_bg")
+    val surface by animateColorAsState(rawPalette.surface, animSpec, label = "rafid_surface")
+    val surfaceVar by animateColorAsState(rawPalette.surfaceVariant, animSpec, label = "rafid_surface_var")
+    val textPrimary by animateColorAsState(rawPalette.textPrimary, animSpec, label = "rafid_text_pri")
+    val textSecondary by animateColorAsState(rawPalette.textSecondary, animSpec, label = "rafid_text_sec")
+    val borderSubtle by animateColorAsState(rawPalette.borderSubtle, animSpec, label = "rafid_border")
+    val palette = rawPalette.copy(
+        background = bg,
+        surface = surface,
+        surfaceVariant = surfaceVar,
+        textPrimary = textPrimary,
+        textSecondary = textSecondary,
+        borderSubtle = borderSubtle
+    )
     val isEnglish = when (languageMode) {
         RafidLanguageMode.ENGLISH -> true
         RafidLanguageMode.ARABIC -> false

@@ -1,5 +1,12 @@
 package com.hawas.study.rafid.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -39,7 +47,6 @@ import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
@@ -68,6 +75,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,7 +102,7 @@ fun RafidDownloaderHomeScreen(
     onSearchQueryChange: (String) -> Unit,
     onBackToApp: () -> Unit,
     onToggleDarkMode: () -> Unit,
-    onOpenLanguageSheet: () -> Unit,
+    onOpenLanguageSheet: () -> Unit = {},
     onOpenNewDownloadSheet: (String?) -> Unit,
     onOpenClipboardAction: () -> Unit,
     onOpenPlaylists: () -> Unit,
@@ -155,7 +163,7 @@ fun RafidDownloaderHomeScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Top Header Bar matching screenshot 7db70406
+        // 1. Clean Top Header Bar (without side translate button; smooth Dark/Light toggle)
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -164,7 +172,7 @@ fun RafidDownloaderHomeScreen(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     IconButton(
@@ -180,13 +188,13 @@ fun RafidDownloaderHomeScreen(
                         )
                     }
 
-                    RafidLogoEmblem(size = 46.dp)
+                    RafidLogoEmblem(size = 48.dp)
 
                     Column {
                         Text(
-                            text = if (isEnglish) "Rafid" else "رَافِد",
+                            text = if (isEnglish) "Al-Risalah" else "الرسالة",
                             fontFamily = ReadexProFontFamily,
-                            fontSize = 18.sp,
+                            fontSize = 21.sp,
                             fontWeight = FontWeight.Bold,
                             color = palette.textPrimary,
                             modifier = Modifier.testTag("rafid_brand_title")
@@ -202,49 +210,36 @@ fun RafidDownloaderHomeScreen(
                             } else {
                                 if (isEnglish) "No active downloads" else "لا تحميل جارٍ الآن"
                             },
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = if (activeDownload != null) palette.heroBlue else palette.textSecondary
                         )
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Surface(
+                    onClick = onToggleDarkMode,
+                    shape = CircleShape,
+                    color = palette.surfaceVariant,
+                    border = BorderStroke(1.dp, palette.borderSubtle),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("rafid_btn_dark_mode")
                 ) {
-                    Surface(
-                        onClick = onOpenLanguageSheet,
-                        shape = CircleShape,
-                        color = palette.surfaceVariant,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("rafid_btn_language")
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
+                    Box(contentAlignment = Alignment.Center) {
+                        AnimatedContent(
+                            targetState = palette.isDark,
+                            transitionSpec = {
+                                (fadeIn(tween(240)) + scaleIn(initialScale = 0.8f)) togetherWith
+                                    (fadeOut(tween(180)) + scaleOut(targetScale = 0.8f))
+                            },
+                            label = "rafidThemeIcon"
+                        ) { dark ->
                             Icon(
-                                imageVector = Icons.Filled.Translate,
-                                contentDescription = if (isEnglish) "Language" else "اللغة",
+                                imageVector = if (dark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                                contentDescription = if (isEnglish) "Toggle Dark/Light Mode" else "تبديل الوضع الليلي والنهاري",
                                 tint = palette.textPrimary,
-                                modifier = Modifier.size(21.dp)
-                            )
-                        }
-                    }
-
-                    Surface(
-                        onClick = onToggleDarkMode,
-                        shape = CircleShape,
-                        color = palette.surfaceVariant,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("rafid_btn_dark_mode")
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (palette.isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
-                                contentDescription = if (isEnglish) "Toggle Theme" else "تبديل المظهر",
-                                tint = palette.textPrimary,
-                                modifier = Modifier.size(21.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
@@ -252,23 +247,29 @@ fun RafidDownloaderHomeScreen(
             }
         }
 
-        // 2. Greeting & Brand Motto
+        // 2. Clean Welcome Headline
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = if (isEnglish) "Peace be upon you" else "السلام عليكم",
+                    text = if (isEnglish) {
+                        "Welcome, what enters your phone stays with you"
+                    } else {
+                        "أَهلاً بك، ما يدخل هاتفك يبقى معك"
+                    },
                     fontFamily = ReadexProFontFamily,
-                    fontSize = 26.sp,
+                    fontSize = 25.sp,
+                    lineHeight = 35.sp,
                     fontWeight = FontWeight.Bold,
-                    color = palette.textPrimary
+                    color = palette.textPrimary,
+                    modifier = Modifier.testTag("rafid_welcome_title")
                 )
                 Text(
                     text = if (isEnglish) {
-                        "What enters your phone stays with you — choose what benefits you."
+                        "Choose what benefits your study journey."
                     } else {
-                        "ما يدخل هاتفك يبقى معك، فاختر ما ينفعك."
+                        "اختر ما ينفعك وينظم محاضراتك بسهولة."
                     },
-                    fontSize = 14.5.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                     color = palette.textSecondary
                 )
@@ -336,10 +337,11 @@ fun RafidDownloaderHomeScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
+                    textStyle = TextStyle(fontSize = 15.5.sp, fontWeight = FontWeight.Medium),
                     placeholder = {
                         Text(
                             text = if (isEnglish) "Search saved downloads (Muqtana)..." else "ابحث في مُقتَنَى والتنزيلات...",
-                            fontSize = 13.sp,
+                            fontSize = 14.5.sp,
                             color = palette.textSecondary
                         )
                     },
@@ -362,7 +364,7 @@ fun RafidDownloaderHomeScreen(
 
         // 5. Activity Section Header + Filter Chips
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -370,15 +372,17 @@ fun RafidDownloaderHomeScreen(
                 ) {
                     Text(
                         text = if (isEnglish) "Muqtana & Activity (${downloads.size})" else "مُقتَنَى والنشاط (${downloads.size})",
+                        fontFamily = ReadexProFontFamily,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
+                        fontSize = 19.sp,
                         color = palette.textPrimary
                     )
                     if (downloads.any { it.status == RafidDownloadStatus.COMPLETED.name }) {
                         TextButton(onClick = onClearCompleted) {
                             Text(
                                 text = if (isEnglish) "Clear completed" else "تنظيف المكتمل",
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = palette.heroBlue
                             )
                         }
@@ -397,7 +401,7 @@ fun RafidDownloaderHomeScreen(
                             label = {
                                 Text(
                                     text = if (isEnglish) filter.labelEn else filter.labelAr,
-                                    fontSize = 12.5.sp,
+                                    fontSize = 13.5.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                             },
@@ -445,7 +449,7 @@ fun RafidDownloaderHomeScreen(
                             modifier = Modifier.size(36.dp)
                         )
                         Text(
-                            text = if (isEnglish) "Your smart vault (Midad) is ready" else "مِداد — خزينة الوسائط والمحاضرات جاهزة",
+                            text = if (isEnglish) "Your smart vault (Al-Risalah) is ready" else "الرسالة — خزينة الوسائط والمحاضرات جاهزة",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = palette.textPrimary,
@@ -507,31 +511,33 @@ private fun StackedHeroDownloadCard(
         if (activeDownload == null) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
                     text = if (isEnglish) "Nothing downloading right now" else "لا شيء يُحمَّل الآن",
                     fontFamily = ReadexProFontFamily,
-                    fontSize = 22.sp,
+                    fontSize = 24.sp,
+                    lineHeight = 32.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
                 Text(
                     text = if (isEnglish) "Paste a link, or open a site in the browser." else "الصق رابطاً، أو افتح موقعاً في المتصفح.",
-                    fontSize = 14.sp,
-                    color = Color.White.copy(alpha = 0.88f)
+                    fontSize = 15.5.sp,
+                    lineHeight = 22.sp,
+                    color = Color.White.copy(alpha = 0.90f)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Surface(
                     onClick = onNewDownloadClick,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(26.dp),
                     color = Color(0xFFE3ECFA),
                     modifier = Modifier
-                        .height(48.dp)
+                        .heightIn(min = 52.dp)
                         .testTag("hero_btn_new_download")
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 20.dp),
+                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -539,11 +545,11 @@ private fun StackedHeroDownloadCard(
                             imageVector = Icons.Filled.Add,
                             contentDescription = null,
                             tint = palette.heroBlue,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                         Text(
                             text = if (isEnglish) "New Download" else "تحميل جديد",
-                            fontSize = 15.sp,
+                            fontSize = 16.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = palette.heroBlue
                         )
@@ -791,20 +797,20 @@ private fun QuickShortcutTile(
             color = palette.surfaceVariant,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp)
+                .height(66.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
                     tint = iconTint,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
         }
         Text(
             text = title,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             color = palette.textPrimary,
             maxLines = 1,
@@ -894,9 +900,9 @@ private fun DownloadActivityCard(
                     Text(
                         text = item.title,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
+                        fontSize = 15.5.sp,
                         color = palette.textPrimary,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
@@ -906,14 +912,14 @@ private fun DownloadActivityCard(
                                 isEnglish
                             )
                         }",
-                        fontSize = 11.5.sp,
+                        fontSize = 13.sp,
                         color = palette.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = statusText,
-                        fontSize = 11.5.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = statusColor,
                         maxLines = 1,

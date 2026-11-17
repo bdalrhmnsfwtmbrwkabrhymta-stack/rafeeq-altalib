@@ -94,7 +94,26 @@ class RafidDownloadWorker(
 
         val tempDir = File(applicationContext.cacheDir, "rafid_tmp/$downloadId").apply { mkdirs() }
         val primaryTemp = File(tempDir, "primary.${record.containerExt.ifBlank { "mp4" }}")
-        val secondaryAudioTemp = if (!record.audioStreamUrl.isNullOrBlank()) {
+        var resolvedStreamUrl = record.videoStreamUrl
+        var resolvedAudioUrl = record.audioStreamUrl
+        if (resolvedStreamUrl == record.resolvedUrl) {
+            val reExtracted = runCatching {
+                com.hawas.study.rafid.engine.UniversalMediaExtractor()
+                    .extract(record.resolvedUrl, record.cookiesHeader, record.userAgent)
+                    .getOrNull()
+            }.getOrNull()
+            val candidate = reExtracted?.formats?.firstOrNull {
+                !it.videoUrl.isNullOrBlank() && it.videoUrl != record.resolvedUrl &&
+                    (it.isAudioOnly == record.isAudioOnly)
+            }
+            if (candidate != null && !candidate.videoUrl.isNullOrBlank()) {
+                resolvedStreamUrl = candidate.videoUrl
+                if (resolvedAudioUrl.isNullOrBlank()) {
+                    resolvedAudioUrl = candidate.audioUrl
+                }
+            }
+        }
+        val secondaryAudioTemp = if (!resolvedAudioUrl.isNullOrBlank()) {
             File(tempDir, "audio_track.m4a")
         } else {
             null
@@ -112,7 +131,7 @@ class RafidDownloadWorker(
 
             val okPrimary = downloadStreamWithResume(
                 downloadId = downloadId,
-                streamUrl = record.videoStreamUrl,
+                streamUrl = resolvedStreamUrl,
                 targetFile = primaryTemp,
                 cookiesHeader = record.cookiesHeader,
                 userAgent = record.userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT,
@@ -127,10 +146,10 @@ class RafidDownloadWorker(
                 return@withContext Result.failure()
             }
 
-            if (secondaryAudioTemp != null && !record.audioStreamUrl.isNullOrBlank()) {
+            if (secondaryAudioTemp != null && !resolvedAudioUrl.isNullOrBlank()) {
                 val okAudio = downloadStreamWithResume(
                     downloadId = downloadId,
-                    streamUrl = record.audioStreamUrl,
+                    streamUrl = resolvedAudioUrl,
                     targetFile = secondaryAudioTemp,
                     cookiesHeader = record.cookiesHeader,
                     userAgent = record.userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT,
@@ -220,6 +239,16 @@ class RafidDownloadWorker(
                     downloadId,
                     RafidDownloadStatus.FAILED.name,
                     "استجابة الخادم غير صالحة (${response.code})"
+                )
+                return false
+            }
+
+            val contentType = response.header("Content-Type").orEmpty().lowercase()
+            if (contentType.contains("text/html")) {
+                dao.updateDownloadStatus(
+                    downloadId,
+                    RafidDownloadStatus.FAILED.name,
+                    "افتح الرابط في المتصفح الذكي لالتقاط البث المباشر"
                 )
                 return false
             }

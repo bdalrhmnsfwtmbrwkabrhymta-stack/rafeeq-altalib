@@ -6,8 +6,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderCopy
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.PlayCircleFilled
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Tune
@@ -50,10 +53,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,21 +104,23 @@ fun SmartDownloadBottomSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                        .padding(horizontal = 24.dp, vertical = 34.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     CircularProgressIndicator(color = palette.heroBlue)
                     Text(
-                        text = if (isEnglish) "Extracting real media qualities..." else "جاري تحليل الرابط واستخلاص الجودات المتاحة...",
+                        text = if (isEnglish) "Preparing title & 8 quality options..." else "جاري تجهيز العنوان وخيارات الجودات الثماني...",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = palette.textPrimary
+                        fontSize = 17.sp,
+                        color = palette.textPrimary,
+                        textAlign = TextAlign.Center
                     )
                     Text(
                         text = extractionState.url,
-                        fontSize = 12.sp,
+                        fontSize = 13.5.sp,
                         color = palette.textSecondary,
+                        textAlign = TextAlign.Center,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -126,34 +133,35 @@ fun SmartDownloadBottomSheet(
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp)
                         .padding(bottom = 28.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Surface(
                         shape = RoundedCornerShape(18.dp),
-                        color = palette.dangerTint.copy(alpha = 0.1f),
+                        color = palette.heroBlue.copy(alpha = 0.08f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.padding(14.dp),
+                            modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.ErrorOutline,
                                 contentDescription = null,
-                                tint = palette.dangerTint,
-                                modifier = Modifier.size(26.dp)
+                                tint = palette.heroBlue,
+                                modifier = Modifier.size(28.dp)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
-                                    text = if (isEnglish) "Unable to extract directly" else "تعذر الاستخلاص المباشر",
+                                    text = if (isEnglish) "Open via Smart Browser" else "فتح الرابط عبر المتصفح الذكي",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
+                                    fontSize = 16.5.sp,
                                     color = palette.textPrimary
                                 )
                                 Text(
                                     text = extractionState.message,
-                                    fontSize = 12.5.sp,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
                                     color = palette.textSecondary
                                 )
                             }
@@ -162,29 +170,51 @@ fun SmartDownloadBottomSheet(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         OutlinedButton(
                             onClick = { onRetry(extractionState.url) },
                             shape = RoundedCornerShape(24.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(48.dp)
+                                .defaultMinSize(minHeight = 48.dp)
+                                .heightIn(min = 48.dp)
                         ) {
-                            Text(if (isEnglish) "Retry" else "إعادة المحاولة")
+                            Text(
+                                text = if (isEnglish) "Retry" else "إعادة المحاولة",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                         Button(
                             onClick = { onOpenInBrowser(extractionState.url) },
                             shape = RoundedCornerShape(24.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = palette.heroBlue),
                             modifier = Modifier
-                                .weight(1.2f)
-                                .height(48.dp)
+                                .weight(1.25f)
+                                .defaultMinSize(minHeight = 48.dp)
+                                .heightIn(min = 48.dp)
                                 .testTag("btn_open_in_smart_browser")
                         ) {
-                            Icon(Icons.Filled.Public, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (isEnglish) "Smart Browser" else "فتح في المتصفح الذكي", fontSize = 13.sp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Filled.Public, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isEnglish) "Smart Browser" else "فتح في المتصفح الذكي",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
                 }
@@ -246,7 +276,7 @@ fun SmartDownloadSuccessContent(
             .padding(bottom = 26.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Header preview row matching reference screenshot 4c888cc1
+        // Header preview row with crisp larger title & thumbnail
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -256,7 +286,8 @@ fun SmartDownloadSuccessContent(
                 Text(
                     text = metadata.title,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 15.5.sp,
+                    fontSize = 18.sp,
+                    lineHeight = 25.sp,
                     color = palette.textPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -265,7 +296,7 @@ fun SmartDownloadSuccessContent(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "${metadata.sourceDomain} • ${metadata.authorOrSource}",
-                    fontSize = 12.5.sp,
+                    fontSize = 14.sp,
                     color = palette.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -274,11 +305,26 @@ fun SmartDownloadSuccessContent(
 
             Box(
                 modifier = Modifier
-                    .size(width = 114.dp, height = 66.dp)
+                    .size(width = 122.dp, height = 72.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(palette.surfaceVariant),
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(Color(0xFF1E88E5), palette.heroBlueDarkPill)
+                        )
+                    ),
                 contentAlignment = Alignment.BottomStart
             ) {
+                Box(
+                    modifier = Modifier.matchParentSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (metadata.isPlaylist) Icons.Filled.PlaylistPlay else Icons.Filled.PlayCircleFilled,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.88f),
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
                 if (!metadata.thumbnailUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = metadata.thumbnailUrl,
@@ -286,18 +332,6 @@ fun SmartDownloadSuccessContent(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.matchParentSize()
                     )
-                } else {
-                    Box(
-                        modifier = Modifier.matchParentSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (metadata.isPlaylist) Icons.Filled.PlaylistPlay else Icons.Filled.Audiotrack,
-                            contentDescription = null,
-                            tint = palette.heroBlue,
-                            modifier = Modifier.size(30.dp)
-                        )
-                    }
                 }
                 val durText = RafidFormatUtils.formatDuration(metadata.durationSeconds)
                 if (durText.isNotBlank()) {
@@ -308,7 +342,7 @@ fun SmartDownloadSuccessContent(
                     ) {
                         Text(
                             text = durText,
-                            fontSize = 10.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -340,14 +374,18 @@ fun SmartDownloadSuccessContent(
                         shadowElevation = if (isVideoTab) 2.dp else 0.dp,
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("smart_tab_video")
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
+                        ) {
                             Text(
                                 text = if (isEnglish) "Video" else "فيديو",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                fontSize = 15.5.sp,
+                                textAlign = TextAlign.Center,
                                 color = if (isVideoTab) palette.textPrimary else palette.textSecondary
                             )
                         }
@@ -360,14 +398,18 @@ fun SmartDownloadSuccessContent(
                         shadowElevation = if (isAudioTab) 2.dp else 0.dp,
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("smart_tab_audio")
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
+                        ) {
                             Text(
                                 text = if (isEnglish) "Audio Only" else "صوت فقط",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                fontSize = 15.5.sp,
+                                textAlign = TextAlign.Center,
                                 color = if (isAudioTab) palette.textPrimary else palette.textSecondary
                             )
                         }
@@ -376,11 +418,11 @@ fun SmartDownloadSuccessContent(
             }
         }
 
-        // Quality Radio List
+        // Quality Radio List (8 video tiers from 2160p down to 144p or Audio formats)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 310.dp)
+                .heightIn(max = 360.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -389,7 +431,7 @@ fun SmartDownloadSuccessContent(
                 Surface(
                     onClick = { selectedFormatId = option.id },
                     shape = RoundedCornerShape(18.dp),
-                    color = if (isSelected) palette.heroBlue.copy(alpha = 0.06f) else palette.surface,
+                    color = if (isSelected) palette.heroBlue.copy(alpha = 0.08f) else palette.surface,
                     border = BorderStroke(
                         width = if (isSelected) 1.8.dp else 1.dp,
                         color = if (isSelected) palette.heroBlue else palette.borderSubtle
@@ -401,7 +443,7 @@ fun SmartDownloadSuccessContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                            .padding(horizontal = 14.dp, vertical = 13.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -423,14 +465,14 @@ fun SmartDownloadSuccessContent(
                                     Text(
                                         text = option.label,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
+                                        fontSize = 16.5.sp,
                                         color = palette.textPrimary
                                     )
                                     val badge = if (isEnglish) option.badgeTagEn else option.badgeTagAr
                                     if (!badge.isNullOrBlank()) {
                                         Text(
                                             text = badge,
-                                            fontSize = 12.sp,
+                                            fontSize = 13.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if ((option.resolutionHeight ?: 0) <= 144 && !option.isAudioOnly && !option.isPlaylistBundle) {
                                                 palette.emeraldTint
@@ -449,7 +491,7 @@ fun SmartDownloadSuccessContent(
                             } else {
                                 RafidFormatUtils.formatFileSize(option.estimatedSizeBytes, isEnglish)
                             },
-                            fontSize = 13.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = palette.textSecondary
                         )
@@ -485,12 +527,12 @@ fun SmartDownloadSuccessContent(
                 Column {
                     Text(
                         text = if (isEnglish) "Audio Track" else "الصوت",
-                        fontSize = 11.5.sp,
+                        fontSize = 13.sp,
                         color = palette.textSecondary
                     )
                     Text(
                         text = activeFormat?.languageLabel ?: if (isEnglish) "Original" else "الأصلي: العربية",
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = palette.textPrimary
                     )
@@ -521,12 +563,12 @@ fun SmartDownloadSuccessContent(
                         imageVector = Icons.Filled.Tune,
                         contentDescription = null,
                         tint = palette.heroBlue,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = if (isEnglish) "Auto-save in Study folder" else "تصنيف تلقائي في مجلد الدراسة",
-                        fontSize = 13.5.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = palette.textPrimary
                     )
@@ -550,10 +592,11 @@ fun SmartDownloadSuccessContent(
             },
             enabled = activeFormat != null,
             shape = RoundedCornerShape(28.dp),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = palette.heroBlue),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp)
+                .heightIn(min = 56.dp)
                 .testTag("btn_start_fast_download")
         ) {
             val sizeLabel = if (activeFormat != null && activeFormat.estimatedSizeBytes > 0L) {
@@ -563,9 +606,10 @@ fun SmartDownloadSuccessContent(
             }
             Text(
                 text = if (isEnglish) "Start Fast Download$sizeLabel" else "بدء التحميل السريع$sizeLabel",
-                fontSize = 16.sp,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = Color.White,
+                textAlign = TextAlign.Center
             )
         }
     }

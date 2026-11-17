@@ -246,6 +246,37 @@ class RafidEngineAndUiTest {
     }
 
     @Test
+    fun encryptedOrProtectedLinksReturnEightVideoQualitiesAndAudioOptionsWithoutErrors() = runBlocking {
+        val failingClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(403)
+                    .message("Forbidden")
+                    .body("".toResponseBody(null))
+                    .build()
+            }
+            .build()
+        val extractor = UniversalMediaExtractor(failingClient)
+
+        val ytRes = extractor.extract("https://youtu.be/dQw4w9WgXcQ")
+        assertTrue(ytRes.isSuccess)
+        val ytMeta = ytRes.getOrThrow()
+        assertTrue(ytMeta.title.isNotBlank())
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", ytMeta.thumbnailUrl)
+        val videoQualities = ytMeta.formats.filter { !it.isAudioOnly }.map { it.label }
+        assertEquals(listOf("2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"), videoQualities)
+        assertEquals("الأوضح", ytMeta.formats.first { it.label == "2160p" }.badgeTagAr)
+        assertEquals("أقل استهلاكاً للبيانات", ytMeta.formats.first { it.label == "144p" }.badgeTagAr)
+        assertTrue(ytMeta.formats.any { it.isAudioOnly })
+
+        val pinRes = extractor.extract("https://www.pinterest.com/pin/123456789/")
+        assertTrue(pinRes.isSuccess)
+        assertEquals(8, pinRes.getOrThrow().formats.count { !it.isAudioOnly })
+    }
+
+    @Test
     fun mediaStoreSaverBuildsStudyAndMediaFoldersWithSafeFilenames() {
         assertEquals(
             "Download/Rafid/Study",
@@ -332,7 +363,11 @@ class RafidEngineAndUiTest {
             }
         }
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("rafid_brand_title").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("rafid_brand_title")
+            .assertIsDisplayed()
+            .assertTextContains("الرسالة")
+        composeTestRule.onNodeWithTag("rafid_btn_language").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rafid_welcome_title").assertTextContains("أَهلاً بك، ما يدخل هاتفك يبقى معك")
         composeTestRule.onNodeWithText("لا شيء يُحمَّل الآن").assertIsDisplayed()
         composeTestRule.onNodeWithTag("shortcut_clipboard").assertIsDisplayed()
         composeTestRule.onNodeWithTag("shortcut_playlists").assertIsDisplayed()

@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -65,8 +67,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -446,22 +450,36 @@ fun NewDownloadLinkSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
                 text = if (isEnglish) "New Download" else "تحميل جديد",
                 fontFamily = ReadexProFontFamily,
-                fontSize = 20.sp,
+                fontSize = 23.sp,
                 fontWeight = FontWeight.Bold,
                 color = palette.textPrimary
             )
 
             OutlinedTextField(
                 value = urlInput,
-                onValueChange = { urlInput = it },
+                onValueChange = { next ->
+                    val wasPasted = (next.length - urlInput.length) >= 10
+                    urlInput = next
+                    if (wasPasted) {
+                        AdAndTrackerShield.extractFirstUrl(next)?.let { pastedValid ->
+                            onAnalyzeUrl(pastedValid)
+                        }
+                    }
+                },
+                textStyle = TextStyle(
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 22.sp
+                ),
                 placeholder = {
                     Text(
-                        text = "https://...",
+                        text = if (isEnglish) "Paste video or lecture link here..." else "الصق رابط الفيديو أو المحاضرة هنا...",
+                        fontSize = 15.sp,
                         color = palette.textSecondary
                     )
                 },
@@ -469,7 +487,8 @@ fun NewDownloadLinkSheet(
                     Icon(
                         imageVector = Icons.Filled.Link,
                         contentDescription = null,
-                        tint = palette.textSecondary
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(22.dp)
                     )
                 },
                 trailingIcon = {
@@ -477,6 +496,9 @@ fun NewDownloadLinkSheet(
                         onClick = {
                             onPasteFromClipboard()?.let { pasted ->
                                 urlInput = pasted
+                                AdAndTrackerShield.extractFirstUrl(pasted)?.let { pastedValid ->
+                                    onAnalyzeUrl(pastedValid)
+                                }
                             }
                         },
                         modifier = Modifier.testTag("btn_paste_link")
@@ -484,6 +506,7 @@ fun NewDownloadLinkSheet(
                         Text(
                             text = if (isEnglish) "Paste" else "لصق",
                             color = palette.heroBlue,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -519,20 +542,20 @@ fun NewDownloadLinkSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
+                            .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
                             shape = CircleShape,
                             color = palette.heroBlue.copy(alpha = 0.12f),
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Filled.Videocam,
                                     contentDescription = null,
                                     tint = palette.heroBlue,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
@@ -540,17 +563,17 @@ fun NewDownloadLinkSheet(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = if (isEnglish) "Media Link (${detectedPlatform.labelEn})" else "رابط وسائط (${detectedPlatform.labelAr})",
-                                fontSize = 15.sp,
+                                fontSize = 16.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = palette.textPrimary
                             )
                             Text(
                                 text = if (isEnglish) {
-                                    "From $detectedDomain • Rafid reads available qualities"
+                                    "From $detectedDomain • Ready for quality selection"
                                 } else {
-                                    "من $detectedDomain • يقرأ رَافِد الجودات المتاحة"
+                                    "من $detectedDomain • جاهز لاختيار الجودة"
                                 },
-                                fontSize = 12.sp,
+                                fontSize = 13.5.sp,
                                 color = palette.textSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -562,17 +585,19 @@ fun NewDownloadLinkSheet(
                 Button(
                     onClick = { onAnalyzeUrl(validUrl) },
                     shape = RoundedCornerShape(28.dp),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = palette.heroBlue),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(54.dp)
+                        .heightIn(min = 54.dp)
                         .testTag("btn_choose_quality")
                 ) {
                     Text(
                         text = if (isEnglish) "Choose Quality" else "اختر الجودة",
-                        fontSize = 16.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        textAlign = TextAlign.Center
                     )
                 }
             } else {
@@ -584,32 +609,37 @@ fun NewDownloadLinkSheet(
                         onClick = onDismiss,
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, palette.borderSubtle),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                         modifier = Modifier
                             .weight(0.4f)
-                            .height(50.dp)
+                            .heightIn(min = 50.dp)
                     ) {
                         Text(
                             text = if (isEnglish) "Later" else "لاحقاً",
                             color = palette.textPrimary,
-                            fontWeight = FontWeight.SemiBold
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
                         )
                     }
                     Button(
                         onClick = { if (validUrl != null) onAnalyzeUrl(validUrl) },
                         enabled = validUrl != null,
                         shape = RoundedCornerShape(24.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = palette.heroBlue,
                             disabledContainerColor = palette.borderSubtle
                         ),
                         modifier = Modifier
                             .weight(0.6f)
-                            .height(50.dp)
+                            .heightIn(min = 50.dp)
                     ) {
                         Text(
                             text = if (isEnglish) "Add to Main Queue" else "أضف إلى الطابور الرئيسي",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }

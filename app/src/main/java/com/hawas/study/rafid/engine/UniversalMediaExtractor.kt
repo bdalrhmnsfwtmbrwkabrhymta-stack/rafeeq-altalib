@@ -22,6 +22,8 @@ class UniversalMediaExtractor(
     private val linkResolver: UniversalLinkResolver = UniversalLinkResolver(httpClient)
 ) {
     companion object {
+        val STANDARD_VIDEO_HEIGHTS = listOf(2160, 1440, 1080, 720, 480, 360, 240, 144)
+
         fun defaultClient(): OkHttpClient {
             return OkHttpClient.Builder()
                 .followRedirects(true)
@@ -37,11 +39,19 @@ class UniversalMediaExtractor(
         cookiesHeader: String? = null,
         userAgent: String? = null
     ): Result<ExtractedMediaMetadata> = withContext(Dispatchers.IO) {
-        runCatching {
-            val resolved = linkResolver.resolve(rawUrl, cookiesHeader)
-            val targetUrl = resolved.resolvedUrl
-            val platform = AdAndTrackerShield.detectPlatform(targetUrl)
+        val cleanInput = AdAndTrackerShield.extractFirstUrl(rawUrl) ?: rawUrl.trim()
+        val resolved = runCatching { linkResolver.resolve(cleanInput, cookiesHeader) }
+            .getOrElse {
+                com.hawas.study.rafid.engine.ResolvedLinkResult(
+                    originalUrl = cleanInput,
+                    resolvedUrl = cleanInput,
+                    redirectHops = 0
+                )
+            }
+        val targetUrl = resolved.resolvedUrl
+        val platform = AdAndTrackerShield.detectPlatform(targetUrl)
 
+        val extracted = runCatching {
             when (platform) {
                 RafidPlatform.YOUTUBE -> extractYouTube(resolved.originalUrl, targetUrl, cookiesHeader, userAgent)
                 RafidPlatform.PINTEREST -> extractPinterest(resolved.originalUrl, targetUrl, cookiesHeader, userAgent)
@@ -63,7 +73,16 @@ class UniversalMediaExtractor(
                     userAgent = userAgent
                 )
             }
+        }.getOrElse {
+            buildResilientFallbackMetadata(
+                originalUrl = resolved.originalUrl,
+                resolvedUrl = targetUrl,
+                platform = platform,
+                cookiesHeader = cookiesHeader,
+                userAgent = userAgent
+            )
         }
+        Result.success(extracted)
     }
 
     private fun extractYouTube(
@@ -79,12 +98,27 @@ class UniversalMediaExtractor(
             return extractYouTubePlaylist(originalUrl, resolvedUrl, listId, cookiesHeader, userAgent)
         }
 
-        val effectiveVideoId = videoId ?: throw IllegalStateException("رابط يوتيوب غير مكتمل أو لا يحتوي على معرف فيديو")
+        val effectiveVideoId = videoId ?: return buildResilientFallbackMetadata(
+            originalUrl = originalUrl,
+            resolvedUrl = resolvedUrl,
+            platform = RafidPlatform.YOUTUBE,
+            cookiesHeader = cookiesHeader,
+            userAgent = userAgent
+        )
         val canonicalUrl = "https://www.youtube.com/watch?v=$effectiveVideoId"
 
         val playerJson = fetchYouTubeInnertubePlayer(effectiveVideoId, cookiesHeader)
             ?: fetchYouTubePlayerFromHtml(canonicalUrl, cookiesHeader)
-            ?: throw IllegalStateException("تعذر قراءة بيانات الفيديو من يوتيوب — تأكد من الاتصال بالإنترنت أو افتح الرابط في المتصفح الذكي")
+
+        if (playerJson == null) {
+            return buildYouTubeFallbackMetadata(
+                originalUrl = originalUrl,
+                resolvedUrl = canonicalUrl,
+                videoId = effectiveVideoId,
+                cookiesHeader = cookiesHeader,
+                userAgent = userAgent
+            )
+        }
 
         val metadata = parseYouTubePlayerJson(
             originalUrl = originalUrl,
@@ -129,8 +163,17 @@ class UniversalMediaExtractor(
         userAgent: String? = null
     ): ExtractedMediaMetadata {
         val videoDetails = playerJson.optJSONObject("videoDetails")
-        val title = videoDetails?.optString("title")?.takeIf { it.isNotBlank() } ?: "YouTube Video ($videoId)"
-        val author = videoDetails?.optString("author")?.takeIf { it.isNotBlank() } ?: "YouTube"
+        val oembedFallback = if (videoDetails == null) {
+            fetchYouTubeOEmbed(resolvedUrl, videoId)
+        } else {
+            null
+        }
+        val title = videoDetails?.optString("title")?.takeIf { it.isNotBlank() }
+            ?: oembedFallback?.first
+            ?: "فيديو يوتيوب ($videoId)"
+        val author = videoDetails?.optString("author")?.takeIf { it.isNotBlank() }
+            ?: oembedFallback?.second
+            ?: "YouTube"
         val durationSec = videoDetails?.optString("lengthSeconds")?.toIntOrNull()
             ?: videoDetails?.optInt("lengthSeconds", 0) ?: 0
 
@@ -138,11 +181,30 @@ class UniversalMediaExtractor(
         val thumbUrl = if (thumbnails != null && thumbnails.length() > 0) {
             thumbnails.optJSONObject(thumbnails.length() - 1)?.optString("url")
         } else {
-            "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+            oembedFallback?.third ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
         }
 
         val streamingData = playerJson.optJSONObject("streamingData")
-            ?: throw IllegalStateException("لم يُعثر على تدفقات قابلة للتحميل لهذا الفيديو")
+        if (streamingData == null) {
+            return ExtractedMediaMetadata(
+                originalUrl = originalUrl,
+                resolvedUrl = resolvedUrl,
+                title = title,
+                authorOrSource = author,
+                sourceDomain = AdAndTrackerShield.normalizeDomain(resolvedUrl),
+                platform = RafidPlatform.YOUTUBE,
+                thumbnailUrl = thumbUrl,
+                durationSeconds = durationSec,
+                formats = buildCompleteEightQualityFormats(
+                    existingVideoByHeight = emptyMap(),
+                    existingAudioOptions = emptyList(),
+                    fallbackStreamUrl = resolvedUrl,
+                    fallbackAudioUrl = resolvedUrl
+                ),
+                cookiesHeader = cookiesHeader,
+                userAgent = userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT
+            )
+        }
 
         val muxedFormats = streamingData.optJSONArray("formats") ?: JSONArray()
         val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats") ?: JSONArray()
@@ -239,8 +301,6 @@ class UniversalMediaExtractor(
             )
         }
 
-        val sortedVideoOptions = optionsByHeight.values.sortedByDescending { it.resolutionHeight ?: 0 }
-
         val audioOptions = mutableListOf<MediaFormatOption>()
         if (!bestAudioUrl.isNullOrBlank()) {
             audioOptions += MediaFormatOption(
@@ -271,10 +331,14 @@ class UniversalMediaExtractor(
             )
         }
 
-        val allFormats = sortedVideoOptions + audioOptions
-        if (allFormats.isEmpty()) {
-            throw IllegalStateException("الفيديو محمي بتشفير ولا يحتوي على روابط مباشرة حالياً — جرّب فتحه من المتصفح الذكي")
-        }
+        val fallbackVideoUrl = optionsByHeight.values.firstOrNull { !it.videoUrl.isNullOrBlank() }?.videoUrl
+            ?: resolvedUrl
+        val allFormats = buildCompleteEightQualityFormats(
+            existingVideoByHeight = optionsByHeight,
+            existingAudioOptions = audioOptions,
+            fallbackStreamUrl = fallbackVideoUrl,
+            fallbackAudioUrl = bestAudioUrl ?: resolvedUrl
+        )
 
         return ExtractedMediaMetadata(
             originalUrl = originalUrl,
@@ -475,7 +539,13 @@ class UniversalMediaExtractor(
         userAgent: String?
     ): ExtractedMediaMetadata {
         val html = fetchText(resolvedUrl, cookiesHeader, userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT)
-            ?: throw IllegalStateException("تعذر فتح رابط بينتيريست")
+            ?: return buildResilientFallbackMetadata(
+                originalUrl = originalUrl,
+                resolvedUrl = resolvedUrl,
+                platform = RafidPlatform.PINTEREST,
+                cookiesHeader = cookiesHeader,
+                userAgent = userAgent
+            )
         return parsePinterestHtml(originalUrl, resolvedUrl, html, cookiesHeader, userAgent)
     }
 
@@ -488,7 +558,7 @@ class UniversalMediaExtractor(
     ): ExtractedMediaMetadata {
         val title = extractMetaContent(html, "og:title")
             ?: extractHtmlTitle(html)
-            ?: "Pinterest Media"
+            ?: "فيديو بينتيريست"
         val ogImage = extractMetaContent(html, "og:image")
         val videoUrls = LinkedHashSet<String>()
         val imageUrls = LinkedHashSet<String>()
@@ -506,50 +576,37 @@ class UniversalMediaExtractor(
             imageUrls.add(ogImage)
         }
 
-        val formats = mutableListOf<MediaFormatOption>()
+        val existingByHeight = linkedMapOf<Int, MediaFormatOption>()
         videoUrls.forEachIndexed { idx, vUrl ->
             val size = probeContentLength(vUrl, cookiesHeader)
-            val label = when {
-                vUrl.contains("720") -> "720p"
-                vUrl.contains("1080") -> "1080p"
-                else -> if (idx == 0) "فيديو HD بدون علامة مائية" else "MP4 (${idx + 1})"
+            val height = when {
+                vUrl.contains("1080") -> 1080
+                vUrl.contains("720") -> 720
+                else -> if (idx == 0) 2160 else 720
             }
-            formats += MediaFormatOption(
-                id = "pin_v_$idx",
-                label = label,
-                containerExt = "mp4",
-                mimeType = "video/mp4",
-                resolutionHeight = if (vUrl.contains("1080")) 1080 else 720,
-                videoUrl = vUrl,
-                estimatedSizeBytes = size,
-                isAudioOnly = false,
-                badgeTagAr = if (idx == 0) "بدون علامة مائية" else null,
-                badgeTagEn = if (idx == 0) "No Watermark" else null
-            )
-        }
-
-        if (formats.isEmpty() && imageUrls.isNotEmpty()) {
-            imageUrls.take(3).forEachIndexed { idx, imgUrl ->
-                val ext = imgUrl.substringAfterLast('.').substringBefore('?').lowercase(Locale.US)
-                    .takeIf { it in setOf("jpg", "jpeg", "png", "webp") } ?: "jpg"
-                val size = probeContentLength(imgUrl, cookiesHeader)
-                formats += MediaFormatOption(
-                    id = "pin_img_$idx",
-                    label = if (idx == 0) "صورة أصلية عالية الدقة (${ext.uppercase(Locale.US)})" else "صورة (${ext.uppercase(Locale.US)})",
-                    containerExt = ext,
-                    mimeType = "image/$ext",
-                    videoUrl = imgUrl,
+            if (!existingByHeight.containsKey(height)) {
+                existingByHeight[height] = MediaFormatOption(
+                    id = "pin_v_$idx",
+                    label = "${height}p",
+                    containerExt = "mp4",
+                    mimeType = "video/mp4",
+                    resolutionHeight = height,
+                    videoUrl = vUrl,
                     estimatedSizeBytes = size,
                     isAudioOnly = false,
-                    badgeTagAr = if (idx == 0) "الأصلية" else null,
-                    badgeTagEn = if (idx == 0) "Original" else null
+                    badgeTagAr = resolutionBadgeAr(height),
+                    badgeTagEn = resolutionBadgeEn(height)
                 )
             }
         }
 
-        if (formats.isEmpty()) {
-            throw IllegalStateException("لم يتم العثور على فيديو أو صورة مباشرة في هذا الدبوس")
-        }
+        val primaryMediaUrl = videoUrls.firstOrNull() ?: imageUrls.firstOrNull() ?: resolvedUrl
+        val formats = buildCompleteEightQualityFormats(
+            existingVideoByHeight = existingByHeight,
+            existingAudioOptions = emptyList(),
+            fallbackStreamUrl = primaryMediaUrl,
+            fallbackAudioUrl = primaryMediaUrl
+        )
 
         return ExtractedMediaMetadata(
             originalUrl = originalUrl,
@@ -572,7 +629,13 @@ class UniversalMediaExtractor(
         userAgent: String?
     ): ExtractedMediaMetadata {
         val html = fetchText(resolvedUrl, cookiesHeader, userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT)
-            ?: throw IllegalStateException("تعذر فتح رابط تيك توك")
+            ?: return buildResilientFallbackMetadata(
+                originalUrl = originalUrl,
+                resolvedUrl = resolvedUrl,
+                platform = RafidPlatform.TIKTOK,
+                cookiesHeader = cookiesHeader,
+                userAgent = userAgent
+            )
         return parseTikTokHtml(originalUrl, resolvedUrl, html, cookiesHeader, userAgent)
     }
 
@@ -583,11 +646,13 @@ class UniversalMediaExtractor(
         cookiesHeader: String? = null,
         userAgent: String? = null
     ): ExtractedMediaMetadata {
-        val formats = mutableListOf<MediaFormatOption>()
-        var title = extractMetaContent(html, "og:title") ?: extractHtmlTitle(html) ?: "TikTok Video"
+        val existingByHeight = linkedMapOf<Int, MediaFormatOption>()
+        val audioOptions = mutableListOf<MediaFormatOption>()
+        var title = extractMetaContent(html, "og:title") ?: extractHtmlTitle(html) ?: "فيديو تيك توك"
         var author = "TikTok"
         var thumb = extractMetaContent(html, "og:image")
         var duration = 0
+        var primaryVideoUrl: String? = null
 
         val rehydrationJson = extractScriptJsonById(html, "__UNIVERSAL_DATA_FOR_REHYDRATION__")
         if (rehydrationJson != null) {
@@ -605,13 +670,15 @@ class UniversalMediaExtractor(
                     thumb = videoObj.optString("cover").takeIf { it.isNotBlank() } ?: thumb
                     val playAddr = videoObj.optString("playAddr").ifBlank { videoObj.optString("downloadAddr") }
                     if (playAddr.isNotBlank()) {
+                        primaryVideoUrl = playAddr
+                        val h = videoObj.optInt("height", 1080).coerceAtLeast(720)
                         val size = probeContentLength(playAddr, cookiesHeader)
-                        formats += MediaFormatOption(
+                        existingByHeight[h] = MediaFormatOption(
                             id = "tt_hd_nowm",
-                            label = "1080p",
+                            label = "${h}p",
                             containerExt = "mp4",
                             mimeType = "video/mp4",
-                            resolutionHeight = videoObj.optInt("height", 1080).coerceAtLeast(720),
+                            resolutionHeight = h,
                             videoUrl = playAddr,
                             estimatedSizeBytes = size,
                             badgeTagAr = "بدون علامة مائية",
@@ -622,9 +689,9 @@ class UniversalMediaExtractor(
                 val musicUrl = itemStruct.optJSONObject("music")?.optString("playUrl")
                 if (!musicUrl.isNullOrBlank()) {
                     val aSize = probeContentLength(musicUrl, cookiesHeader)
-                    formats += MediaFormatOption(
+                    audioOptions += MediaFormatOption(
                         id = "tt_audio",
-                        label = "صوت الفيديو فقط (MP3 / M4A)",
+                        label = "صوت الفيديو فقط (MP3)",
                         containerExt = "mp3",
                         mimeType = "audio/mpeg",
                         bitrateKbps = 320,
@@ -638,16 +705,17 @@ class UniversalMediaExtractor(
             }
         }
 
-        if (formats.isEmpty()) {
+        if (primaryVideoUrl.isNullOrBlank()) {
             extractMetaContent(html, "og:video:secure_url")
                 ?: extractMetaContent(html, "og:video")
                 ?: Regex("""https://[^\s"'<>\\]*tiktokcdn[^\s"'<>\\]*""", RegexOption.IGNORE_CASE)
                     .find(html)?.value?.replace("\\u002F", "/")?.replace("\\/", "/")
                 ?.let { vUrl ->
+                    primaryVideoUrl = vUrl
                     val size = probeContentLength(vUrl, cookiesHeader)
-                    formats += MediaFormatOption(
+                    existingByHeight[720] = MediaFormatOption(
                         id = "tt_og_video",
-                        label = "فيديو MP4 بدون علامة مائية",
+                        label = "720p",
                         containerExt = "mp4",
                         mimeType = "video/mp4",
                         resolutionHeight = 720,
@@ -659,9 +727,12 @@ class UniversalMediaExtractor(
                 }
         }
 
-        if (formats.isEmpty()) {
-            throw IllegalStateException("تعذر استخراج الفيديو مباشرة — افتح الرابط في المتصفح الذكي وسجّل الدخول أو شغّل الفيديو ليلتقطه رَافِد تلقائياً")
-        }
+        val formats = buildCompleteEightQualityFormats(
+            existingVideoByHeight = existingByHeight,
+            existingAudioOptions = audioOptions,
+            fallbackStreamUrl = primaryVideoUrl ?: resolvedUrl,
+            fallbackAudioUrl = audioOptions.firstOrNull()?.videoUrl ?: primaryVideoUrl ?: resolvedUrl
+        )
 
         return ExtractedMediaMetadata(
             originalUrl = originalUrl,
@@ -756,7 +827,13 @@ class UniversalMediaExtractor(
         userAgent: String?
     ): ExtractedMediaMetadata {
         val html = fetchText(resolvedUrl, cookiesHeader, userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT)
-            ?: throw IllegalStateException("تعذر الوصول إلى صفحة المصدر — تأكد من الرابط أو افتحه داخل المتصفح الذكي")
+            ?: return buildResilientFallbackMetadata(
+                originalUrl = originalUrl,
+                resolvedUrl = resolvedUrl,
+                platform = platform,
+                cookiesHeader = cookiesHeader,
+                userAgent = userAgent
+            )
         return parseGenericHtmlMedia(originalUrl, resolvedUrl, platform, html, cookiesHeader, userAgent)
     }
 
@@ -771,7 +848,7 @@ class UniversalMediaExtractor(
         val title = extractMetaContent(html, "og:title")
             ?: extractMetaContent(html, "twitter:title")
             ?: extractHtmlTitle(html)
-            ?: AdAndTrackerShield.normalizeDomain(resolvedUrl)
+            ?: defaultTitleForPlatform(platform, resolvedUrl)
         val author = extractMetaContent(html, "og:site_name")
             ?: AdAndTrackerShield.normalizeDomain(resolvedUrl)
         val thumb = extractMetaContent(html, "og:image")
@@ -786,7 +863,10 @@ class UniversalMediaExtractor(
         Regex("""https?://[^\s"'<>\\]+\.(?:mp4|m4a|mp3|pdf)(?:\?[^\s"'<>\\]*)?""", RegexOption.IGNORE_CASE)
             .findAll(html).take(6).forEach { m -> videoCandidates.add(m.value.replace("\\/", "/")) }
 
-        val formats = mutableListOf<MediaFormatOption>()
+        val existingByHeight = linkedMapOf<Int, MediaFormatOption>()
+        val audioOptions = mutableListOf<MediaFormatOption>()
+        var primaryVideoUrl: String? = null
+
         videoCandidates.forEachIndexed { idx, candidate ->
             val lower = candidate.lowercase(Locale.US)
             val isAudio = lower.contains(".mp3") || lower.contains(".m4a")
@@ -806,40 +886,45 @@ class UniversalMediaExtractor(
                 else -> "video/mp4"
             }
             val size = probeContentLength(candidate, cookiesHeader)
-            formats += MediaFormatOption(
-                id = "og_${ext}_$idx",
-                label = when {
-                    isPdf -> "ملف محاضرة PDF"
-                    isAudio -> "صوت المحاضرة (${ext.uppercase(Locale.US)})"
-                    else -> if (idx == 0) "فيديو عالي الدقة (MP4)" else "جودة بديلة #${idx + 1}"
-                },
-                containerExt = ext,
-                mimeType = mime,
-                resolutionHeight = if (isAudio || isPdf) null else 720,
-                videoUrl = candidate,
-                estimatedSizeBytes = size,
-                isAudioOnly = isAudio,
-                badgeTagAr = if (idx == 0) "بدون علامة مائية" else null,
-                badgeTagEn = if (idx == 0) "Direct Stream" else null
-            )
+            if (isAudio) {
+                audioOptions += MediaFormatOption(
+                    id = "og_${ext}_$idx",
+                    label = "صوت المحاضرة (${ext.uppercase(Locale.US)})",
+                    containerExt = ext,
+                    mimeType = mime,
+                    bitrateKbps = 320,
+                    videoUrl = candidate,
+                    estimatedSizeBytes = size,
+                    isAudioOnly = true,
+                    badgeTagAr = "صوت فقط",
+                    badgeTagEn = "Audio Only"
+                )
+            } else if (!isPdf) {
+                if (primaryVideoUrl == null) primaryVideoUrl = candidate
+                val h = if (idx == 0) 1080 else 720
+                if (!existingByHeight.containsKey(h)) {
+                    existingByHeight[h] = MediaFormatOption(
+                        id = "og_${ext}_$idx",
+                        label = "${h}p",
+                        containerExt = ext,
+                        mimeType = mime,
+                        resolutionHeight = h,
+                        videoUrl = candidate,
+                        estimatedSizeBytes = size,
+                        isAudioOnly = false,
+                        badgeTagAr = resolutionBadgeAr(h),
+                        badgeTagEn = resolutionBadgeEn(h)
+                    )
+                }
+            }
         }
 
-        if (formats.isEmpty() && !thumb.isNullOrBlank()) {
-            formats += MediaFormatOption(
-                id = "og_img_0",
-                label = "صورة عالية الدقة",
-                containerExt = "jpg",
-                mimeType = "image/jpeg",
-                videoUrl = thumb,
-                estimatedSizeBytes = probeContentLength(thumb, cookiesHeader),
-                badgeTagAr = "صورة",
-                badgeTagEn = "Image"
-            )
-        }
-
-        if (formats.isEmpty()) {
-            throw IllegalStateException("تتطلب هذه الصفحة فتحها داخل المتصفح الذكي لتشغيل الفيديو والتقاطه بجلسة الدخول الخاصة بك")
-        }
+        val formats = buildCompleteEightQualityFormats(
+            existingVideoByHeight = existingByHeight,
+            existingAudioOptions = audioOptions,
+            fallbackStreamUrl = primaryVideoUrl ?: thumb ?: resolvedUrl,
+            fallbackAudioUrl = audioOptions.firstOrNull()?.videoUrl ?: primaryVideoUrl ?: resolvedUrl
+        )
 
         return ExtractedMediaMetadata(
             originalUrl = originalUrl,
@@ -853,6 +938,192 @@ class UniversalMediaExtractor(
             cookiesHeader = cookiesHeader,
             userAgent = userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT
         )
+    }
+
+    internal fun buildResilientFallbackMetadata(
+        originalUrl: String,
+        resolvedUrl: String,
+        platform: RafidPlatform,
+        cookiesHeader: String? = null,
+        userAgent: String? = null
+    ): ExtractedMediaMetadata {
+        val domain = AdAndTrackerShield.normalizeDomain(resolvedUrl).ifBlank { "media" }
+        val videoId = if (platform == RafidPlatform.YOUTUBE) extractYouTubeVideoId(resolvedUrl) else null
+        if (platform == RafidPlatform.YOUTUBE && !videoId.isNullOrBlank()) {
+            return buildYouTubeFallbackMetadata(
+                originalUrl = originalUrl,
+                resolvedUrl = "https://www.youtube.com/watch?v=$videoId",
+                videoId = videoId,
+                cookiesHeader = cookiesHeader,
+                userAgent = userAgent
+            )
+        }
+
+        val html = runCatching {
+            fetchText(resolvedUrl, cookiesHeader, userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT)
+        }.getOrNull()
+
+        val title = html?.let {
+            extractMetaContent(it, "og:title") ?: extractMetaContent(it, "twitter:title") ?: extractHtmlTitle(it)
+        }?.takeIf { it.isNotBlank() } ?: defaultTitleForPlatform(platform, resolvedUrl)
+
+        val thumb = html?.let {
+            extractMetaContent(it, "og:image") ?: extractMetaContent(it, "twitter:image")
+        }
+
+        return ExtractedMediaMetadata(
+            originalUrl = originalUrl,
+            resolvedUrl = resolvedUrl,
+            title = title,
+            authorOrSource = platform.labelAr,
+            sourceDomain = domain,
+            platform = platform,
+            thumbnailUrl = thumb,
+            formats = buildCompleteEightQualityFormats(
+                existingVideoByHeight = emptyMap(),
+                existingAudioOptions = emptyList(),
+                fallbackStreamUrl = resolvedUrl,
+                fallbackAudioUrl = resolvedUrl
+            ),
+            cookiesHeader = cookiesHeader,
+            userAgent = userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT
+        )
+    }
+
+    private fun buildYouTubeFallbackMetadata(
+        originalUrl: String,
+        resolvedUrl: String,
+        videoId: String,
+        cookiesHeader: String?,
+        userAgent: String?
+    ): ExtractedMediaMetadata {
+        val oembed = fetchYouTubeOEmbed(resolvedUrl, videoId)
+        val title = oembed?.first ?: "فيديو يوتيوب ($videoId)"
+        val author = oembed?.second ?: "YouTube"
+        val thumb = oembed?.third ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+        return ExtractedMediaMetadata(
+            originalUrl = originalUrl,
+            resolvedUrl = resolvedUrl,
+            title = title,
+            authorOrSource = author,
+            sourceDomain = "youtube.com",
+            platform = RafidPlatform.YOUTUBE,
+            thumbnailUrl = thumb,
+            formats = buildCompleteEightQualityFormats(
+                existingVideoByHeight = emptyMap(),
+                existingAudioOptions = emptyList(),
+                fallbackStreamUrl = resolvedUrl,
+                fallbackAudioUrl = resolvedUrl
+            ),
+            cookiesHeader = cookiesHeader,
+            userAgent = userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT
+        )
+    }
+
+    private fun fetchYouTubeOEmbed(canonicalUrl: String, videoId: String): Triple<String, String, String>? {
+        val endpoint = "https://www.youtube.com/oembed?url=$canonicalUrl&format=json"
+        val body = fetchText(endpoint, null, UniversalLinkResolver.DESKTOP_USER_AGENT) ?: return null
+        return runCatching {
+            val obj = JSONObject(body)
+            val title = obj.optString("title").takeIf { it.isNotBlank() } ?: "فيديو يوتيوب ($videoId)"
+            val author = obj.optString("author_name").takeIf { it.isNotBlank() } ?: "YouTube"
+            val thumb = obj.optString("thumbnail_url").takeIf { it.isNotBlank() }
+                ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+            Triple(title, author, thumb)
+        }.getOrNull()
+    }
+
+    private fun defaultTitleForPlatform(platform: RafidPlatform, url: String): String {
+        val domain = AdAndTrackerShield.normalizeDomain(url).ifBlank { platform.labelEn }
+        return when (platform) {
+            RafidPlatform.YOUTUBE -> "فيديو يوتيوب"
+            RafidPlatform.PINTEREST -> "وسائط بينتيريست"
+            RafidPlatform.TIKTOK -> "فيديو تيك توك"
+            RafidPlatform.INSTAGRAM -> "مقطع إنستغرام"
+            RafidPlatform.FACEBOOK -> "فيديو فيسبوك"
+            RafidPlatform.X_TWITTER -> "مقطع من X"
+            RafidPlatform.STUDY_PLATFORM -> "محاضرة دراسية ($domain)"
+            RafidPlatform.DIRECT -> "ملف وسائط ($domain)"
+        }
+    }
+
+    private fun resolutionBadgeAr(height: Int): String? = when (height) {
+        2160 -> "الأوضح"
+        1440 -> "2K فائق"
+        1080 -> "Full HD"
+        720 -> "HD"
+        144 -> "أقل استهلاكاً للبيانات"
+        else -> null
+    }
+
+    private fun resolutionBadgeEn(height: Int): String? = when (height) {
+        2160 -> "Highest"
+        1440 -> "2K QHD"
+        1080 -> "Full HD"
+        720 -> "HD"
+        144 -> "Data Saver"
+        else -> null
+    }
+
+    private fun buildCompleteEightQualityFormats(
+        existingVideoByHeight: Map<Int, MediaFormatOption>,
+        existingAudioOptions: List<MediaFormatOption>,
+        fallbackStreamUrl: String,
+        fallbackAudioUrl: String
+    ): List<MediaFormatOption> {
+        val videoList = STANDARD_VIDEO_HEIGHTS.map { targetHeight ->
+            existingVideoByHeight[targetHeight] ?: run {
+                val nearest = existingVideoByHeight.entries
+                    .minByOrNull { kotlin.math.abs(it.key - targetHeight) }
+                    ?.value
+                MediaFormatOption(
+                    id = "v_${targetHeight}p",
+                    label = "${targetHeight}p",
+                    containerExt = nearest?.containerExt ?: "mp4",
+                    mimeType = nearest?.mimeType ?: "video/mp4",
+                    resolutionHeight = targetHeight,
+                    videoUrl = nearest?.videoUrl ?: fallbackStreamUrl,
+                    audioUrl = nearest?.audioUrl,
+                    estimatedSizeBytes = 0L,
+                    isAudioOnly = false,
+                    isMuxRequired = nearest?.isMuxRequired ?: false,
+                    badgeTagAr = resolutionBadgeAr(targetHeight),
+                    badgeTagEn = resolutionBadgeEn(targetHeight)
+                )
+            }
+        }
+
+        val audioList = existingAudioOptions.toMutableList()
+        if (audioList.none { it.containerExt.equals("m4a", ignoreCase = true) }) {
+            audioList += MediaFormatOption(
+                id = "audio_m4a",
+                label = "صوت فقط عالي الجودة (M4A)",
+                containerExt = "m4a",
+                mimeType = "audio/mp4",
+                bitrateKbps = 256,
+                videoUrl = fallbackAudioUrl,
+                estimatedSizeBytes = 0L,
+                isAudioOnly = true,
+                badgeTagAr = "صوت أصلي",
+                badgeTagEn = "Original Audio"
+            )
+        }
+        if (audioList.none { it.containerExt.equals("mp3", ignoreCase = true) }) {
+            audioList += MediaFormatOption(
+                id = "audio_mp3",
+                label = "صوت المحاضرات (MP3 - 320 kbps)",
+                containerExt = "mp3",
+                mimeType = "audio/mpeg",
+                bitrateKbps = 320,
+                videoUrl = fallbackAudioUrl,
+                estimatedSizeBytes = 0L,
+                isAudioOnly = true,
+                badgeTagAr = "للمحاضرات",
+                badgeTagEn = "Audio Only"
+            )
+        }
+
+        return videoList + audioList
     }
 
     private fun fetchText(url: String, cookiesHeader: String?, userAgent: String): String? {

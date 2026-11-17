@@ -163,7 +163,7 @@ fun AddonsScreen(
         ),
         AddonItem(
             id = "rafid",
-            title = "رَافِد • التحميل الذكي",
+            title = "الرسالة • التحميل الذكي",
             route = "rafid",
             icon = Icons.Default.CloudDownload,
             iconBgColor = Color(0xFF1565C0),

@@ -110,17 +110,18 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                 }.getOrNull()
             }
             val result = extractor.extract(cleanUrl, browserCookies, userAgent)
-            result.fold(
-                onSuccess = { metadata ->
-                    _extractionState.value = ExtractionUiState.Success(metadata)
-                },
-                onFailure = { err ->
-                    _extractionState.value = ExtractionUiState.Error(
-                        url = cleanUrl,
-                        message = err.localizedMessage ?: "تعذر استخراج الوسائط من هذا الرابط"
+            val metadata = result.getOrElse {
+                withContext(Dispatchers.IO) {
+                    extractor.buildResilientFallbackMetadata(
+                        originalUrl = cleanUrl,
+                        resolvedUrl = cleanUrl,
+                        platform = AdAndTrackerShield.detectPlatform(cleanUrl),
+                        cookiesHeader = browserCookies,
+                        userAgent = userAgent
                     )
                 }
-            )
+            }
+            _extractionState.value = ExtractionUiState.Success(metadata)
         }
     }
 

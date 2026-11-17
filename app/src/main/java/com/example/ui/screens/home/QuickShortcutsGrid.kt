@@ -314,9 +314,9 @@ fun QuickShortcutsGrid(
         ),
         RealisticQuickShortcut(
             id = "rafid_downloader",
-            titleAr = "رَافِد الذكي",
-            titleEn = "Rafid Media",
-            titleFr = "Rafid Médias",
+            titleAr = "الرسالة",
+            titleEn = "Al-Risalah",
+            titleFr = "Al-Risalah",
             icon = Icons.Default.CloudDownload,
             route = "rafid",
             gradientTop = Color(0xFF1E88E5),

@@ -88,11 +88,11 @@ fun ToolsScreen(
             color = Color(0xFF0088CC)
         ),
         ToolFeatureItem(
-            title = "رَافِد • مركز الوسائط والمحاضرات الذكي ⬇️",
+            title = "الرسالة • مركز الوسائط والمحاضرات الذكي ⬇️",
             description = "تحميل المحاضرات والفيديوهات وقوائم التشغيل بدون إعلانات من يوتيوب وبينتيريست وتيك توك",
             icon = Icons.Default.CloudDownload,
             route = "rafid",
-            badge = "رَافِد الذكي",
+            badge = "الرسالة",
             color = Color(0xFF1565C0)
         )
     )
