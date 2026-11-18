@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    android:installLocation="auto">
 
     <!-- Network & Internet -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -100,7 +101,7 @@
         <!-- Receivers for Alarms and Boot -->
         <receiver
             android:name=".domain.prayer.PrayerAlarmReceiver"
-            android:exported="false"
+            android:exported="true"
             android:enabled="true">
             <intent-filter>
                 <action android:name="com.example.ACTION_PRAYER_ALARM" />
@@ -117,7 +118,7 @@
 
         <receiver
             android:name=".domain.habits.HabitReminderReceiver"
-            android:exported="false"
+            android:exported="true"
             android:enabled="true">
             <intent-filter>
                 <action android:name="com.example.ACTION_HABIT_REMINDER" />
