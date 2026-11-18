@@ -17,13 +17,13 @@ android {
     applicationId = "com.aistudio.rafiqaltalib.app.chvazy"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
+    versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     ndk {
-      abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+      abiFilters += listOf("arm64-v8a", "armeabi-v7a")
     }
   }
 
@@ -153,6 +153,9 @@ dependencies {
   implementation(libs.play.services.ads)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.ui)
+  implementation(libs.youtubedl.library)
+  implementation(libs.youtubedl.ffmpeg)
+  implementation(libs.youtubedl.aria2c)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

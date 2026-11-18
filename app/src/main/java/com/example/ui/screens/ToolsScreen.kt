@@ -94,6 +94,14 @@ fun ToolsScreen(
             route = "rafid",
             badge = "الرسالة",
             color = Color(0xFF1565C0)
+        ),
+        ToolFeatureItem(
+            title = "التحميل الذكي الفائق (متعدد الأجزاء) 🚀",
+            description = "استخلاص تلقائي صامت وتنزيل مقسم 16 جزءاً من كل المنصات مع استكمال تلقائي",
+            icon = Icons.Default.CloudDownload,
+            route = "smart_download",
+            badge = "فائق",
+            color = Color(0xFF0F62FE)
         )
     )
 

@@ -92,3 +92,12 @@
 -keep class androidx.compose.** { *; }
 -dontwarn androidx.compose.**
 
+# ------------------------------------------------------------------------------
+# 7. Smart Download Engine (youtubedl-android, FFmpeg, Aria2c, Media3)
+# ------------------------------------------------------------------------------
+-keep class com.yausername.** { *; }
+-dontwarn com.yausername.**
+-keep class com.example.download.** { *; }
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+

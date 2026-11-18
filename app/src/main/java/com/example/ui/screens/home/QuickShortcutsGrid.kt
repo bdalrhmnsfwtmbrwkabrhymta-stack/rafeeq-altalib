@@ -322,6 +322,17 @@ fun QuickShortcutsGrid(
             gradientTop = Color(0xFF1E88E5),
             gradientBottom = Color(0xFF1565C0),
             glowColor = Color(0xFF1565C0)
+        ),
+        RealisticQuickShortcut(
+            id = "smart_download_center",
+            titleAr = "التحميل السريع",
+            titleEn = "Fast Download",
+            titleFr = "Téléchargement",
+            icon = Icons.Default.CloudDownload,
+            route = "smart_download",
+            gradientTop = Color(0xFF2563EB),
+            gradientBottom = Color(0xFF1D4ED8),
+            glowColor = Color(0xFF2563EB)
         )
     )
 

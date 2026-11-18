@@ -198,6 +198,7 @@ fun HomeScreen(
     // Preserved Additional Existing Features in matching vibrant style
     val extraFeatureCards = remember {
         listOf(
+            HomeToolCardSpec("التحميل الذكي السريع", "يوتيوب، تيك توك، بنترست، فيسبوك وإنستغرام", Icons.Default.CloudDownload, "smart_download", VibrantRoyalBlue),
             HomeToolCardSpec("الرسالة • تحميل المحاضرات", "يوتيوب، بينتيريست، تيك توك وPDF", Icons.Default.CloudDownload, "rafid", VibrantRoyalBlue),
             HomeToolCardSpec("القرآن الكريم", "المصحف والتلاوة", Icons.Default.AutoStories, "quran", VibrantEmerald),
             HomeToolCardSpec("الإسلاميات", "صلاتك ووردك في مكان واحد", Icons.Default.Mosque, "prayer", VibrantRoyalBlue),

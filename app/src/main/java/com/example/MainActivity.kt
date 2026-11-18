@@ -80,6 +80,7 @@ class MainActivity : FragmentActivity() {
     private var pendingIntent by mutableStateOf<Intent?>(null)
     private var pendingDirectRoute by mutableStateOf<String?>(null)
     private var pendingSharedRafidUrl by mutableStateOf<String?>(null)
+    private var pendingSmartDownloadUrl by mutableStateOf<String?>(null)
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -92,6 +93,7 @@ class MainActivity : FragmentActivity() {
         pendingIntent = intent
         pendingDirectRoute = resolveDirectRouteFromIntent(intent)
         pendingSharedRafidUrl = intent?.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
+        pendingSmartDownloadUrl = intent?.getStringExtra(com.example.download.ui.DownloadShareReceiverActivity.EXTRA_SMART_DOWNLOAD_URL)
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
         try {
             enableEdgeToEdge()
@@ -126,6 +128,14 @@ class MainActivity : FragmentActivity() {
                                 pendingDirectRoute = "rafid"
                             }
                         }
+                    intentToProcess.getStringExtra(com.example.download.ui.DownloadShareReceiverActivity.EXTRA_SMART_DOWNLOAD_URL)
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { smartUrl ->
+                            pendingSmartDownloadUrl = smartUrl
+                            if (pendingDirectRoute.isNullOrBlank()) {
+                                pendingDirectRoute = "smart_download"
+                            }
+                        }
                     try {
                         handleIncomingPdfIntent(this@MainActivity, intentToProcess, mainViewModel)
                     } catch (t: Throwable) {
@@ -147,7 +157,9 @@ class MainActivity : FragmentActivity() {
                             directRouteRequest = pendingDirectRoute,
                             onDirectRouteConsumed = { pendingDirectRoute = null },
                             initialRafidUrl = pendingSharedRafidUrl,
-                            onRafidUrlConsumed = { pendingSharedRafidUrl = null }
+                            onRafidUrlConsumed = { pendingSharedRafidUrl = null },
+                            initialSmartDownloadUrl = pendingSmartDownloadUrl,
+                            onSmartDownloadUrlConsumed = { pendingSmartDownloadUrl = null }
                         )
                     }
                 }
@@ -239,6 +251,12 @@ class MainActivity : FragmentActivity() {
             ?.let { sharedUrl ->
                 pendingSharedRafidUrl = sharedUrl
                 pendingDirectRoute = "rafid"
+            }
+        intent.getStringExtra(com.example.download.ui.DownloadShareReceiverActivity.EXTRA_SMART_DOWNLOAD_URL)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { smartUrl ->
+                pendingSmartDownloadUrl = smartUrl
+                pendingDirectRoute = "smart_download"
             }
     }
 
@@ -364,7 +382,9 @@ fun MainAppContent(
     directRouteRequest: String? = null,
     onDirectRouteConsumed: () -> Unit = {},
     initialRafidUrl: String? = null,
-    onRafidUrlConsumed: () -> Unit = {}
+    onRafidUrlConsumed: () -> Unit = {},
+    initialSmartDownloadUrl: String? = null,
+    onSmartDownloadUrlConsumed: () -> Unit = {}
 ) {
     var showSplash by remember { mutableStateOf(directRouteRequest == null) }
     var showLoginGateway by remember { mutableStateOf(false) }
@@ -474,7 +494,7 @@ fun MainAppContent(
             ) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val isLandscape = maxWidth > maxHeight && maxWidth >= 480.dp
-                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || currentRoute == "rafid" || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
+                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || currentRoute == "rafid" || currentRoute == "smart_download" || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
                     val showMainNav = currentRoute in listOf(
                         "home", "account", "quests", "quran", "quran_audio",
                         "dofaati", "zakat", "library", "community", "games", "plans", "tools",
@@ -635,6 +655,11 @@ fun MainAppContent(
                                     initialSharedUrl = initialRafidUrl,
                                     onConsumeSharedUrl = onRafidUrlConsumed,
                                     onNavigateBackToApp = { currentRoute = "home" }
+                                )
+                                "smart_download" -> com.example.download.ui.DownloadCenterScreen(
+                                    initialSharedUrl = initialSmartDownloadUrl,
+                                    onConsumeSharedUrl = onSmartDownloadUrlConsumed,
+                                    onNavigateBack = { currentRoute = "home" }
                                 )
                                 "zakat" -> ZakatCalculatorScreen(viewModel = mainViewModel, onNavigateBack = { currentRoute = "home" })
                                 "god_names" -> GodNamesScreen(viewModel = mainViewModel, onNavigateBack = { currentRoute = "home" })

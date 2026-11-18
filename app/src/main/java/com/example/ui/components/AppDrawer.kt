@@ -52,6 +52,7 @@ fun AppDrawerContent(
         DrawerMenuItem("quran", "المصحف الشريف", Icons.Default.MenuBook, null, EmeraldPrimary),
         DrawerMenuItem("prayer", "الإسلاميات", Icons.Default.Mosque, null, Color(0xFF0284C7)),
         DrawerMenuItem("ai", "فهيم • اسأل واشرح", Icons.Default.TipsAndUpdates, "اسأل", VibrantEmerald),
+        DrawerMenuItem("smart_download", "التحميل الذكي السريع", Icons.Default.CloudDownload, "سريع", AccentRoyalBlue),
         DrawerMenuItem("rafid", "الرسالة • التحميل الذكي", Icons.Default.CloudDownload, "ذكي", AccentRoyalBlue),
         DrawerMenuItem("pdf_studio", "استوديو الـ PDF", Icons.Default.PictureAsPdf, null, PlayRed),
         DrawerMenuItem("account", "حسابي والإعدادات", Icons.Default.Settings, null, TextSecondary)

@@ -168,6 +168,14 @@ fun AddonsScreen(
             icon = Icons.Default.CloudDownload,
             iconBgColor = Color(0xFF1565C0),
             badge = "جديد"
+        ),
+        AddonItem(
+            id = "smart_download",
+            title = "التحميل السريع الفائق",
+            route = "smart_download",
+            icon = Icons.Default.CloudDownload,
+            iconBgColor = Color(0xFF0F62FE),
+            badge = "فائق"
         )
     )
 
