@@ -40,6 +40,14 @@ fun ToolsScreen(
 ) {
     val tools = listOf(
         ToolFeatureItem(
+            title = "أَدَوَاتُ المُذَاكَرَة الشاملة (٨ أدوات) 🛠️",
+            description = "مؤقت المذاكرة، حاسبة المواريث، الإعراب الذكي، القاموس، الماسح، ملفات PDF، المترجم وحاسبة المعدل والوحدات",
+            icon = Icons.Default.DashboardCustomize,
+            route = "study_tools",
+            badge = "٨ أدوات",
+            color = Color(0xFF0F62FE)
+        ),
+        ToolFeatureItem(
             title = "المصحف الشريف والتلاوات 📖",
             description = "المصحف الإلكتروني الشامل مع التلاوات الصوتية وتفسير الآيات",
             icon = Icons.Default.MenuBook,

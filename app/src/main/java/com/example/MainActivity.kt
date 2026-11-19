@@ -494,7 +494,8 @@ fun MainAppContent(
             ) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val isLandscape = maxWidth > maxHeight && maxWidth >= 480.dp
-                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || currentRoute == "rafid" || currentRoute == "smart_download" || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
+                    val isStudyToolsRoute = currentRoute == "study_tools" || currentRoute.startsWith("study_") && currentRoute != "study_schedule_ai"
+                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || currentRoute == "rafid" || currentRoute == "smart_download" || isStudyToolsRoute || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
                     val showMainNav = currentRoute in listOf(
                         "home", "account", "quests", "quran", "quran_audio",
                         "dofaati", "zakat", "library", "community", "games", "plans", "tools",
@@ -659,6 +660,51 @@ fun MainAppContent(
                                 "smart_download" -> com.example.download.ui.DownloadCenterScreen(
                                     initialSharedUrl = initialSmartDownloadUrl,
                                     onConsumeSharedUrl = onSmartDownloadUrlConsumed,
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_tools" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = null,
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_timer" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = "timer",
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_inheritance" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = "inheritance",
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_irab" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = "irab",
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_dictionary" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = "dictionary",
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_scanner" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = "scanner",
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_files" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = "files",
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_translator" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = "translator",
+                                    onNavigateBack = { currentRoute = "home" }
+                                )
+                                "study_gpa" -> com.example.studytools.StudyToolsHubScreen(
+                                    viewModel = mainViewModel,
+                                    initialToolKey = "gpa",
                                     onNavigateBack = { currentRoute = "home" }
                                 )
                                 "zakat" -> ZakatCalculatorScreen(viewModel = mainViewModel, onNavigateBack = { currentRoute = "home" })

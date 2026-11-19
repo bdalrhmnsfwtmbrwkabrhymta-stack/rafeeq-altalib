@@ -310,10 +310,20 @@ abstract class AppDatabase : RoomDatabase() {
                         )
                     }
 
-                    // Seed Dictionary
-                    if (db.dictionaryDao().getWordCount() == 0) {
-                        val dictionaryWords = com.example.domain.dictionary.DictionaryDataGenerator.generateAllWords()
-                        db.dictionaryDao().insertWords(dictionaryWords)
+                    // Seed Authentic Offline Dictionary Assets
+                    val prefs = context.getSharedPreferences("hawas_dict_seed", Context.MODE_PRIVATE)
+                    val assetSeedVersion = 2
+                    if (db.dictionaryDao().getWordCount() == 0 || prefs.getInt("seed_version", 0) < assetSeedVersion) {
+                        db.dictionaryDao().removeSyntheticDerivedWords()
+                        val existing = db.dictionaryDao().getAllEnglishWords().map { it.lowercase().trim() }.toHashSet()
+                        val allAuthentic = com.example.domain.dictionary.DictionaryAssetLoader.loadAllEntitiesForDatabase(context)
+                        val missing = allAuthentic.filter { !existing.contains(it.wordEnglish.lowercase().trim()) }
+                        if (missing.isNotEmpty()) {
+                            missing.chunked(500).forEach { batch ->
+                                db.dictionaryDao().insertWords(batch)
+                            }
+                        }
+                        prefs.edit().putInt("seed_version", assetSeedVersion).apply()
                     }
 
                     // Seed Initial Gamified Quests if none exist

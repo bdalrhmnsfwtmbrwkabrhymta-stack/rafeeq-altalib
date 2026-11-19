@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -646,6 +647,143 @@ fun HomeScreen(
                             .weight(1f)
                             .testTag("home_quick_card_tasks")
                     )
+                }
+
+                // ----------------------------------------------------------
+                // 5B. STUDY TOOLS HUB FEATURED CARD («أَدَوَاتُ المُذَاكَرَة» - 8 Tools)
+                // ----------------------------------------------------------
+                Surface(
+                    onClick = { onNavigate("study_tools") },
+                    shape = RoundedCornerShape(24.dp),
+                    color = if (isDarkTheme) Color(0xFF101B2D) else Color(0xFF0F172A),
+                    shadowElevation = 6.dp,
+                    border = BorderStroke(1.dp, Color(0xFFE6B34B).copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_study_tools_card")
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(15.dp))
+                                        .background(Color(0xFFE6B34B).copy(alpha = 0.18f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DashboardCustomize,
+                                        contentDescription = "أدوات المذاكرة",
+                                        tint = Color(0xFFE6B34B),
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "أَدَوَاتُ المُذَاكَرَة",
+                                        fontFamily = HeaderBrandAmiriFontFamily,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE6B34B)
+                                    )
+                                    Text(
+                                        text = "٨ أدوات بتساعدك وانت بتذاكر",
+                                        fontFamily = DisplayArabicFontFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFFCBD5E1)
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color(0xFF0F62FE)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "افتح الكل",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "فتح أدوات المذاكرة",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        val studyToolQuickItems = remember {
+                            listOf(
+                                Triple("مؤقت المذاكرة", "study_timer", Icons.Default.Timer),
+                                Triple("حاسبة المواريث", "study_inheritance", Icons.Default.Balance),
+                                Triple("الإعراب الذكي", "study_irab", Icons.Default.AutoAwesome),
+                                Triple("القاموس الشامل", "study_dictionary", Icons.Default.AutoStories),
+                                Triple("الماسح الذكي", "study_scanner", Icons.Default.DocumentScanner),
+                                Triple("ملفات وPDF", "study_files", Icons.Default.PictureAsPdf),
+                                Triple("المترجم", "study_translator", Icons.Default.Translate),
+                                Triple("المعدل والوحدات", "study_gpa", Icons.Default.Calculate)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            studyToolQuickItems.forEach { (label, route, icon) ->
+                                Surface(
+                                    onClick = { onNavigate(route) },
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+                                    modifier = Modifier
+                                        .defaultMinSize(minHeight = 48.dp)
+                                        .testTag("home_quick_$route")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = label,
+                                            tint = Color(0xFFE6B34B),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = label,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // ----------------------------------------------------------

@@ -6,6 +6,8 @@
     <!-- Network & Internet -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- Exact Alarms & Scheduling for high reliability on Android 12, 13, 14, 15, 16 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
@@ -197,6 +199,11 @@
 
         <service
             android:name="com.example.download.service.DownloadForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name="com.example.studytools.timer.StudyTimerForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

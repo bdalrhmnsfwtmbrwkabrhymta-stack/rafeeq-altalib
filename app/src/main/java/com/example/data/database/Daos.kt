@@ -265,6 +265,12 @@ interface DictionaryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertWords(words: List<DictionaryWordEntity>)
 
+    @Query("SELECT wordEnglish FROM dictionary_words")
+    suspend fun getAllEnglishWords(): List<String>
+
+    @Query("DELETE FROM dictionary_words WHERE category = 'اشتقاق'")
+    suspend fun removeSyntheticDerivedWords()
+
     @Update
     suspend fun updateWord(word: DictionaryWordEntity)
 }
