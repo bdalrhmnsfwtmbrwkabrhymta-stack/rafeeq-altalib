@@ -66,59 +66,15 @@ fun RafiqBottomBar(
     onTabSelected: (RafiqTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val barShape = RoundedCornerShape(32.dp)
-    val accentColor = MaterialTheme.colorScheme.primary
-    val isDarkSurface = MaterialTheme.colorScheme.surface.let {
-        (it.red * 0.299f + it.green * 0.587f + it.blue * 0.114f) < 0.45f
-    }
-    val containerColor = if (isDarkSurface) MaterialTheme.colorScheme.surface else Color.White
-    val borderColor = if (isDarkSurface) MaterialTheme.colorScheme.outlineVariant else Color(0xFFE2E8F0)
+    val selectedIndex = RafiqTab.entries.indexOfFirst { isRafiqTabSelected(it, currentRoute) }
+        .let { if (it >= 0) it else 0 }
 
-    Box(
+    ElasticJumpingBottomBar(
+        tabs = RafiqTab.entries,
+        selectedIndex = selectedIndex,
+        onTabSelected = onTabSelected,
         modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = 580.dp)
-                .shadow(
-                    elevation = 14.dp,
-                    shape = barShape,
-                    spotColor = accentColor.copy(alpha = 0.20f),
-                    ambientColor = Color.Black.copy(alpha = 0.12f)
-                ),
-            shape = barShape,
-            color = containerColor,
-            border = BorderStroke(1.dp, borderColor.copy(alpha = 0.8f))
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RafiqTab.entries.forEach { tab ->
-                    val isSelected = isRafiqTabSelected(tab, currentRoute)
-
-                    FloatingPillTabItem(
-                        tab = tab,
-                        isSelected = isSelected,
-                        accentColor = accentColor,
-                        inactiveTextColor = if (isDarkSurface) Color(0xFF94A3B8) else Color(0xFF475569),
-                        onClick = { onTabSelected(tab) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("bottom_tab_${tab.route}")
-                    )
-                }
-            }
-        }
-    }
+    )
 }
 
 private fun isRafiqTabSelected(tab: RafiqTab, currentRoute: String): Boolean {

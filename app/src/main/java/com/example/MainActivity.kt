@@ -344,8 +344,8 @@ fun PermissionOptimizationDialog() {
         val isExactAlarmsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             (context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager)?.canScheduleExactAlarms() ?: true
         } else true
-        val isOverlayGranted = Settings.canDrawOverlays(context)
-        if (!isIgnoringBattery || !isNotificationsGranted || !isExactAlarmsGranted || !isOverlayGranted) {
+        // Do NOT force SYSTEM_ALERT_WINDOW on app startup; only request on-demand when student enables Focus Lock.
+        if (!isIgnoringBattery || !isNotificationsGranted || !isExactAlarmsGranted) {
             showUniversalNotificationDialog = true
         }
     }
@@ -472,7 +472,28 @@ fun MainAppContent(
             }
         )
     } else {
-        PermissionOptimizationDialog()
+        val localCtx = LocalContext.current
+        var showFirstLaunchLocationSheet by remember {
+            mutableStateOf(!com.example.domain.prayer.LocationPrayerManager.isLocationConfigured(localCtx))
+        }
+        LaunchedEffect(showFirstLaunchLocationSheet) {
+            if (!showFirstLaunchLocationSheet) {
+                com.example.domain.prayer.LocationPrayerManager.syncSavedLocationSilently(
+                    localCtx,
+                    com.example.data.preferences.UserPreferencesRepository(localCtx)
+                )
+            }
+        }
+        if (showFirstLaunchLocationSheet) {
+            com.example.ui.dialogs.FirstLaunchLocationSheet(
+                currentCalculationMethod = userSettings.calculationMethod,
+                onLocationConfigured = {
+                    showFirstLaunchLocationSheet = false
+                }
+            )
+        } else {
+            PermissionOptimizationDialog()
+        }
         // Safe hardware/gesture back handler: return to home before exiting
         BackHandler(enabled = currentRoute != "home") {
             currentRoute = "home"

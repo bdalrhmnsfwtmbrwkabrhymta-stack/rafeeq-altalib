@@ -28,12 +28,17 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.domain.notification.NotificationReliabilityManager
 import com.example.ui.MainViewModel
 import com.example.ui.theme.DisplayArabicFontFamily
 import com.example.ui.theme.HeaderBrandAmiriFontFamily
@@ -71,6 +76,32 @@ fun StudyTimerToolScreen(
     }
 
     var customMinutes by remember { mutableFloatStateOf(30f) }
+    var focusLockEnabled by remember { mutableStateOf(false) }
+    var showRestrictedOverlayDialog by remember { mutableStateOf(false) }
+    var pendingEnableFocusLock by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentView = LocalView.current
+
+    DisposableEffect(focusLockEnabled, timerState.isRunning) {
+        currentView.keepScreenOn = focusLockEnabled && timerState.isRunning
+        onDispose { currentView.keepScreenOn = false }
+    }
+
+    DisposableEffect(lifecycleOwner, pendingEnableFocusLock) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && pendingEnableFocusLock) {
+                if (NotificationReliabilityManager.canDrawOverlays(context)) {
+                    focusLockEnabled = true
+                    showRestrictedOverlayDialog = false
+                    pendingEnableFocusLock = false
+                    Toast.makeText(context, "تم تفعيل قفل التركيز بنجاح ✅", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val displaySeconds = if (timerState.mode.isCountUp) timerState.elapsedSeconds else timerState.remainingSeconds
     val formattedTime = remember(displaySeconds) {
@@ -452,7 +483,116 @@ fun StudyTimerToolScreen(
                         }
                     }
                 }
+
+                // On-demand Focus Lock Card (checks Overlay permission ONLY when toggled ON)
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        1.dp,
+                        if (focusLockEnabled) Color(0xFF0F62FE).copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF0F62FE).copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ScreenLockPortrait,
+                                    contentDescription = "قفل التركيز",
+                                    tint = Color(0xFF0F62FE),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "قفل التركيز (إبقاء الشاشة نشطة)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (focusLockEnabled) {
+                                        "مفعّل — حماية من التشتت وإغلاق الشاشة"
+                                    } else {
+                                        "اختياري — يتطلب إذن الظهور فوق التطبيقات فقط عند التفعيل"
+                                    },
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = focusLockEnabled,
+                            onCheckedChange = { wantEnable ->
+                                if (!wantEnable) {
+                                    focusLockEnabled = false
+                                    pendingEnableFocusLock = false
+                                } else if (NotificationReliabilityManager.canDrawOverlays(context)) {
+                                    focusLockEnabled = true
+                                    pendingEnableFocusLock = false
+                                } else {
+                                    pendingEnableFocusLock = true
+                                    showRestrictedOverlayDialog = true
+                                }
+                            },
+                            modifier = Modifier.testTag("timer_focus_lock_switch")
+                        )
+                    }
+                }
             }
+        }
+
+        if (showRestrictedOverlayDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    showRestrictedOverlayDialog = false
+                    pendingEnableFocusLock = false
+                },
+                title = { Text("قفل التركيز وإذن الظهور", fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        "لتشغيل قفل التركيز فوق التطبيقات على أندرويد 13+:\n" +
+                            "١. افتح معلومات التطبيق واختر الثلاث نقاط (⋮) ← السماح بالإعدادات المقيدة.\n" +
+                            "٢. فعّل خيار «إظهار فوق التطبيقات الأخرى»."
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { NotificationReliabilityManager.openAppSettings(context) }
+                    ) {
+                        Text("فتح معلومات التطبيق")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showRestrictedOverlayDialog = false
+                            pendingEnableFocusLock = false
+                            focusLockEnabled = false
+                        }
+                    ) {
+                        Text("متابعة بدون قفل الشاشة")
+                    }
+                }
+            )
         }
     }
 }

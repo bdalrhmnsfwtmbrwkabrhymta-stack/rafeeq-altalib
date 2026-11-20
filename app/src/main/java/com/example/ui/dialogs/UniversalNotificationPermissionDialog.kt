@@ -147,15 +147,12 @@ fun UniversalNotificationPermissionDialog(
         }
     }
 
-    val isAllFullyConfigured = isExactAlarmsGranted && isOverlayGranted && isPostNotificationsGranted && isBatteryIgnored && isDndGranted
+    val isAllFullyConfigured = isExactAlarmsGranted && isPostNotificationsGranted && isBatteryIgnored && isDndGranted
 
     fun grantNextMissingPermission() {
         when {
             !isExactAlarmsGranted -> {
                 NotificationReliabilityManager.openExactAlarmSettings(context)
-            }
-            !isOverlayGranted -> {
-                NotificationReliabilityManager.openOverlaySettings(context)
             }
             !isPostNotificationsGranted -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -260,11 +257,11 @@ fun UniversalNotificationPermissionDialog(
                         )
                     }
 
-                    // Item 2: System Alert Window / Overlay
+                    // Item 2: System Alert Window / Overlay (Optional — uses Android 13+ Restricted Guide)
                     item {
                         PermissionItemCard(
-                            title = "إذن نافذة تنبيه النظام لعرض نافذة الإنذار",
-                            subtitle = "الظهور أمام التطبيقات الأخرى وعرض شاشة الأذان عند الإيقاظ",
+                            title = "إذن نافذة تنبيه النظام (اختياري لوضع قفل التركيز)",
+                            subtitle = "الظهور أمام التطبيقات الأخرى وعرض شاشة التنبيه الكاملة",
                             icon = Icons.Default.Layers,
                             isGranted = isOverlayGranted,
                             onClick = {

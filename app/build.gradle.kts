@@ -15,9 +15,9 @@ android {
 
   defaultConfig {
     applicationId = "com.aistudio.rafiqaltalib.app.chvazy"
-    minSdk = 24
+    minSdk = 26
     targetSdk = 36
-    versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+    versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1) + 10
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -54,6 +54,7 @@ android {
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
   compileOptions {
+    isCoreLibraryDesugaringEnabled = true
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
@@ -75,9 +76,12 @@ android {
         "META-INF/DEPENDENCIES",
         "META-INF/LICENSE",
         "META-INF/LICENSE.txt",
+        "META-INF/LICENSE*",
         "META-INF/NOTICE",
         "META-INF/NOTICE.txt",
+        "META-INF/NOTICE*",
         "META-INF/*.kotlin_module",
+        "**/*.kotlin_module",
         "META-INF/INDEX.LIST",
         "META-INF/io.netty.versions.properties",
         "**/*.proto",
@@ -101,6 +105,7 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

@@ -75,6 +75,24 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                         playAudio = isFullAudio
                     )
 
+                    // Direct Activity launch paired with setFullScreenIntent guarantees instant popup across OEMs
+                    try {
+                        val directAdhanIntent = Intent(context, com.example.ui.prayer.AdhanFullScreenActivity::class.java).apply {
+                            addFlags(
+                                Intent.FLAG_ACTIVITY_NEW_TASK or
+                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            )
+                            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_PRAYER_NAME, prayerName)
+                            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
+                            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
+                            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_AUTO_PLAY, false)
+                        }
+                        context.startActivity(directAdhanIntent)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Direct startActivity blocked by background launch policy; relying on FullScreenIntent: ${e.message}")
+                    }
+
                     // Auto-reschedule next prayer alarms and start foreground service
                     PrayerAlarmScheduler.rescheduleAll(context)
                     PrayerForegroundService.start(context)

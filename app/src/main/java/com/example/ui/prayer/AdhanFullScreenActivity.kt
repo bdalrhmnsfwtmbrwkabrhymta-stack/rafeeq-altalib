@@ -53,8 +53,14 @@ class AdhanFullScreenActivity : ComponentActivity() {
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
         runCatching { enableEdgeToEdge() }
 
-        // Allow showing over lockscreen & turn screen on
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Allow showing over lockscreen & turn screen on across all Android versions (8.0 - 16+)
+        @Suppress("DEPRECATION")
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -62,11 +68,7 @@ class AdhanFullScreenActivity : ComponentActivity() {
             keyguardManager?.requestDismissKeyguard(this, null)
         } else {
             @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            )
+            window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
         }
 
         val scheduledTimeMs = intent.getLongExtra(EXTRA_SCHEDULED_TIME_MS, 0L)
@@ -95,6 +97,7 @@ class AdhanFullScreenActivity : ComponentActivity() {
             AdhanPlaybackService.stop(this)
             azanPlayer?.stopAudio()
             AppAudioManager.stopAllNonAdhanAudio(this)
+            com.example.domain.prayer.PrayerAlarmScheduler.rescheduleAll(this)
         }
 
         setContent {
@@ -170,6 +173,11 @@ class AdhanFullScreenActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {

@@ -4,8 +4,16 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,8 +32,11 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Mosque
+import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -132,11 +143,15 @@ fun RealisticAnimatedAdhanScreen(
         }
     }
 
-    val headerPrayerLabel = remember(prayerName, isSunrise) {
+    val headerPrayerLabel = remember(prayerName, isSunrise, normalizedPrayer) {
         when {
-            isSunrise -> "وقت الشروق والضحى"
-            prayerName.startsWith("أذان") || prayerName.startsWith("صلاة") -> prayerName
-            else -> "أذان $prayerName"
+            isSunrise -> "حَانَ الآنَ وَقْتُ الشُّرُوقِ وَالضُّحَى"
+            normalizedPrayer.contains("فجر") || normalizedPrayer.contains("fajr") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ الفَجْرِ"
+            normalizedPrayer.contains("ظهر") || normalizedPrayer.contains("dhuhr") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ الظُّهْرِ"
+            normalizedPrayer.contains("عصر") || normalizedPrayer.contains("asr") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ العَصْرِ"
+            normalizedPrayer.contains("مغرب") || normalizedPrayer.contains("maghrib") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ المَغْرِبِ"
+            normalizedPrayer.contains("عشاء") || normalizedPrayer.contains("isha") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ العِشَاءِ"
+            else -> "حَانَ الآنَ مَوْعِدُ أَذَانِ $prayerName"
         }
     }
 
@@ -248,6 +263,37 @@ fun RealisticAnimatedAdhanScreen(
                         onNearbyMosques = openNearbyMosquesDirectly,
                         onOpenQibla = onOpenQibla
                     )
+
+                    if (!isSunrise) {
+                        PostAdhanDuaGlassCard()
+                    }
+
+                    Button(
+                        onClick = onStopAdhan,
+                        shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AdhanWarmGold,
+                            contentColor = Color(0xFF0F172A)
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("adhan_stop_primary_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.StopCircle,
+                            contentDescription = "إيقاف الأذان",
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isSunrise) "تم / إيقاف التنبيه" else "تم / إيقاف الأذان",
+                            fontFamily = DisplayArabicFontFamily,
+                            fontSize = 15.5.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
 
                     SwipeToStopAdhanBar(
                         label = if (isSunrise) "اسحب لليسار لإيقاف التنبيه" else "اسحب لليسار لإيقاف الأذان",
@@ -387,7 +433,77 @@ private fun UnifiedAdhanGlassHeaderCard(
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(2.dp))
+                AdhanAudioWaveVisualizer()
             }
+        }
+    }
+}
+
+@Composable
+private fun AdhanAudioWaveVisualizer() {
+    val transition = rememberInfiniteTransition(label = "adhanSoundWave")
+    val fractions = (0 until 11).map { index ->
+        transition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = 480 + (index % 4) * 140,
+                    easing = FastOutSlowInEasing
+                ),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "waveBar$index"
+        )
+    }
+
+    Row(
+        modifier = Modifier.height(22.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        fractions.forEach { state ->
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height((20f * state.value).dp)
+                    .background(AdhanWarmGold.copy(alpha = 0.92f), RoundedCornerShape(50))
+            )
+        }
+    }
+}
+
+@Composable
+private fun PostAdhanDuaGlassCard() {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = AdhanDarkGlassSurface,
+        border = BorderStroke(1.dp, AdhanWarmGold.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 520.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "دعاء ما بعد الأذان",
+                fontFamily = DisplayArabicFontFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = AdhanWarmGold
+            )
+            Text(
+                text = "«اللَّهُمَّ رَبَّ هَذِهِ الدَّعْوَةِ التَّامَّةِ وَالصَّلَاةِ الْقَائِمَةِ، آتِ مُحَمَّداً الْوَسِيلَةَ وَالْفَضِيلَةَ، وَابْعَثْهُ مَقَاماً مَحْمُوداً الَّذِي وَعَدْتَهُ»",
+                fontFamily = HeaderBrandAmiriFontFamily,
+                fontSize = 14.sp,
+                lineHeight = 22.sp,
+                color = Color.White.copy(alpha = 0.95f),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

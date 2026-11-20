@@ -79,6 +79,24 @@ class AdhanPlaybackService : Service() {
             startAudioPlayback(muezzinVoice, rawResId)
         }
 
+        // Launch full-screen Adhan screen directly alongside Notification FullScreenIntent
+        try {
+            val directIntent = Intent(this, AdhanFullScreenActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+                putExtra(AdhanFullScreenActivity.EXTRA_PRAYER_NAME, prayerName)
+                putExtra(AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
+                putExtra(AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
+                putExtra(AdhanFullScreenActivity.EXTRA_AUTO_PLAY, false)
+            }
+            startActivity(directIntent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Service startActivity fallback handled by FullScreenIntent: ${e.message}")
+        }
+
         return START_NOT_STICKY
     }
 
