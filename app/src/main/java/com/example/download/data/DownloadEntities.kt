@@ -45,6 +45,8 @@ data class DownloadEntity(
     val referer: String? = null,
     val headersJson: String? = null,
     val status: DownloadStatus = DownloadStatus.QUEUED,
+    val engineState: String = "QUEUED",
+    val errorCode: String? = null,
     val errorFriendlyMessage: String? = null,
     val diagnosticLog: String? = null,
     val durationSeconds: Int = 0,

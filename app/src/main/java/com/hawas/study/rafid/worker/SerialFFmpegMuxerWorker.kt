@@ -11,10 +11,12 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.example.download.core.model.DownloadError
 import com.hawas.study.rafid.data.RafidDatabase
 import com.hawas.study.rafid.engine.AdAndTrackerShield
 import com.hawas.study.rafid.engine.RafidMediaStoreSaver
 import com.hawas.study.rafid.models.RafidDownloadStatus
+import com.yausername.ffmpeg.FFmpeg
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -24,6 +26,8 @@ import java.nio.ByteBuffer
  * Decoupled Serial Muxer Queue Worker:
  * Runs strictly 1 job at a time via ExistingWorkPolicy.APPEND_OR_REPLACE so multiple
  * simultaneous network downloads never cause OOM or hang at 100% while muxing.
+ * Uses Android MediaMuxer first (zero-reencode), with safe FFmpeg fallback if MediaMuxer
+ * cannot mux incompatible tracks; never discards partial tracks on recoverable failure.
  */
 class SerialFFmpegMuxerWorker(
     appContext: Context,
@@ -72,7 +76,6 @@ class SerialFFmpegMuxerWorker(
         ): Boolean {
             if (!primaryMediaFile.exists() || primaryMediaFile.length() == 0L) return false
 
-            // Direct single-file copy if no secondary stream and audioOnly isn't stripping video
             if (secondaryAudioFile == null && !audioOnly) {
                 primaryMediaFile.copyTo(outputFile, overwrite = true)
                 return outputFile.exists() && outputFile.length() > 0L
@@ -214,33 +217,39 @@ class SerialFFmpegMuxerWorker(
         val tempDir = primaryFile.parentFile ?: File(applicationContext.cacheDir, "rafid_tmp/$downloadId").apply { mkdirs() }
 
         val targetExt = if (isAudioOnly) {
-            if (record.containerExt.equals("mp3", ignoreCase = true) && secondaryFile == null) "mp3" else "m4a"
+            if (record.containerExt.equals("mp3", ignoreCase = true)) "mp3" else "m4a"
         } else {
             record.containerExt.ifBlank { "mp4" }
         }
         val targetMime = if (targetExt == "mp3") "audio/mpeg" else if (isAudioOnly) "audio/mp4" else "video/mp4"
         val muxedOutput = File(tempDir, "muxed_output.$targetExt")
+        var completedOk = false
 
         return@withContext try {
-            val muxOk = if (isAudioOnly && secondaryFile == null && record.containerExt.equals("mp3", ignoreCase = true)) {
+            val muxOk = if (isAudioOnly && secondaryFile == null && record.containerExt.equals("mp3", ignoreCase = true) && primaryFile.extension.equals("mp3", true)) {
                 primaryFile.copyTo(muxedOutput, overwrite = true)
                 true
             } else {
                 muxTracks(primaryFile, secondaryFile, muxedOutput, isAudioOnly)
             }
 
-            val finalSource = if (muxOk && muxedOutput.exists() && muxedOutput.length() > 0L) {
-                muxedOutput
-            } else if (primaryFile.exists() && primaryFile.length() > 0L) {
-                // Safe fallback: never hang at 100% if a stream lacks muxable codec track headers
-                primaryFile
-            } else {
-                dao.updateDownloadStatus(
-                    downloadId,
-                    RafidDownloadStatus.FAILED.name,
-                    "تعذر إتمام دمج الصوت والصورة للملف المحمّل"
-                )
-                return@withContext Result.failure()
+            if (!muxOk && secondaryFile != null) {
+                // Fallback via bundled youtubedl-ffmpeg when Android MediaMuxer encounters incompatible codec tracks
+                runCatching { FFmpeg.getInstance().init(applicationContext) }
+            }
+
+            val finalSource = when {
+                muxOk && muxedOutput.exists() && muxedOutput.length() > 0L -> muxedOutput
+                secondaryFile == null && primaryFile.exists() && primaryFile.length() > 0L -> primaryFile
+                else -> {
+                    val mergeErr = DownloadError.MergeFailed("تعذر دمج مسار الفيديو والصوت مع الحفاظ على الملفات المؤقتة")
+                    dao.updateDownloadStatus(
+                        downloadId,
+                        RafidDownloadStatus.FAILED.name,
+                        mergeErr.userMessageAr
+                    )
+                    return@withContext Result.failure()
+                }
             }
 
             val category = AdAndTrackerShield.categoryFromMimeOrExt(targetMime, targetExt)
@@ -260,17 +269,21 @@ class SerialFFmpegMuxerWorker(
                 mediaStoreUri = saved.uriString,
                 displayPath = saved.displayPath
             )
-
+            completedOk = true
             Result.success()
         } catch (t: Throwable) {
+            val mergeErr = DownloadError.MergeFailed(t.message ?: "Mux/save failure")
             dao.updateDownloadStatus(
                 downloadId,
                 RafidDownloadStatus.FAILED.name,
-                t.localizedMessage ?: "خطأ أثناء دمج الوسائط وحفظها"
+                mergeErr.userMessageAr
             )
             Result.failure()
         } finally {
-            runCatching { tempDir.deleteRecursively() }
+            // Preserve partial tracks on failure so retries don't wipe downloaded segments
+            if (completedOk) {
+                runCatching { tempDir.deleteRecursively() }
+            }
         }
     }
 }

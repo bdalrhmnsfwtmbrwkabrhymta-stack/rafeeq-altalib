@@ -45,7 +45,7 @@ interface DownloadDao {
     suspend fun upsertDownload(entity: DownloadEntity)
 
     @Query(
-        "UPDATE smart_downloads SET status = :status, activeThreads = :threads, " +
+        "UPDATE smart_downloads SET status = :status, engineState = :engineState, errorCode = :errorCode, activeThreads = :threads, " +
             "errorFriendlyMessage = :errorMsg, diagnosticLog = :diagnostic, updatedAt = :updatedAt WHERE id = :id"
     )
     suspend fun updateStatus(
@@ -54,6 +54,18 @@ interface DownloadDao {
         threads: Int = 0,
         errorMsg: String? = null,
         diagnostic: String? = null,
+        updatedAt: Long = System.currentTimeMillis(),
+        engineState: String = status.name,
+        errorCode: String? = null
+    )
+
+    @Query(
+        "UPDATE smart_downloads SET engineState = :engineState, errorCode = :errorCode, updatedAt = :updatedAt WHERE id = :id"
+    )
+    suspend fun updateEngineState(
+        id: String,
+        engineState: String,
+        errorCode: String? = null,
         updatedAt: Long = System.currentTimeMillis()
     )
 
@@ -83,7 +95,7 @@ interface DownloadDao {
     )
 
     @Query(
-        "UPDATE smart_downloads SET status = 'COMPLETED', downloadedBytes = :finalBytes, totalBytes = :finalBytes, " +
+        "UPDATE smart_downloads SET status = 'COMPLETED', engineState = 'COMPLETED', errorCode = NULL, downloadedBytes = :finalBytes, totalBytes = :finalBytes, " +
             "outputUri = :outputUri, outputDisplayPath = :displayPath, activeThreads = 0, " +
             "errorFriendlyMessage = NULL, completedAt = :completedAt, updatedAt = :completedAt WHERE id = :id"
     )

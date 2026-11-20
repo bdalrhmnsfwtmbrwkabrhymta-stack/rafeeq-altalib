@@ -44,7 +44,9 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val dao = RafidDatabase.getInstance(appContext).rafidDao()
     private val prefs = RafidPreferencesRepository(appContext)
-    private val extractor = UniversalMediaExtractor()
+    private val extractor = UniversalMediaExtractor(
+        ytDlpGateway = com.example.download.core.resolver.AndroidYtDlpGateway(appContext)
+    )
 
     val downloads: StateFlow<List<RafidDownloadEntity>> = dao.observeAllDownloads()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -110,18 +112,18 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                 }.getOrNull()
             }
             val result = extractor.extract(cleanUrl, browserCookies, userAgent)
-            val metadata = result.getOrElse {
-                withContext(Dispatchers.IO) {
-                    extractor.buildResilientFallbackMetadata(
-                        originalUrl = cleanUrl,
-                        resolvedUrl = cleanUrl,
-                        platform = AdAndTrackerShield.detectPlatform(cleanUrl),
-                        cookiesHeader = browserCookies,
-                        userAgent = userAgent
+            _extractionState.value = result.fold(
+                onSuccess = { metadata ->
+                    ExtractionUiState.Success(metadata)
+                },
+                onFailure = { err ->
+                    val mapped = com.example.download.core.model.DownloadErrorMapper.fromThrowable(err)
+                    ExtractionUiState.Error(
+                        url = cleanUrl,
+                        message = mapped.userMessageAr
                     )
                 }
-            }
-            _extractionState.value = ExtractionUiState.Success(metadata)
+            )
         }
     }
 

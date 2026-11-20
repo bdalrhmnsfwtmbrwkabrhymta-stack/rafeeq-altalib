@@ -246,7 +246,7 @@ class RafidEngineAndUiTest {
     }
 
     @Test
-    fun encryptedOrProtectedLinksReturnEightVideoQualitiesAndAudioOptionsWithoutErrors() = runBlocking {
+    fun protectedOr403LinksReturnHonestFailureInsteadOfFakeQualities() = runBlocking {
         val failingClient = OkHttpClient.Builder()
             .addInterceptor { chain ->
                 Response.Builder()
@@ -261,19 +261,10 @@ class RafidEngineAndUiTest {
         val extractor = UniversalMediaExtractor(failingClient)
 
         val ytRes = extractor.extract("https://youtu.be/dQw4w9WgXcQ")
-        assertTrue(ytRes.isSuccess)
-        val ytMeta = ytRes.getOrThrow()
-        assertTrue(ytMeta.title.isNotBlank())
-        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", ytMeta.thumbnailUrl)
-        val videoQualities = ytMeta.formats.filter { !it.isAudioOnly }.map { it.label }
-        assertEquals(listOf("2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"), videoQualities)
-        assertEquals("الأوضح", ytMeta.formats.first { it.label == "2160p" }.badgeTagAr)
-        assertEquals("أقل استهلاكاً للبيانات", ytMeta.formats.first { it.label == "144p" }.badgeTagAr)
-        assertTrue(ytMeta.formats.any { it.isAudioOnly })
+        assertTrue("HTTP 403 without streams must report Failure honestly", ytRes.isFailure)
 
         val pinRes = extractor.extract("https://www.pinterest.com/pin/123456789/")
-        assertTrue(pinRes.isSuccess)
-        assertEquals(8, pinRes.getOrThrow().formats.count { !it.isAudioOnly })
+        assertTrue("HTTP 403 on Pinterest must report Failure honestly", pinRes.isFailure)
     }
 
     @Test

@@ -1,6 +1,8 @@
 package com.example.download.engine
 
 import android.content.Context
+import com.example.download.core.model.DownloadEngineException
+import com.example.download.core.model.DownloadError
 import com.example.download.data.DownloadEntity
 import com.example.download.data.DownloadSettingsRepo
 import com.example.download.data.LiveProgressSnapshot
@@ -8,10 +10,11 @@ import com.example.download.extract.LinkExtractor
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.IOException
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 class YtDlpRunner(
     private val context: Context,
@@ -23,7 +26,11 @@ class YtDlpRunner(
         onMerging: suspend () -> Unit,
         onProgress: (downloadedBytes: Long, totalBytes: Long, snapshot: LiveProgressSnapshot) -> Unit
     ): File = withContext(Dispatchers.IO) {
-        LinkExtractor.ensureInitialized(context)
+        if (!LinkExtractor.ensureInitialized(context)) {
+            throw DownloadEngineException(
+                DownloadError.EngineUpdateFailed("yt-dlp/FFmpeg engine unavailable")
+            )
+        }
 
         val tempBase = StorageHelper.prepareYtDlpTempBase(context, entity.id)
         val outputTemplate = "${tempBase.absolutePath}.%(ext)s"
@@ -34,7 +41,7 @@ class YtDlpRunner(
             addOption("--continue")
             addOption("--newline")
             addOption("--no-mtime")
-            addOption("--concurrent-fragments", "16")
+            addOption("--concurrent-fragments", "8")
             addOption("--retries", "10")
             addOption("--fragment-retries", "10")
             addOption("-o", outputTemplate)
@@ -66,46 +73,56 @@ class YtDlpRunner(
 
         val processId = processIdFor(entity.id)
         var lastUiEmitMs = 0L
-        var triggeredMerge = false
+        val triggeredMerge = AtomicBoolean(false)
         var knownTotal = entity.totalBytes
 
-        YoutubeDL.getInstance().execute(request, processId) { progress, etaInSeconds, line ->
-            val now = System.currentTimeMillis()
-            val cleanLine = line ?: ""
-            if (!triggeredMerge && (cleanLine.contains("[Merger]", true) ||
-                    cleanLine.contains("[ExtractAudio]", true) ||
-                    cleanLine.contains("Fixing", true))
-            ) {
-                triggeredMerge = true
-            }
+        try {
+            YoutubeDL.getInstance().execute(request, processId) { progress, etaInSeconds, line ->
+                val now = System.currentTimeMillis()
+                val cleanLine = line ?: ""
+                if ((cleanLine.contains("[Merger]", true) ||
+                        cleanLine.contains("[ExtractAudio]", true) ||
+                        cleanLine.contains("[FixupM3u8]", true) ||
+                        cleanLine.contains("Fixing", true)) &&
+                    triggeredMerge.compareAndSet(false, true)
+                ) {
+                    runCatching {
+                        runBlocking { onMerging() }
+                    }
+                }
 
-            val parsedSpeed = parseSpeedBytesPerSec(cleanLine)
-            val parsedTotal = parseTotalBytes(cleanLine)?.takeIf { it > 0L } ?: knownTotal
-            if (parsedTotal > 0L) knownTotal = parsedTotal
+                val parsedSpeed = parseSpeedBytesPerSec(cleanLine)
+                val parsedTotal = parseTotalBytes(cleanLine)?.takeIf { it > 0L } ?: knownTotal
+                if (parsedTotal > 0L) knownTotal = parsedTotal
 
-            val clampedPercent = progress.coerceIn(0f, 100f)
-            val estDownloaded = if (knownTotal > 0L) {
-                ((clampedPercent / 100f) * knownTotal).toLong()
-            } else {
-                (clampedPercent * 1024f).toLong()
-            }
+                val clampedPercent = progress.coerceIn(0f, 100f)
+                val estDownloaded = if (knownTotal > 0L) {
+                    ((clampedPercent / 100f) * knownTotal).toLong()
+                } else {
+                    (clampedPercent * 1024f).toLong()
+                }
 
-            if (now - lastUiEmitMs >= 500L) {
-                lastUiEmitMs = now
-                onProgress(
-                    estDownloaded,
-                    knownTotal,
-                    LiveProgressSnapshot(
-                        speedBytesPerSec = parsedSpeed,
-                        etaSeconds = etaInSeconds.coerceAtLeast(-1L),
-                        activeThreads = 16
+                if (now - lastUiEmitMs >= 450L) {
+                    lastUiEmitMs = now
+                    onProgress(
+                        estDownloaded,
+                        knownTotal,
+                        LiveProgressSnapshot(
+                            speedBytesPerSec = parsedSpeed,
+                            etaSeconds = etaInSeconds.coerceAtLeast(-1L),
+                            activeThreads = if (triggeredMerge.get()) 1 else 8
+                        )
                     )
+                }
+            }
+        } catch (t: Throwable) {
+            if (triggeredMerge.get()) {
+                throw DownloadEngineException(
+                    DownloadError.MergeFailed("FFmpeg merge interrupted while keeping partial files intact: ${t.message}"),
+                    t
                 )
             }
-        }
-
-        if (triggeredMerge) {
-            onMerging()
+            throw t
         }
 
         val parentDir = tempBase.parentFile ?: StorageHelper.getTempPartDir(context)
@@ -117,7 +134,9 @@ class YtDlpRunner(
                     it.length() > 0L
             }
             ?.maxByOrNull { it.lastModified() }
-            ?: throw IOException("لم يتم العثور على الملف النهائي بعد الدمج")
+            ?: throw DownloadEngineException(
+                DownloadError.MergeFailed("لم يتم العثور على الملف النهائي بعد الدمج (تم الحفاظ على الأجزاء المؤقتة)")
+            )
 
         produced
     }
