@@ -244,7 +244,7 @@ object AiChatStudyHelper {
 
             val uri = FileProvider.getUriForFile(
                 context,
-                "${context.packageName}.provider",
+                "${context.packageName}.fileprovider",
                 outputFile
             )
 

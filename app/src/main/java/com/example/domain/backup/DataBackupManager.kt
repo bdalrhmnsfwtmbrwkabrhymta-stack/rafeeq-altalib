@@ -179,7 +179,7 @@ object DataBackupManager {
         try {
             val uri: Uri = FileProvider.getUriForFile(
                 context,
-                "${context.packageName}.provider",
+                "${context.packageName}.fileprovider",
                 file
             )
 

@@ -182,7 +182,7 @@ object PdfEngineHelper {
         }
 
     fun shareFile(context: Context, file: File, mimeType: String, chooserTitle: String) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -199,7 +199,7 @@ object PdfEngineHelper {
         }
         val uris = ArrayList<Uri>(files.size)
         files.forEach { f ->
-            uris.add(FileProvider.getUriForFile(context, "${context.packageName}.provider", f))
+            uris.add(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f))
         }
         val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
             type = mimeType

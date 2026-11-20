@@ -17,7 +17,7 @@ android {
     applicationId = "com.aistudio.rafiqaltalib.app.chvazy"
     minSdk = 26
     targetSdk = 36
-    versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1) + 10
+    versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1) + 100
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -70,9 +70,16 @@ android {
   packaging {
     jniLibs {
       useLegacyPackaging = true
+      excludes += setOf(
+        "**/x86/**",
+        "**/x86_64/**",
+        "**/mips/**",
+        "**/mips64/**"
+      )
     }
     resources {
       excludes += setOf(
+        "/META-INF/{AL2.0,LGPL2.1}",
         "META-INF/DEPENDENCIES",
         "META-INF/LICENSE",
         "META-INF/LICENSE.txt",

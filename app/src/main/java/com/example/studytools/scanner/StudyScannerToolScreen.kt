@@ -175,7 +175,7 @@ fun StudyScannerToolScreen(
         try {
             val cacheDir = File(context.cacheDir, "scanner_captures").apply { mkdirs() }
             val file = File(cacheDir, "scan_${System.currentTimeMillis()}.jpg")
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             pendingCameraUri = uri
             takePictureLauncher.launch(uri)
         } catch (t: Throwable) {
@@ -673,7 +673,7 @@ private fun exportPagesAsPdf(context: Context, pages: List<ScannedPage>): File? 
 
 private fun shareOrOpenPdfFile(context: Context, file: File) {
     try {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/pdf"
             putExtra(Intent.EXTRA_STREAM, uri)
