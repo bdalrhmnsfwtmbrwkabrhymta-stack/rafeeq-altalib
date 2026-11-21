@@ -1,12 +1,12 @@
 package com.example.download.core.updater
 
 import com.example.download.core.model.DownloadError
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -34,31 +34,51 @@ data class EngineUpdateManifest(
     val sha256: String,
     val sizeBytes: Long,
     val keyId: String,
-    val signatureBase64: String
+    val signatureBase64: String,
+    val component: String = "yt-dlp"
 ) {
     fun canonicalPayload(): String =
         "$version|$versionCode|$minAndroidApi|${supportedAbis.sorted().joinToString(",")}|$artifactUrl|${sha256.lowercase()}|$sizeBytes|$keyId"
 
     companion object {
+        private val moshi: Moshi by lazy { Moshi.Builder().build() }
+        private val mapAdapter by lazy {
+            moshi.adapter<Map<String, Any?>>(
+                Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
+            )
+        }
+
         fun fromJson(json: String): EngineUpdateManifest {
-            val obj = JSONObject(json)
-            val abisArr = obj.optJSONArray("supportedAbis") ?: JSONArray()
-            val abis = buildList {
-                for (i in 0 until abisArr.length()) {
-                    val v = abisArr.optString(i).trim()
-                    if (v.isNotEmpty()) add(v)
-                }
-            }
+            val obj = mapAdapter.fromJson(json) ?: error("Invalid manifest JSON")
+            val version = (obj["version"] as? String)?.takeIf { it.isNotBlank() } ?: error("Missing version")
+            val versionCode = (obj["versionCode"] as? Number)?.toLong()
+                ?: (obj["versionCode"] as? String)?.toLongOrNull()
+                ?: error("Missing versionCode")
+            val minAndroidApi = (obj["minAndroidApi"] as? Number)?.toInt()
+                ?: (obj["minAndroidApi"] as? String)?.toIntOrNull()
+                ?: 26
+            val abis = (obj["supportedAbis"] as? List<*>)
+                ?.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+                ?: emptyList()
+            val artifactUrl = (obj["artifactUrl"] as? String)?.takeIf { it.isNotBlank() } ?: error("Missing artifactUrl")
+            val sha256 = (obj["sha256"] as? String)?.lowercase()?.takeIf { it.isNotBlank() } ?: error("Missing sha256")
+            val sizeBytes = (obj["sizeBytes"] as? Number)?.toLong()
+                ?: (obj["sizeBytes"] as? String)?.toLongOrNull()
+                ?: error("Missing sizeBytes")
+            val keyId = (obj["keyId"] as? String)?.takeIf { it.isNotBlank() } ?: error("Missing keyId")
+            val signatureBase64 = (obj["signatureBase64"] as? String)?.takeIf { it.isNotBlank() } ?: error("Missing signatureBase64")
+            val component = (obj["component"] as? String)?.trim()?.ifBlank { "yt-dlp" } ?: "yt-dlp"
             return EngineUpdateManifest(
-                version = obj.getString("version"),
-                versionCode = obj.getLong("versionCode"),
-                minAndroidApi = obj.optInt("minAndroidApi", 26),
+                version = version,
+                versionCode = versionCode,
+                minAndroidApi = minAndroidApi,
                 supportedAbis = abis,
-                artifactUrl = obj.getString("artifactUrl"),
-                sha256 = obj.getString("sha256").lowercase(),
-                sizeBytes = obj.getLong("sizeBytes"),
-                keyId = obj.getString("keyId"),
-                signatureBase64 = obj.getString("signatureBase64")
+                artifactUrl = artifactUrl,
+                sha256 = sha256,
+                sizeBytes = sizeBytes,
+                keyId = keyId,
+                signatureBase64 = signatureBase64,
+                component = component
             )
         }
     }

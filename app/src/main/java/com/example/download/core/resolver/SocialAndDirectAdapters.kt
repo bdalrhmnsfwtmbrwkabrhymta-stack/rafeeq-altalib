@@ -107,6 +107,7 @@ class FacebookProviderAdapter(
             )
         }
 
+        val mergedCookies = ResolverHttpUtils.mergeCookieStrings(request.cookiesHeader, resp.setCookiesHeader)
         if (resp.statusCode == 400 || resp.statusCode == 401 || resp.statusCode == 403) {
             diag.appendLine("[fb-http] HTTP ${resp.statusCode} at ${resp.finalUrl}")
             // Try mbasic fallback once before failing if HTTP 400/403 on www
@@ -117,11 +118,12 @@ class FacebookProviderAdapter(
                 val mbasicResp = ResolverHttpUtils.fetchTextWithStatus(
                     client = httpClient,
                     url = mbasicUrl,
-                    cookiesHeader = request.cookiesHeader,
+                    cookiesHeader = mergedCookies,
                     userAgent = ResolverHttpUtils.MOBILE_UA
                 )
                 if (mbasicResp != null && mbasicResp.statusCode < 400) {
-                    val parsed = parseFacebookHtml(request.rawUrl, mbasicResp.finalUrl, mbasicResp.body, request.cookiesHeader)
+                    val mbasicCookies = ResolverHttpUtils.mergeCookieStrings(mergedCookies, mbasicResp.setCookiesHeader)
+                    val parsed = parseFacebookHtml(request.rawUrl, mbasicResp.finalUrl, mbasicResp.body, mbasicCookies)
                     if (parsed is ResolvedMediaResult.SingleMedia) return parsed
                 }
             }
@@ -140,7 +142,7 @@ class FacebookProviderAdapter(
             )
         }
 
-        return parseFacebookHtml(request.rawUrl, resp.finalUrl, resp.body, request.cookiesHeader, diag)
+        return parseFacebookHtml(request.rawUrl, resp.finalUrl, resp.body, mergedCookies, diag)
     }
 
     fun parseFacebookHtml(
@@ -283,7 +285,8 @@ class InstagramProviderAdapter(
             )
         }
 
-        return parseInstagramHtml(request.rawUrl, resp.finalUrl, resp.body, request.cookiesHeader, diag)
+        val mergedCookies = ResolverHttpUtils.mergeCookieStrings(request.cookiesHeader, resp.setCookiesHeader)
+        return parseInstagramHtml(request.rawUrl, resp.finalUrl, resp.body, mergedCookies, diag)
     }
 
     fun parseInstagramHtml(
@@ -293,17 +296,44 @@ class InstagramProviderAdapter(
         cookiesHeader: String? = null,
         diag: StringBuilder = StringBuilder()
     ): ResolvedMediaResult {
-        val videoUrls = LinkedHashSet<String>()
-        ResolverHttpUtils.extractMetaContent(html, "og:video:secure_url")?.let { videoUrls.add(it) }
-        ResolverHttpUtils.extractMetaContent(html, "og:video")?.let { videoUrls.add(it) }
-        Regex(""""video_url"\s*:\s*"([^"]+)"""").findAll(html).forEach {
-            videoUrls.add(ResolverHttpUtils.decodeHtmlEntities(it.groupValues[1]))
-        }
-        Regex(""""url"\s*:\s*"(https:[^"]*cdninstagram[^"]*\.mp4[^"]*)"""").findAll(html).forEach {
-            videoUrls.add(ResolverHttpUtils.decodeHtmlEntities(it.groupValues[1]))
+        data class IgVideoCandidate(val url: String, val height: Int, val width: Int)
+
+        val candidatesByUrl = linkedMapOf<String, IgVideoCandidate>()
+        fun addCandidate(rawUrl: String?, width: Int = 0, height: Int = 0) {
+            val cleaned = rawUrl?.let(ResolverHttpUtils::decodeHtmlEntities)?.trim() ?: return
+            if (!cleaned.startsWith("http", true)) return
+            val existing = candidatesByUrl[cleaned]
+            val effH = if (width > 0 && height > 0) minOf(width, height) else height.coerceAtLeast(0)
+            if (existing == null || effH > existing.height) {
+                candidatesByUrl[cleaned] = IgVideoCandidate(cleaned, effH, width)
+            }
         }
 
-        val cleanVideos = videoUrls.filter { it.startsWith("http", true) }
+        // Parse real video_versions JSON entries so all actual qualities are preserved instead of only highest
+        Regex(""""video_versions"\s*:\s*\[(.*?)\]""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            .findAll(html)
+            .forEach { block ->
+                val arr = runCatching { JSONArray("[${block.groupValues[1]}]") }.getOrNull() ?: return@forEach
+                for (i in 0 until arr.length()) {
+                    val v = arr.optJSONObject(i) ?: continue
+                    addCandidate(
+                        rawUrl = v.optString("url"),
+                        width = v.optInt("width", 0),
+                        height = v.optInt("height", 0)
+                    )
+                }
+            }
+
+        ResolverHttpUtils.extractMetaContent(html, "og:video:secure_url")?.let { addCandidate(it) }
+        ResolverHttpUtils.extractMetaContent(html, "og:video")?.let { addCandidate(it) }
+        Regex(""""video_url"\s*:\s*"([^"]+)"""").findAll(html).forEach {
+            addCandidate(it.groupValues[1])
+        }
+        Regex(""""url"\s*:\s*"(https:[^"]*cdninstagram[^"]*\.mp4[^"]*)"""").findAll(html).forEach {
+            addCandidate(it.groupValues[1])
+        }
+
+        val cleanVideos = candidatesByUrl.values.toList()
         if (cleanVideos.isEmpty()) {
             val lower = html.lowercase(Locale.ROOT)
             val needsAuth = lower.contains("loginandsignuppage") ||
@@ -321,23 +351,33 @@ class InstagramProviderAdapter(
 
         val headers = buildMap {
             put("Referer", "https://www.instagram.com/")
+            put("User-Agent", ResolverHttpUtils.DESKTOP_UA)
             if (!cookiesHeader.isNullOrBlank()) put("Cookie", cookiesHeader)
         }
 
-        val formats = cleanVideos.mapIndexed { idx, vUrl ->
-            val len = ResolverHttpUtils.probeContentLength(httpClient, vUrl, headers)
+        val seenRes = hashSetOf<Int>()
+        val sortedCandidates = cleanVideos.sortedByDescending { it.height }
+        val formats = sortedCandidates.mapIndexedNotNull { idx, cand ->
+            val len = ResolverHttpUtils.probeContentLength(httpClient, cand.url, headers)
+            val effH = cand.height
+            // De-duplicate exact same real resolution only; preserve distinct qualities & extensions
+            if (effH > 0 && !seenRes.add(effH)) return@mapIndexedNotNull null
             ResolvedMediaFormat(
-                id = "ig_$idx",
-                labelAr = if (idx == 0) "1080p • الجودة الأصلية" else "720p • بديلة",
-                labelEn = if (idx == 0) "Original MP4" else "Alt MP4",
+                id = if (effH > 0) "${effH}p" else "ig_$idx",
+                labelAr = if (effH > 0) qualityLabelForHeight(effH) else "الجودة المتاحة • MP4",
+                labelEn = if (effH > 0) "${effH}p" else "Original MP4",
                 subLabelAr = "إنستغرام مباشر • MP4",
                 containerExt = "mp4",
                 mimeType = "video/mp4",
-                resolutionHeight = if (idx == 0) 1080 else 720,
-                streamUrl = vUrl,
+                resolutionHeight = effH,
+                width = cand.width,
+                streamUrl = cand.url,
                 exactBytes = len,
                 isApproximateBytes = len <= 0L,
-                headers = headers
+                headers = headers,
+                badgeAr = if (effH >= 1080) "Full HD" else if (effH >= 720) "HD" else null,
+                hasVideo = true,
+                hasAudio = true
             )
         }
 
@@ -381,19 +421,21 @@ class TikTokProviderAdapter(
         val diag = StringBuilder()
 
         if (ytDlpGateway.isAvailable()) {
+            // Leave extraArgs empty so AndroidYtDlpGateway executes its default + multi-hostname fallback cascade cleanly
             ytDlpGateway.extractSingle(
                 url = canonicalUrl,
-                cookiesFile = request.cookiesFile,
-                extraArgs = mapOf("extractor-args" to "tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com")
+                cookiesFile = request.cookiesFile
             ).onSuccess { info ->
                 if (info.formats.isNotEmpty()) {
-                    return buildPlatformMediaFromYtDlp(
+                    val candidateMedia = buildPlatformMediaFromYtDlp(
                         originalUrl = request.rawUrl,
                         canonicalUrl = canonicalUrl,
                         platform = MediaPlatform.TIKTOK,
                         info = info,
                         cookiesHeader = request.cookiesHeader
                     )
+                    val verified = filterPlayableFormatsOrFail(candidateMedia, diag)
+                    if (verified is ResolvedMediaResult.SingleMedia) return verified
                 }
             }.onFailure { diag.appendLine("[yt-dlp-tt] ${it.message}") }
         }
@@ -415,7 +457,77 @@ class TikTokProviderAdapter(
             )
         }
 
-        return parseTikTokHtml(request.rawUrl, resp.finalUrl, resp.body, request.cookiesHeader, diag)
+        val mergedCookies = ResolverHttpUtils.mergeCookieStrings(request.cookiesHeader, resp.setCookiesHeader)
+        val parsed = parseTikTokHtml(request.rawUrl, resp.finalUrl, resp.body, mergedCookies, diag)
+        return if (parsed is ResolvedMediaResult.SingleMedia) {
+            filterPlayableFormatsOrFail(parsed, diag)
+        } else {
+            parsed
+        }
+    }
+
+    private fun filterPlayableFormatsOrFail(
+        media: ResolvedMediaResult.SingleMedia,
+        diag: StringBuilder
+    ): ResolvedMediaResult {
+        var sawHtmlResponse = false
+        var lastStatusCode = 0
+        val verifiedFormats = mutableListOf<ResolvedMediaFormat>()
+
+        for (fmt in media.formats) {
+            if (fmt.isHlsOrDash || ResolverHttpUtils.isManifestUrl(fmt.streamUrl)) {
+                verifiedFormats += fmt
+                continue
+            }
+            val mergedHeaders = buildMap {
+                putAll(media.headers)
+                putAll(fmt.headers)
+                if (!media.cookiesHeader.isNullOrBlank() && keys.none { it.equals("Cookie", true) }) {
+                    put("Cookie", media.cookiesHeader)
+                }
+            }
+            val probe = ResolverHttpUtils.probeStreamMedia(httpClient, fmt.streamUrl, mergedHeaders)
+            if (!probe.reachable) {
+                // Offline / no direct network reachability in probe -> preserve candidate for downstream engine
+                verifiedFormats += fmt
+            } else if (probe.isHtmlPage) {
+                sawHtmlResponse = true
+                diag.appendLine("[tt-probe] Rejected HTML response for ${fmt.id} (${probe.contentType})")
+            } else if (probe.statusCode >= 400) {
+                lastStatusCode = probe.statusCode
+                diag.appendLine("[tt-probe] Rejected HTTP ${probe.statusCode} for ${fmt.id}")
+            } else {
+                val updatedBytes = if (fmt.exactBytes <= 0L && probe.contentLength > 0L) probe.contentLength else fmt.exactBytes
+                verifiedFormats += fmt.copy(
+                    exactBytes = updatedBytes,
+                    isApproximateBytes = updatedBytes <= 0L,
+                    headers = mergedHeaders
+                )
+            }
+        }
+
+        if (verifiedFormats.isNotEmpty()) {
+            return media.copy(formats = verifiedFormats)
+        }
+        return if (sawHtmlResponse) {
+            ResolvedMediaResult.Failure(
+                DownloadError.UnsupportedMedia(
+                    mediaType = "text/html",
+                    technicalDetail = "All TikTok candidate URLs returned HTML instead of media stream"
+                ),
+                diag.toString()
+            )
+        } else if (lastStatusCode == 403 || lastStatusCode == 410) {
+            ResolvedMediaResult.Failure(
+                DownloadError.ExpiredMediaURL(lastStatusCode, "TikTok CDN URL expired or blocked (HTTP $lastStatusCode)"),
+                diag.toString()
+            )
+        } else {
+            ResolvedMediaResult.Failure(
+                DownloadError.ExtractionFailed("تيك توك", "No verified playable TikTok streams remained"),
+                diag.toString()
+            )
+        }
     }
 
     fun parseTikTokHtml(
@@ -454,24 +566,35 @@ class TikTokProviderAdapter(
                     duration = videoObj.optInt("duration", 0)
                     thumb = videoObj.optString("cover").takeIf { it.isNotBlank() } ?: thumb
 
+                    val vidW = videoObj.optInt("width", 0)
+                    val vidH = videoObj.optInt("height", 0)
+                    val baseEffH = if (vidW > 0 && vidH > 0) minOf(vidW, vidH) else vidH.coerceAtLeast(0)
+
                     val bitrateInfo = videoObj.optJSONArray("bitrateInfo") ?: JSONArray()
                     val seenUrls = hashSetOf<String>()
                     for (i in 0 until bitrateInfo.length()) {
                         val bObj = bitrateInfo.optJSONObject(i) ?: continue
-                        val urlList = bObj.optJSONObject("PlayAddr")?.optJSONArray("UrlList") ?: continue
+                        val playAddrObj = bObj.optJSONObject("PlayAddr")
+                        val urlList = playAddrObj?.optJSONArray("UrlList") ?: continue
                         val streamUrl = urlList.optString(0).takeIf { it.startsWith("http", true) } ?: continue
                         if (!seenUrls.add(streamUrl)) continue
-                        val height = bObj.optJSONObject("PlayAddr")?.optInt("Height", 0)
-                            ?.takeIf { it > 0 } ?: videoObj.optInt("height", 720)
-                        val dataSize = bObj.optJSONObject("PlayAddr")?.optLong("DataSize", -1L) ?: -1L
+                        val pW = playAddrObj.optInt("Width", 0)
+                        val pH = playAddrObj.optInt("Height", 0)
+                        val height = when {
+                            pW > 0 && pH > 0 -> minOf(pW, pH)
+                            pH > 0 -> pH
+                            else -> baseEffH
+                        }
+                        val dataSize = playAddrObj.optLong("DataSize", -1L)
                         formats += ResolvedMediaFormat(
                             id = "tt_br_$i",
                             labelAr = qualityLabelForHeight(height),
-                            labelEn = "${height}p",
+                            labelEn = if (height > 0) "${height}p" else "Original",
                             subLabelAr = "بدون علامة مائية • MP4",
                             containerExt = "mp4",
                             mimeType = "video/mp4",
                             resolutionHeight = height,
+                            width = pW,
                             bitrateKbps = bObj.optInt("Bitrate", 0) / 1000,
                             streamUrl = streamUrl,
                             exactBytes = dataSize,
@@ -484,16 +607,16 @@ class TikTokProviderAdapter(
 
                     val playAddr = videoObj.optString("playAddr").ifBlank { videoObj.optString("downloadAddr") }
                     if (playAddr.startsWith("http", true) && seenUrls.add(playAddr)) {
-                        val h = videoObj.optInt("height", 1080).coerceAtLeast(720)
                         val size = ResolverHttpUtils.probeContentLength(httpClient, playAddr, headers)
                         formats += ResolvedMediaFormat(
                             id = "tt_hd_nowm",
-                            labelAr = qualityLabelForHeight(h),
-                            labelEn = "${h}p",
+                            labelAr = qualityLabelForHeight(baseEffH),
+                            labelEn = if (baseEffH > 0) "${baseEffH}p" else "Original",
                             subLabelAr = "بدون علامة مائية • MP4",
                             containerExt = "mp4",
                             mimeType = "video/mp4",
-                            resolutionHeight = h,
+                            resolutionHeight = baseEffH,
+                            width = vidW,
                             streamUrl = playAddr,
                             exactBytes = size,
                             isApproximateBytes = size <= 0L,
@@ -535,12 +658,12 @@ class TikTokProviderAdapter(
                 val size = ResolverHttpUtils.probeContentLength(httpClient, ogVid, headers)
                 formats += ResolvedMediaFormat(
                     id = "tt_og_video",
-                    labelAr = "720p • HD",
-                    labelEn = "720p",
+                    labelAr = "الجودة المتاحة • MP4",
+                    labelEn = "MP4",
                     subLabelAr = "بدون علامة مائية • MP4",
                     containerExt = "mp4",
                     mimeType = "video/mp4",
-                    resolutionHeight = 720,
+                    resolutionHeight = 0,
                     streamUrl = ogVid,
                     exactBytes = size,
                     isApproximateBytes = size <= 0L,
@@ -1258,14 +1381,13 @@ class DirectAndStreamAdapter(
                     isPdf -> "مستند PDF"
                     isAudio -> "صوت المحاضرة (${ext.uppercase(Locale.ROOT)})"
                     isHls -> "بث متكيف (HLS)"
-                    idx == 0 -> "1080p • MP4"
-                    else -> "720p • MP4"
+                    else -> "ملف فيديو (${ext.uppercase(Locale.ROOT)})"
                 },
                 labelEn = ext.uppercase(Locale.ROOT),
                 subLabelAr = if (isHls) "دمج HLS تلقائي" else "مستخلص من الصفحة",
                 containerExt = ext,
                 mimeType = mime,
-                resolutionHeight = if (isAudio || isPdf) 0 else if (idx == 0) 1080 else 720,
+                resolutionHeight = 0,
                 streamUrl = candidate,
                 exactBytes = size,
                 isApproximateBytes = size <= 0L,

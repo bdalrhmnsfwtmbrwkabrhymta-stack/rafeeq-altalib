@@ -142,6 +142,11 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 val streamUrl = selectedFormat.videoUrl ?: metadata.resolvedUrl
                 val category = AdAndTrackerShield.categoryFromMimeOrExt(selectedFormat.mimeType, selectedFormat.containerExt)
+                val headersJson = selectedFormat.headers.takeIf { it.isNotEmpty() }?.let {
+                    org.json.JSONObject(it).toString()
+                }
+                val audioLang = selectedFormat.languageCode.takeIf { it.isNotBlank() }
+                    ?: selectedFormat.languageLabel.takeIf { it.isNotBlank() }
                 val entity = RafidDownloadEntity(
                     id = UUID.randomUUID().toString(),
                     originalUrl = metadata.originalUrl,
@@ -163,7 +168,11 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                     userAgent = metadata.userAgent,
                     status = RafidDownloadStatus.QUEUED.name,
                     totalBytes = selectedFormat.estimatedSizeBytes,
-                    displayPath = RafidMediaStoreSaver.buildDisplaySubfolder(category, saveToStudyFolder)
+                    displayPath = RafidMediaStoreSaver.buildDisplaySubfolder(category, saveToStudyFolder),
+                    headersJson = headersJson,
+                    formatExpression = selectedFormat.formatExpression,
+                    audioLanguage = audioLang,
+                    engineState = "QUEUED"
                 )
                 dao.upsertDownload(entity)
                 dispatchQueueSlots()
@@ -200,6 +209,11 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
 
             if (chosenFormat != null && !chosenFormat.videoUrl.isNullOrBlank()) {
                 val category = AdAndTrackerShield.categoryFromMimeOrExt(chosenFormat.mimeType, chosenFormat.containerExt)
+                val headersJson = chosenFormat.headers.takeIf { it.isNotEmpty() }?.let {
+                    org.json.JSONObject(it).toString()
+                }
+                val audioLang = chosenFormat.languageCode.takeIf { it.isNotBlank() }
+                    ?: chosenFormat.languageLabel.takeIf { it.isNotBlank() }
                 entries += RafidDownloadEntity(
                     id = UUID.randomUUID().toString(),
                     originalUrl = item.videoUrl,
@@ -219,11 +233,15 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                     saveToStudyFolder = saveToStudyFolder,
                     isPlaylistItem = true,
                     playlistTitle = metadata.title,
-                    cookiesHeader = metadata.cookiesHeader,
+                    cookiesHeader = extractedItem?.cookiesHeader ?: metadata.cookiesHeader,
                     userAgent = metadata.userAgent,
                     status = RafidDownloadStatus.QUEUED.name,
                     totalBytes = chosenFormat.estimatedSizeBytes,
-                    displayPath = RafidMediaStoreSaver.buildDisplaySubfolder(category, saveToStudyFolder)
+                    displayPath = RafidMediaStoreSaver.buildDisplaySubfolder(category, saveToStudyFolder),
+                    headersJson = headersJson,
+                    formatExpression = chosenFormat.formatExpression,
+                    audioLanguage = audioLang,
+                    engineState = "QUEUED"
                 )
             }
         }

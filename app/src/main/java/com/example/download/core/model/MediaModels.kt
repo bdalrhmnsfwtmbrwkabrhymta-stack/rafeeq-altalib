@@ -46,7 +46,18 @@ data class ResolvedMediaFormat(
     val needsMux: Boolean = false,
     val headers: Map<String, String> = emptyMap(),
     val badgeAr: String? = null,
-    val badgeEn: String? = null
+    val badgeEn: String? = null,
+    val width: Int = 0,
+    val fps: Int = 0,
+    val vcodec: String = "",
+    val acodec: String = "",
+    val protocol: String = "",
+    val languageCode: String = "",
+    val languageLabel: String = "",
+    val isAutoDubbed: Boolean = false,
+    val isOriginalAudio: Boolean = false,
+    val hasVideo: Boolean = !isAudioOnly,
+    val hasAudio: Boolean = true
 ) {
     val isHlsOrDash: Boolean get() = isHls || isDash
 }

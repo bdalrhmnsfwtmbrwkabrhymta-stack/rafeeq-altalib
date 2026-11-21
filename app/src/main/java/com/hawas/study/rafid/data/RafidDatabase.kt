@@ -8,6 +8,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.hawas.study.rafid.models.RafidBookmarkEntity
 import com.hawas.study.rafid.models.RafidDownloadEntity
@@ -62,7 +63,44 @@ interface RafidDao {
     suspend fun updateDownloadStatus(id: String, status: String, errorMessage: String? = null)
 
     @Query(
-        "UPDATE rafid_downloads SET status = 'COMPLETED', downloadedBytes = :finalSize, totalBytes = :finalSize, " +
+        "UPDATE rafid_downloads SET engineState = :engineState, errorCode = :errorCode, " +
+            "diagnosticLog = COALESCE(:diagnosticLog, diagnosticLog) WHERE id = :id"
+    )
+    suspend fun updateEngineState(
+        id: String,
+        engineState: String,
+        errorCode: String? = null,
+        diagnosticLog: String? = null
+    )
+
+    @Query(
+        "UPDATE rafid_downloads SET status = :status, speedBytesPerSec = 0, etaSeconds = 0, " +
+            "errorMessage = :errorMessage, engineState = :engineState, errorCode = :errorCode, " +
+            "diagnosticLog = :diagnosticLog WHERE id = :id"
+    )
+    suspend fun updateDownloadFailure(
+        id: String,
+        status: String,
+        errorMessage: String?,
+        engineState: String,
+        errorCode: String?,
+        diagnosticLog: String?
+    )
+
+    @Query(
+        "UPDATE rafid_downloads SET videoStreamUrl = :videoStreamUrl, audioStreamUrl = :audioStreamUrl, " +
+            "headersJson = :headersJson, cookiesHeader = :cookiesHeader WHERE id = :id"
+    )
+    suspend fun updateRefreshedStreams(
+        id: String,
+        videoStreamUrl: String,
+        audioStreamUrl: String?,
+        headersJson: String?,
+        cookiesHeader: String?
+    )
+
+    @Query(
+        "UPDATE rafid_downloads SET status = 'COMPLETED', engineState = 'COMPLETED', errorCode = NULL, downloadedBytes = :finalSize, totalBytes = :finalSize, " +
             "speedBytesPerSec = 0, etaSeconds = 0, mediaStoreUri = :mediaStoreUri, " +
             "displayPath = :displayPath, completedAtMillis = :completedAtMillis, errorMessage = NULL WHERE id = :id"
     )
@@ -116,13 +154,23 @@ interface RafidDao {
         RafidBookmarkEntity::class,
         RafidExcludedDomainEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class RafidDatabase : RoomDatabase() {
     abstract fun rafidDao(): RafidDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE rafid_downloads ADD COLUMN headersJson TEXT")
+                db.execSQL("ALTER TABLE rafid_downloads ADD COLUMN formatExpression TEXT")
+                db.execSQL("ALTER TABLE rafid_downloads ADD COLUMN audioLanguage TEXT")
+                db.execSQL("ALTER TABLE rafid_downloads ADD COLUMN engineState TEXT NOT NULL DEFAULT 'QUEUED'")
+                db.execSQL("ALTER TABLE rafid_downloads ADD COLUMN errorCode TEXT")
+                db.execSQL("ALTER TABLE rafid_downloads ADD COLUMN diagnosticLog TEXT")
+            }
+        }
         val DEFAULT_PLATFORM_BOOKMARKS = listOf(
             RafidBookmarkEntity(
                 id = "bm_instagram",
@@ -199,6 +247,7 @@ abstract class RafidDatabase : RoomDatabase() {
                     RafidDatabase::class.java,
                     "rafid_media_db"
                 )
+                    .addMigrations(MIGRATION_1_2)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

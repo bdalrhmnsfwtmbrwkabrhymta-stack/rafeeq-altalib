@@ -45,6 +45,12 @@ object LinkExtractor {
         if (now - lastUpdate < 24L * 60L * 60L * 1000L) return
         if (!ensureInitialized(context)) return
         withContext(Dispatchers.IO) {
+            val runtimeHealth = runCatching {
+                com.example.download.core.updater.AndroidEngineRuntimeInspector.inspect(context.applicationContext)
+            }.getOrNull()
+            if (runtimeHealth != null && !runtimeHealth.isExtractionHealthy) {
+                return@withContext
+            }
             runCatching {
                 YoutubeDL.getInstance().updateYoutubeDL(
                     context.applicationContext,
@@ -106,7 +112,9 @@ object LinkExtractor {
                         isApproximateSize = fmt.isApproximateBytes,
                         needsMux = fmt.needsMux,
                         isHlsOrDash = fmt.isHlsOrDash,
-                        headers = fmt.headers
+                        headers = result.headers + fmt.headers,
+                        languageLabel = fmt.languageLabel.ifBlank { "الأصلي" },
+                        hasAudio = fmt.hasAudio
                     )
                 },
                 referer = result.canonicalUrl,

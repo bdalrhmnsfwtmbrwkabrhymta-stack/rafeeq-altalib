@@ -258,36 +258,85 @@ object DownloadErrorMapper {
         val msg = (t.message ?: t.javaClass.simpleName).lowercase(Locale.ROOT)
         return when {
             t is UnknownHostException || msg.contains("unable to resolve host") || msg.contains("network is unreachable") ->
-                DownloadError.NetworkUnavailable("${t.javaClass.simpleName}: ${t.message}")
+                DownloadError.NetworkUnavailable("${t.javaClass.simpleName}: ${DiagnosticRedactor.redact(t.message)}")
             t is SocketTimeoutException || msg.contains("timeout") || msg.contains("timed out") ->
-                DownloadError.NetworkTimeout("${t.javaClass.simpleName}: ${t.message}")
+                DownloadError.NetworkTimeout("${t.javaClass.simpleName}: ${DiagnosticRedactor.redact(t.message)}")
             t is SecurityException ->
-                DownloadError.StoragePermissionError("${t.javaClass.simpleName}: ${t.message}")
+                DownloadError.StoragePermissionError("${t.javaClass.simpleName}: ${DiagnosticRedactor.redact(t.message)}")
             t is SSLException ->
-                DownloadError.NetworkUnavailable("TLS/SSL error: ${t.message}")
+                DownloadError.NetworkUnavailable("TLS/SSL error: ${DiagnosticRedactor.redact(t.message)}")
             msg.contains("drm") || msg.contains("widevine") || msg.contains("playready") ||
                 msg.contains("fairplay") || msg.contains("paid content") || msg.contains("members-only") ->
-                DownloadError.ProtectedContent(t.message ?: "DRM/Paid")
+                DownloadError.ProtectedContent(DiagnosticRedactor.redact(t.message ?: "DRM/Paid"))
             msg.contains("private") || msg.contains("video unavailable") || msg.contains("has been removed") ->
-                DownloadError.PrivateContent(fallbackPlatform.ifBlank { "source" }, t.message ?: "Private/unavailable")
+                DownloadError.PrivateContent(fallbackPlatform.ifBlank { "source" }, DiagnosticRedactor.redact(t.message ?: "Private/unavailable"))
             msg.contains("login") || msg.contains("sign in") || msg.contains("cookies") ||
                 msg.contains("logged in") || msg.contains("401") ->
-                DownloadError.AuthenticationRequired(fallbackPlatform.ifBlank { "source" }, t.message ?: "Login required")
+                DownloadError.AuthenticationRequired(fallbackPlatform.ifBlank { "source" }, DiagnosticRedactor.redact(t.message ?: "Login required"))
             msg.contains("enos") || msg.contains("no space") ->
-                DownloadError.InsufficientStorage(0L, 0L, t.message ?: "No space left")
+                DownloadError.InsufficientStorage(0L, 0L, DiagnosticRedactor.redact(t.message ?: "No space left"))
+            msg.contains("text/html") || msg.contains("html markup") || msg.contains("htmlinstead") ->
+                DownloadError.UnsupportedMedia("text/html", DiagnosticRedactor.redact(t.message ?: "HTML returned instead of media"))
             msg.contains("403") || msg.contains("410") ->
-                DownloadError.ExpiredMediaURL(if (msg.contains("410")) 410 else 403, t.message ?: "Expired URL")
+                DownloadError.ExpiredMediaURL(if (msg.contains("410")) 410 else 403, DiagnosticRedactor.redact(t.message ?: "Expired URL"))
             msg.contains("ffmpeg") ->
-                DownloadError.FFmpegFailed(t.message ?: "FFmpeg failure")
-            msg.contains("merge") || msg.contains("mux") ->
-                DownloadError.MergeFailed(t.message ?: "Mux failure")
+                DownloadError.FFmpegFailed(DiagnosticRedactor.redact(t.message ?: "FFmpeg failure"))
+            msg.contains("merge") || msg.contains("mux") || msg.contains("missingaudio") || msg.contains("missingvideo") ->
+                DownloadError.MergeFailed(DiagnosticRedactor.redact(t.message ?: "Mux failure"))
             msg.contains("sha-256") || msg.contains("checksum") || msg.contains("integrity") ->
-                DownloadError.IntegrityCheckFailed(t.message ?: "Integrity mismatch")
+                DownloadError.IntegrityCheckFailed(DiagnosticRedactor.redact(t.message ?: "Integrity mismatch"))
             else ->
                 DownloadError.ExtractionFailed(
                     fallbackPlatform.ifBlank { "المصدر" },
-                    "${t.javaClass.simpleName}: ${t.message ?: "Unknown error"}"
+                    "${t.javaClass.simpleName}: ${DiagnosticRedactor.redact(t.message ?: "Unknown error")}"
                 )
         }
     }
+}
+
+object DiagnosticRedactor {
+    private val SENSITIVE_PARAM_REGEX = Regex(
+        """(?i)(cookie|authorization|x-csrf-token|token|sig|signature|lsig|s|msToken|tt_chain_token|sessionid|password|apikey|key)=([^&\s;"']+)"""
+    )
+    private val HEADER_LINE_REGEX = Regex(
+        """(?im)^(cookie|authorization|set-cookie|x-csrf-token)\s*:\s*.*$"""
+    )
+
+    fun redact(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        return raw
+            .replace(HEADER_LINE_REGEX) { "${it.groupValues[1]}: [REDACTED]" }
+            .replace(SENSITIVE_PARAM_REGEX) { "${it.groupValues[1]}=[REDACTED]" }
+    }
+
+    fun buildStructuredDiagnostic(
+        platform: String,
+        failStage: String,
+        error: DownloadError,
+        formatId: String? = null,
+        codec: String? = null,
+        httpStatus: Int? = null,
+        contentType: String? = null,
+        receivedBytes: Long? = null,
+        ffmpegExitCode: Int? = null,
+        tempPath: String? = null,
+        ffprobeSummary: String? = null,
+        extractorVersion: String? = null
+    ): String = redact(
+        buildString {
+            appendLine("errorCode=${error.code}")
+            appendLine("platform=$platform")
+            appendLine("failStage=$failStage")
+            extractorVersion?.takeIf { it.isNotBlank() }?.let { appendLine("extractorVersion=$it") }
+            formatId?.takeIf { it.isNotBlank() }?.let { appendLine("formatId=$it") }
+            codec?.takeIf { it.isNotBlank() }?.let { appendLine("codec=$it") }
+            httpStatus?.let { appendLine("httpStatus=$it") }
+            contentType?.takeIf { it.isNotBlank() }?.let { appendLine("contentType=$it") }
+            receivedBytes?.let { appendLine("receivedBytes=$it") }
+            ffmpegExitCode?.let { appendLine("ffmpegExitCode=$it") }
+            tempPath?.takeIf { it.isNotBlank() }?.let { appendLine("tempPath=$it") }
+            ffprobeSummary?.takeIf { it.isNotBlank() }?.let { appendLine("ffprobeSummary=$it") }
+            appendLine("detail=${error.technicalDetail}")
+        }.trim()
+    )
 }

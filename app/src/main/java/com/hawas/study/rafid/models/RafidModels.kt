@@ -69,7 +69,11 @@ data class MediaFormatOption(
     val isPlaylistBundle: Boolean = false,
     val badgeTagAr: String? = null,
     val badgeTagEn: String? = null,
-    val languageLabel: String = "الأصلي: العربية"
+    val languageLabel: String = "الأصلي: العربية",
+    val formatExpression: String? = null,
+    val headers: Map<String, String> = emptyMap(),
+    val languageCode: String = "",
+    val hasAudio: Boolean = true
 )
 
 data class PlaylistEntryItem(
@@ -128,7 +132,13 @@ data class RafidDownloadEntity(
     val displayPath: String = "Download/Rafid",
     val errorMessage: String? = null,
     val createdAtMillis: Long = System.currentTimeMillis(),
-    val completedAtMillis: Long = 0L
+    val completedAtMillis: Long = 0L,
+    val headersJson: String? = null,
+    val formatExpression: String? = null,
+    val audioLanguage: String? = null,
+    val engineState: String = "QUEUED",
+    val errorCode: String? = null,
+    val diagnosticLog: String? = null
 )
 
 @Entity(tableName = "rafid_bookmarks")

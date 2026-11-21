@@ -117,6 +117,8 @@ class DownloadForegroundService : Service() {
                         "في انتظار عودة الإنترنت (${waitingNet.size}) — سيتم الاستكمال تلقائياً"
                     primary.status == DownloadStatus.EXTRACTING ->
                         "جارٍ تحليل الرابط وتجهيز الأجزاء..."
+                    primary.status == DownloadStatus.MERGING && primary.engineState == "VERIFYING" ->
+                        "جارٍ فحص وسلامة الملف النهائي..."
                     primary.status == DownloadStatus.MERGING ->
                         "جارٍ الدمج والحفظ النهائي..."
                     else -> {

@@ -141,8 +141,47 @@ object ResolverHttpUtils {
         val statusCode: Int,
         val finalUrl: String,
         val body: String,
-        val contentType: String
+        val contentType: String,
+        val setCookiesHeader: String? = null
     )
+
+    data class StreamProbeOutcome(
+        val reachable: Boolean,
+        val statusCode: Int = 0,
+        val finalUrl: String = "",
+        val contentType: String = "",
+        val contentLength: Long = -1L,
+        val isHtmlPage: Boolean = false
+    ) {
+        val isPlayableMedia: Boolean
+            get() = reachable && statusCode in 200..299 && !isHtmlPage
+    }
+
+    fun mergeCookieStrings(existing: String?, incomingSetCookie: String?): String? {
+        val pairs = linkedMapOf<String, String>()
+        fun absorb(raw: String?, isSetCookieList: Boolean) {
+            if (raw.isNullOrBlank()) return
+            val parts = if (isSetCookieList) raw.split('\n', ';') else raw.split(';')
+            for (part in parts) {
+                val trimmed = part.trim()
+                val eq = trimmed.indexOf('=')
+                if (eq <= 0) continue
+                val key = trimmed.substring(0, eq).trim()
+                val valPart = trimmed.substring(eq + 1).trim()
+                val lowerKey = key.lowercase(Locale.ROOT)
+                if (lowerKey in setOf("path", "domain", "expires", "max-age", "samesite", "secure", "httponly", "priority")) {
+                    continue
+                }
+                if (key.isNotBlank() && valPart.isNotBlank()) {
+                    pairs[key] = valPart
+                }
+            }
+        }
+        absorb(existing, isSetCookieList = false)
+        absorb(incomingSetCookie, isSetCookieList = true)
+        if (pairs.isEmpty()) return null
+        return pairs.entries.joinToString("; ") { "${it.key}=${it.value}" }
+    }
 
     fun fetchTextWithStatus(
         client: OkHttpClient,
@@ -164,15 +203,71 @@ object ResolverHttpUtils {
             .build()
         return try {
             client.newCall(req).execute().use { resp ->
+                val rawSetCookies = resp.headers("Set-Cookie")
+                    .mapNotNull { line -> line.substringBefore(';').trim().takeIf { it.contains('=') } }
+                    .joinToString("; ")
+                    .takeIf { it.isNotBlank() }
                 HttpTextResponse(
                     statusCode = resp.code,
                     finalUrl = resp.request.url.toString(),
                     body = resp.body?.string().orEmpty(),
-                    contentType = resp.header("Content-Type").orEmpty().lowercase(Locale.ROOT)
+                    contentType = resp.header("Content-Type").orEmpty().lowercase(Locale.ROOT),
+                    setCookiesHeader = mergeCookieStrings(cookiesHeader, rawSetCookies)
                 )
             }
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    fun probeStreamMedia(
+        client: OkHttpClient,
+        url: String,
+        headers: Map<String, String> = emptyMap()
+    ): StreamProbeOutcome {
+        if (!url.startsWith("http", ignoreCase = true)) {
+            return StreamProbeOutcome(reachable = false)
+        }
+        return runCatching {
+            val req = Request.Builder()
+                .url(url)
+                .get()
+                .header("Range", "bytes=0-511")
+                .apply {
+                    if (headers.keys.none { it.equals("User-Agent", true) }) {
+                        header("User-Agent", DESKTOP_UA)
+                    }
+                    headers.forEach { (k, v) ->
+                        if (!k.equals("Range", true)) header(k, v)
+                    }
+                }
+                .build()
+            client.newCall(req).execute().use { resp ->
+                val cType = resp.header("Content-Type").orEmpty().lowercase(Locale.ROOT)
+                val rangeTotal = resp.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                val contentLen = rangeTotal ?: resp.header("Content-Length")?.toLongOrNull() ?: -1L
+                val isHtmlByHeader = cType.contains("text/html") || cType.contains("application/xhtml+xml")
+                val headBytes = ByteArray(256)
+                val readCount = runCatching { resp.body?.byteStream()?.read(headBytes) ?: 0 }.getOrDefault(0)
+                val headStr = if (readCount > 0) {
+                    String(headBytes, 0, readCount, Charsets.UTF_8).trimStart().lowercase(Locale.ROOT)
+                } else ""
+                val isHtmlByBody = headStr.startsWith("<!doctype html") ||
+                    headStr.startsWith("<html") ||
+                    headStr.startsWith("<head") ||
+                    headStr.startsWith("<body") ||
+                    headStr.startsWith("<?xml")
+                StreamProbeOutcome(
+                    reachable = true,
+                    statusCode = resp.code,
+                    finalUrl = resp.request.url.toString(),
+                    contentType = cType,
+                    contentLength = contentLen,
+                    isHtmlPage = isHtmlByHeader || isHtmlByBody
+                )
+            }
+        }.getOrElse {
+            StreamProbeOutcome(reachable = false)
         }
     }
 
@@ -194,7 +289,8 @@ object ResolverHttpUtils {
                 }
                 .build()
             client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) {
+                val cType = resp.header("Content-Type").orEmpty().lowercase(Locale.ROOT)
+                if (resp.isSuccessful && !cType.contains("text/html")) {
                     resp.header("Content-Length")?.toLongOrNull() ?: -1L
                 } else -1L
             }

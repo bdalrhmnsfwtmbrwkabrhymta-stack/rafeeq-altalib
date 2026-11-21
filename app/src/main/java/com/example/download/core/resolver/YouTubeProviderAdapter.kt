@@ -352,60 +352,178 @@ class YouTubeProviderAdapter(
         val muxedFormats = streamingData.optJSONArray("formats") ?: JSONArray()
         val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats") ?: JSONArray()
 
-        val audioStreams = mutableListOf<JSONObject>()
+        data class InnertubeAudioCandidate(
+            val json: JSONObject,
+            val url: String,
+            val bytes: Long,
+            val bitrate: Int,
+            val isMp4: Boolean,
+            val langCode: String,
+            val displayName: String,
+            val isDefault: Boolean,
+            val isDubbed: Boolean,
+            val codec: String
+        )
+
+        val audioStreams = mutableListOf<InnertubeAudioCandidate>()
         for (i in 0 until adaptiveFormats.length()) {
             val f = adaptiveFormats.optJSONObject(i) ?: continue
             val mime = f.optString("mimeType")
+            if (!mime.startsWith("audio/mp4") && !mime.startsWith("audio/webm")) continue
             val resolvedUrl = resolveDirectStreamUrl(f) ?: continue
             f.put("_resolvedUrl", resolvedUrl)
-            if (mime.startsWith("audio/mp4") || mime.startsWith("audio/webm")) {
-                audioStreams.add(f)
-            }
+            val audioTrack = f.optJSONObject("audioTrack")
+            val rawTrackId = audioTrack?.optString("id").orEmpty()
+            val langCode = rawTrackId.substringBefore('.').trim().lowercase(Locale.ROOT)
+            val displayName = audioTrack?.optString("displayName").orEmpty().trim()
+            val isDefault = audioTrack?.optBoolean("audioIsDefault", false) ?: false
+            val isAutoDubbed = f.optBoolean("isAutoDubbed", false) ||
+                displayName.contains("dubbed", ignoreCase = true) ||
+                displayName.contains("تلقائي", ignoreCase = true) ||
+                rawTrackId.contains(".auto", ignoreCase = true)
+            val codec = mime.substringAfter("codecs=\"").substringBefore("\"").ifBlank { mime.substringAfter('/') }
+            audioStreams.add(
+                InnertubeAudioCandidate(
+                    json = f,
+                    url = resolvedUrl,
+                    bytes = f.optString("contentLength").toLongOrNull() ?: -1L,
+                    bitrate = f.optInt("bitrate", 0),
+                    isMp4 = mime.startsWith("audio/mp4"),
+                    langCode = langCode,
+                    displayName = displayName,
+                    isDefault = isDefault,
+                    isDubbed = isAutoDubbed,
+                    codec = codec
+                )
+            )
         }
-        val bestMp4Audio = audioStreams
-            .filter { it.optString("mimeType").startsWith("audio/mp4") }
-            .maxByOrNull { it.optInt("bitrate", 0) }
-            ?: audioStreams.maxByOrNull { it.optInt("bitrate", 0) }
 
-        val bestAudioUrl = bestMp4Audio?.optString("_resolvedUrl")?.takeIf { it.isNotBlank() }
-        val bestAudioBytes = bestMp4Audio?.optString("contentLength")?.toLongOrNull() ?: -1L
+        val distinctAudioByLang = audioStreams
+            .groupBy { "${it.langCode.ifBlank { "default" }}_${it.isDubbed}" }
+            .values
+            .mapNotNull { list ->
+                list.maxByOrNull { (if (it.isMp4) 1_000_000 else 0) + it.bitrate }
+            }
+            .sortedWith(
+                compareByDescending<InnertubeAudioCandidate> { it.isDefault }
+                    .thenByDescending { !it.isDubbed }
+                    .thenByDescending { it.langCode == "ar" }
+                    .thenByDescending { it.isMp4 }
+                    .thenByDescending { it.bitrate }
+            )
 
-        val optionsByHeight = linkedMapOf<Int, ResolvedMediaFormat>()
+        val primaryAudio = distinctAudioByLang.firstOrNull()
+        val bestAudioUrl = primaryAudio?.url?.takeIf { it.isNotBlank() }
+        val bestAudioBytes = primaryAudio?.bytes ?: -1L
+
+        fun audioLanguageLabel(track: InnertubeAudioCandidate?): String {
+            if (track == null) return "الأصلي"
+            val base = track.displayName.takeIf { it.isNotBlank() }
+                ?: when {
+                    track.langCode.startsWith("ar") -> "العربية"
+                    track.langCode.startsWith("en") -> "الإنجليزية"
+                    track.langCode.isNotBlank() -> track.langCode.uppercase(Locale.ROOT)
+                    else -> "الأصلي"
+                }
+            return if (track.isDubbed && !base.contains("مدبلج")) "$base (مدبلج)" else base
+        }
+
+        val optionsList = mutableListOf<ResolvedMediaFormat>()
+        val heightsSeen = linkedSetOf<Int>()
 
         if (!bestAudioUrl.isNullOrBlank()) {
-            for (i in 0 until adaptiveFormats.length()) {
-                val f = adaptiveFormats.optJSONObject(i) ?: continue
+            val adaptiveVideoCandidates = buildList {
+                for (i in 0 until adaptiveFormats.length()) {
+                    val f = adaptiveFormats.optJSONObject(i) ?: continue
+                    val mime = f.optString("mimeType")
+                    if (!mime.startsWith("video/")) continue
+                    val streamUrl = f.optString("_resolvedUrl").ifBlank { resolveDirectStreamUrl(f) ?: continue }
+                    val height = f.optInt("height", 0)
+                    if (height <= 0) continue
+                    add(Triple(f, streamUrl, height))
+                }
+            }.sortedWith(
+                compareByDescending<Triple<JSONObject, String, Int>> { it.third }
+                    .thenByDescending { it.first.optString("mimeType").startsWith("video/mp4") }
+                    .thenByDescending { it.first.optInt("bitrate", 0) }
+            )
+
+            for ((f, streamUrl, height) in adaptiveVideoCandidates) {
+                if (!heightsSeen.add(height)) continue
                 val mime = f.optString("mimeType")
-                if (!mime.startsWith("video/mp4")) continue
-                val streamUrl = f.optString("_resolvedUrl").ifBlank { resolveDirectStreamUrl(f) ?: continue }
-                val height = f.optInt("height", 0)
-                if (height <= 0) continue
+                val vcodec = mime.substringAfter("codecs=\"").substringBefore("\"").ifBlank { mime.substringAfter('/') }
                 val vSize = f.optString("contentLength").toLongOrNull() ?: -1L
                 val combinedSize = when {
                     vSize > 0L && bestAudioBytes > 0L -> vSize + bestAudioBytes
                     vSize > 0L -> vSize
                     else -> -1L
                 }
-                if (!optionsByHeight.containsKey(height)) {
-                    optionsByHeight[height] = ResolvedMediaFormat(
-                        id = "${height}p",
-                        labelAr = qualityLabelAr(height),
-                        labelEn = "${height}p",
-                        subLabelAr = "دمج فيديو + صوت (FFmpeg)",
-                        containerExt = "mp4",
-                        mimeType = "video/mp4",
-                        resolutionHeight = height,
-                        bitrateKbps = f.optInt("bitrate", 0) / 1000,
-                        streamUrl = streamUrl,
-                        audioStreamUrl = bestAudioUrl,
-                        formatExpression = "bestvideo[height<=$height]+bestaudio/best[height<=$height]",
-                        exactBytes = combinedSize,
-                        isApproximateBytes = combinedSize <= 0L,
-                        isAudioOnly = false,
-                        needsMux = true,
-                        badgeAr = badgeArForHeight(height),
-                        badgeEn = badgeEnForHeight(height)
-                    )
+                val primaryLang = audioLanguageLabel(primaryAudio)
+                optionsList += ResolvedMediaFormat(
+                    id = "${height}p",
+                    labelAr = qualityLabelAr(height),
+                    labelEn = "${height}p",
+                    subLabelAr = "دمج فيديو + صوت (FFmpeg)",
+                    containerExt = "mp4",
+                    mimeType = "video/mp4",
+                    resolutionHeight = height,
+                    bitrateKbps = f.optInt("bitrate", 0) / 1000,
+                    streamUrl = streamUrl,
+                    audioStreamUrl = bestAudioUrl,
+                    formatExpression = "${f.optInt("itag", 0).takeIf { it > 0 } ?: "bestvideo[height<=$height]"}+${primaryAudio?.json?.optInt("itag", 0)?.takeIf { it > 0 } ?: "bestaudio"}",
+                    exactBytes = combinedSize,
+                    isApproximateBytes = combinedSize <= 0L,
+                    isAudioOnly = false,
+                    needsMux = true,
+                    badgeAr = badgeArForHeight(height),
+                    badgeEn = badgeEnForHeight(height),
+                    width = f.optInt("width", 0),
+                    fps = f.optInt("fps", 0),
+                    vcodec = vcodec,
+                    acodec = primaryAudio?.codec.orEmpty(),
+                    languageCode = primaryAudio?.langCode.orEmpty(),
+                    languageLabel = primaryLang,
+                    isAutoDubbed = primaryAudio?.isDubbed ?: false,
+                    isOriginalAudio = primaryAudio?.isDefault ?: true,
+                    hasVideo = true,
+                    hasAudio = true
+                )
+
+                if (distinctAudioByLang.size > 1 && height >= 720) {
+                    for (altTrack in distinctAudioByLang.drop(1)) {
+                        val altCode = altTrack.langCode.ifBlank { "alt" }
+                        val altLabel = audioLanguageLabel(altTrack)
+                        val altBytes = if (vSize > 0L && altTrack.bytes > 0L) vSize + altTrack.bytes else vSize
+                        optionsList += ResolvedMediaFormat(
+                            id = "${height}p_${altCode}",
+                            labelAr = "${qualityLabelAr(height)} • $altLabel",
+                            labelEn = "${height}p ($altCode)",
+                            subLabelAr = "دمج فيديو + صوت $altLabel (FFmpeg)",
+                            containerExt = "mp4",
+                            mimeType = "video/mp4",
+                            resolutionHeight = height,
+                            bitrateKbps = f.optInt("bitrate", 0) / 1000,
+                            streamUrl = streamUrl,
+                            audioStreamUrl = altTrack.url,
+                            formatExpression = "${f.optInt("itag", 0).takeIf { it > 0 } ?: "bestvideo[height<=$height]"}+${altTrack.json.optInt("itag", 0).takeIf { it > 0 } ?: "bestaudio"}",
+                            exactBytes = altBytes,
+                            isApproximateBytes = altBytes <= 0L,
+                            isAudioOnly = false,
+                            needsMux = true,
+                            badgeAr = if (altCode.startsWith("ar")) "مدبلج عربي" else altCode.uppercase(Locale.ROOT),
+                            badgeEn = altCode.uppercase(Locale.ROOT),
+                            width = f.optInt("width", 0),
+                            fps = f.optInt("fps", 0),
+                            vcodec = vcodec,
+                            acodec = altTrack.codec,
+                            languageCode = altCode,
+                            languageLabel = altLabel,
+                            isAutoDubbed = altTrack.isDubbed,
+                            isOriginalAudio = altTrack.isDefault,
+                            hasVideo = true,
+                            hasAudio = true
+                        )
+                    }
                 }
             }
         }
@@ -417,7 +535,8 @@ class YouTubeProviderAdapter(
             val streamUrl = resolveDirectStreamUrl(f) ?: continue
             val height = f.optInt("height", 360)
             val size = f.optString("contentLength").toLongOrNull() ?: -1L
-            optionsByHeight[height] = ResolvedMediaFormat(
+            optionsList.removeAll { it.id == "${height}p" }
+            optionsList += ResolvedMediaFormat(
                 id = "${height}p",
                 labelAr = qualityLabelAr(height),
                 labelEn = "${height}p",
@@ -428,18 +547,26 @@ class YouTubeProviderAdapter(
                 bitrateKbps = f.optInt("bitrate", 0) / 1000,
                 streamUrl = streamUrl,
                 audioStreamUrl = null,
-                formatExpression = "best[height<=$height]",
+                formatExpression = f.optInt("itag", 0).takeIf { it > 0 }?.toString() ?: "best[height<=$height]",
                 exactBytes = size,
                 isApproximateBytes = size <= 0L,
                 isAudioOnly = false,
                 needsMux = false,
                 badgeAr = badgeArForHeight(height),
-                badgeEn = badgeEnForHeight(height)
+                badgeEn = badgeEnForHeight(height),
+                width = f.optInt("width", 0),
+                fps = f.optInt("fps", 0),
+                languageLabel = "الأصلي",
+                hasVideo = true,
+                hasAudio = true
             )
         }
 
         val hlsManifest = streamingData.optString("hlsManifestUrl").takeIf { it.startsWith("http") }
-        val sortedFormats = optionsByHeight.values.sortedByDescending { it.resolutionHeight }.toMutableList()
+        val sortedFormats = optionsList.sortedWith(
+            compareByDescending<ResolvedMediaFormat> { it.resolutionHeight }
+                .thenBy { it.isAutoDubbed }
+        ).toMutableList()
 
         if (sortedFormats.isEmpty() && !hlsManifest.isNullOrBlank()) {
             sortedFormats += ResolvedMediaFormat(
@@ -464,15 +591,47 @@ class YouTubeProviderAdapter(
                 subLabelAr = "صوت أصلي سريع بدون فيديو",
                 containerExt = "m4a",
                 mimeType = "audio/mp4",
-                bitrateKbps = (bestMp4Audio?.optInt("bitrate", 128000) ?: 128000) / 1000,
+                bitrateKbps = (primaryAudio?.bitrate ?: 128000) / 1000,
                 streamUrl = bestAudioUrl,
                 formatExpression = "bestaudio/best",
                 exactBytes = bestAudioBytes,
                 isAudioOnly = true,
                 needsMux = false,
                 badgeAr = "صوت أصلي",
-                badgeEn = "Original Audio"
+                badgeEn = "Original Audio",
+                acodec = primaryAudio?.codec.orEmpty(),
+                languageCode = primaryAudio?.langCode.orEmpty(),
+                languageLabel = audioLanguageLabel(primaryAudio),
+                hasVideo = false,
+                hasAudio = true
             )
+            distinctAudioByLang.drop(1).forEach { altAudio ->
+                val altLabel = audioLanguageLabel(altAudio)
+                val altCode = altAudio.langCode.ifBlank { "alt" }
+                sortedFormats += ResolvedMediaFormat(
+                    id = "audio_m4a_$altCode",
+                    labelAr = "صوت ($altLabel) • M4A",
+                    labelEn = "M4A ($altCode)",
+                    subLabelAr = "مسار صوتي بلغة $altLabel",
+                    containerExt = "m4a",
+                    mimeType = "audio/mp4",
+                    bitrateKbps = altAudio.bitrate / 1000,
+                    streamUrl = altAudio.url,
+                    formatExpression = altAudio.json.optInt("itag", 0).takeIf { it > 0 }?.toString() ?: "bestaudio/best",
+                    exactBytes = altAudio.bytes,
+                    isAudioOnly = true,
+                    needsMux = false,
+                    badgeAr = altLabel,
+                    badgeEn = altCode.uppercase(Locale.ROOT),
+                    acodec = altAudio.codec,
+                    languageCode = altCode,
+                    languageLabel = altLabel,
+                    isAutoDubbed = altAudio.isDubbed,
+                    isOriginalAudio = altAudio.isDefault,
+                    hasVideo = false,
+                    hasAudio = true
+                )
+            }
             sortedFormats += ResolvedMediaFormat(
                 id = "audio_mp3",
                 labelAr = "صوت فقط • MP3",
@@ -488,7 +647,11 @@ class YouTubeProviderAdapter(
                 isAudioOnly = true,
                 needsMux = true,
                 badgeAr = "للمحاضرات",
-                badgeEn = "For Lectures"
+                badgeEn = "For Lectures",
+                languageCode = primaryAudio?.langCode.orEmpty(),
+                languageLabel = audioLanguageLabel(primaryAudio),
+                hasVideo = false,
+                hasAudio = true
             )
         }
 

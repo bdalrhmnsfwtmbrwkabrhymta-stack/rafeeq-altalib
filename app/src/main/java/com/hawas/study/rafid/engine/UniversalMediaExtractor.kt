@@ -176,6 +176,7 @@ class UniversalMediaExtractor(
         val rafidFormats = res.formats.map { fmt ->
             val shortLabel = when {
                 fmt.isAudioOnly -> fmt.labelEn.ifBlank { fmt.containerExt.uppercase() }
+                fmt.languageCode.isNotBlank() && fmt.labelEn.contains("(") -> fmt.labelEn
                 fmt.resolutionHeight > 0 -> "${fmt.resolutionHeight}p"
                 else -> fmt.labelEn.ifBlank { fmt.labelAr }
             }
@@ -193,9 +194,17 @@ class UniversalMediaExtractor(
                 isMuxRequired = fmt.needsMux,
                 isPlaylistBundle = false,
                 badgeTagAr = fmt.badgeAr,
-                badgeTagEn = fmt.badgeEn
+                badgeTagEn = fmt.badgeEn,
+                languageLabel = fmt.languageLabel.ifBlank { "الأصلي" },
+                formatExpression = fmt.formatExpression,
+                headers = res.headers + fmt.headers,
+                languageCode = fmt.languageCode,
+                hasAudio = fmt.hasAudio
             )
         }
+
+        val resolvedCookieHeader = res.cookiesHeader
+            ?: res.headers.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }?.value
 
         return ExtractedMediaMetadata(
             originalUrl = originalUrl,
@@ -207,7 +216,7 @@ class UniversalMediaExtractor(
             thumbnailUrl = res.thumbnailUrl,
             durationSeconds = res.durationSeconds,
             formats = rafidFormats,
-            cookiesHeader = res.cookiesHeader,
+            cookiesHeader = resolvedCookieHeader,
             userAgent = userAgent ?: UniversalLinkResolver.DESKTOP_USER_AGENT
         )
     }

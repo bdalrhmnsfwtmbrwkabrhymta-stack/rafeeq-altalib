@@ -165,10 +165,20 @@ class SegmentedDownloadEngine(
         }
 
         val totalBytes = probe.contentLength
+        if (totalBytes > 0L) {
+            val usable = runCatching { partFile.parentFile?.usableSpace ?: partFile.usableSpace }.getOrDefault(0L)
+            if (usable > 0L && usable < totalBytes) {
+                throw DownloadEngineException(DownloadError.InsufficientStorage(totalBytes, usable))
+            }
+        }
         val existingChunks = chunkStore.getChunks(spec.downloadId)
-        val hasResumableProgress = existingChunks.isNotEmpty() &&
-            partFile.exists() &&
-            existingChunks.any { it.downloadedBytes > 0L }
+        val hasResumableProgress = existingChunks.isNotEmpty() || (
+            partFile.exists() && (
+                !spec.savedEtag.isNullOrBlank() ||
+                    !spec.savedLastModified.isNullOrBlank() ||
+                    spec.savedTotalBytes > 0L
+                )
+            )
 
         if (hasResumableProgress) {
             val etagChanged = !spec.savedEtag.isNullOrBlank() &&
@@ -369,6 +379,7 @@ class SegmentedDownloadEngine(
                                     downloadId = spec.downloadId,
                                     chunk = chunk,
                                     partFile = partFile,
+                                    expectedMimeType = spec.expectedMimeType,
                                     urlProvider = { activeUrl },
                                     headersProvider = { activeHeaders },
                                     expectedEtag = probe.etag,
@@ -409,6 +420,7 @@ class SegmentedDownloadEngine(
         downloadId: String,
         chunk: MutableChunk,
         partFile: File,
+        expectedMimeType: String,
         urlProvider: () -> String,
         headersProvider: () -> Map<String, String>,
         expectedEtag: String?,
@@ -480,6 +492,9 @@ class SegmentedDownloadEngine(
                     }
 
                     val contentRange = response.header("Content-Range")
+                    if (contentRange.isNullOrBlank() && currentStart > 0L) {
+                        throw IOException("HTTP 206 missing Content-Range header for non-zero offset $currentStart")
+                    }
                     if (!contentRange.isNullOrBlank()) {
                         val rangeStart = parseContentRangeStart(contentRange)
                         if (rangeStart != null && rangeStart != currentStart) {
@@ -494,7 +509,11 @@ class SegmentedDownloadEngine(
                     }
 
                     val contentType = response.header("Content-Type")?.lowercase(Locale.ROOT).orEmpty()
-                    if (contentType.contains("text/html")) {
+                    if (contentType.contains("text/html") || contentType.contains("application/xhtml+xml")) {
+                        if (refreshedUrlAttempts < 1 && onExpiredUrl()) {
+                            refreshedUrlAttempts++
+                            return@use
+                        }
                         throw DownloadEngineException(DownloadError.UnsupportedMedia("text/html"))
                     }
 
@@ -505,6 +524,7 @@ class SegmentedDownloadEngine(
                         var writePos = currentStart
                         val buf = ByteArray(128 * 1024)
                         val byteBuf = ByteBuffer.wrap(buf)
+                        var checkedMagic = writePos > 0L
 
                         while (isActive && !isPausedOrCanceled()) {
                             val activeEnd = chunk.endByte
@@ -524,6 +544,17 @@ class SegmentedDownloadEngine(
                                 break
                             }
                             if (read > 0) {
+                                if (!checkedMagic) {
+                                    checkedMagic = true
+                                    if (!expectedMimeType.contains("html", ignoreCase = true) && looksLikeHtmlPrefix(buf, read)) {
+                                        throw DownloadEngineException(
+                                            DownloadError.UnsupportedMedia(
+                                                mediaType = "text/html",
+                                                technicalDetail = "Response stream body starts with HTML markup instead of media binary"
+                                            )
+                                        )
+                                    }
+                                }
                                 speedBucket.consume(read)
                                 byteBuf.position(0)
                                 byteBuf.limit(read)
@@ -593,7 +624,16 @@ class SegmentedDownloadEngine(
                         throw DownloadEngineException(DownloadErrorMapper.fromHttpStatus(resp.code, activeUrl))
                     }
                     val contentType = resp.header("Content-Type")?.lowercase(Locale.ROOT).orEmpty()
-                    if (contentType.contains("text/html")) {
+                    if (contentType.contains("text/html") || contentType.contains("application/xhtml+xml")) {
+                        if (!urlRefreshed) {
+                            urlRefreshed = true
+                            val fresh = spec.onRefreshExpiredUrl()
+                            if (fresh != null) {
+                                activeUrl = fresh.first
+                                activeHeaders = fresh.second
+                                return@use
+                            }
+                        }
                         throw DownloadEngineException(DownloadError.UnsupportedMedia("text/html"))
                     }
 
@@ -601,6 +641,7 @@ class SegmentedDownloadEngine(
                     val total = body.contentLength().takeIf { it > 0L } ?: knownTotalBytes
                     val buf = ByteArray(128 * 1024)
                     var downloaded = 0L
+                    var checkedMagic = false
                     var lastEmit = 0L
                     var lastDb = 0L
                     var winStart = System.currentTimeMillis()
@@ -612,6 +653,17 @@ class SegmentedDownloadEngine(
                                 val read = input.read(buf)
                                 if (read == -1) break
                                 if (read > 0) {
+                                    if (!checkedMagic) {
+                                        checkedMagic = true
+                                        if (!spec.expectedMimeType.contains("html", ignoreCase = true) && looksLikeHtmlPrefix(buf, read)) {
+                                            throw DownloadEngineException(
+                                                DownloadError.UnsupportedMedia(
+                                                    mediaType = "text/html",
+                                                    technicalDetail = "Single stream body starts with HTML markup instead of binary media"
+                                                )
+                                            )
+                                        }
+                                    }
                                     speedBucket.consume(read)
                                     out.write(buf, 0, read)
                                     downloaded += read
@@ -674,7 +726,7 @@ class SegmentedDownloadEngine(
         var currentUrl = url
         var currentHeaders = headers
         var first = probeServer(currentUrl, currentHeaders)
-        if ((first.statusCode == 403 || first.statusCode == 410)) {
+        if (first.statusCode == 403 || first.statusCode == 410 || first.isHtmlPage) {
             val fresh = onRefreshExpiredUrl()
             if (fresh != null) {
                 currentUrl = fresh.first
@@ -868,6 +920,16 @@ class SegmentedDownloadEngine(
             val afterBytes = contentRange.trim().removePrefix("bytes").trim()
             val startStr = afterBytes.substringBefore('-').trim()
             return startStr.toLongOrNull()
+        }
+
+        private fun looksLikeHtmlPrefix(buf: ByteArray, length: Int): Boolean {
+            val sampleLen = min(length, 160)
+            val text = String(buf, 0, sampleLen, Charsets.UTF_8).trimStart().lowercase(Locale.ROOT)
+            return text.startsWith("<!doctype html") ||
+                text.startsWith("<html") ||
+                text.startsWith("<head") ||
+                text.startsWith("<body") ||
+                text.startsWith("<?xml")
         }
     }
 }

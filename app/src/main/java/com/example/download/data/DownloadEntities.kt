@@ -92,7 +92,9 @@ data class MediaQualityOption(
     val isApproximateSize: Boolean = false,
     val needsMux: Boolean = false,
     val isHlsOrDash: Boolean = false,
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    val languageLabel: String = "الأصلي",
+    val hasAudio: Boolean = true
 )
 
 data class PlaylistEntry(

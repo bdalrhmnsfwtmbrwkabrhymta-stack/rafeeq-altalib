@@ -14,6 +14,8 @@ import com.example.download.core.domain.ResumeDownloadUseCase
 import com.example.download.core.domain.RetryDownloadUseCase
 import com.example.download.core.domain.StartDownloadUseCase
 import com.example.download.core.domain.UpdateVideoEngineUseCase
+import com.example.download.core.media.MediaMergeEngine
+import com.example.download.core.model.DiagnosticRedactor
 import com.example.download.core.model.DownloadError
 import com.example.download.core.model.DownloadErrorMapper
 import com.example.download.core.model.EngineDownloadState
@@ -568,8 +570,10 @@ class SmartDownloadManager private constructor(
     }
 
     private suspend fun runDownloadTask(id: String) {
+        var loadedEntity: DownloadEntity? = null
         try {
             val entity = dao.getDownloadById(id) ?: return
+            loadedEntity = entity
             val settings = settingsRepo.getSettings()
 
             if (pausedByUserIds.contains(id) || canceledByUserIds.contains(id)) return
@@ -582,11 +586,12 @@ class SmartDownloadManager private constructor(
             val useSegmentedHttp = !entity.isHlsOrDash && !entity.needsMux &&
                 entity.resolvedUrl.startsWith("http", true)
 
+            val activeDownloadPhase = if (entity.isAudioOnly) "DOWNLOADING_AUDIO" else "DOWNLOADING_VIDEO"
             dao.updateStatus(
                 id = id,
                 status = DownloadStatus.DOWNLOADING,
                 threads = if (useSegmentedHttp) settings.chunkCount else 8,
-                engineState = EngineDownloadState.DOWNLOADING.name,
+                engineState = activeDownloadPhase,
                 errorCode = null
             )
 
@@ -601,7 +606,7 @@ class SmartDownloadManager private constructor(
                         dao.updateEngineState(id, EngineDownloadState.RESOLVING.name)
                         val refreshed = refreshDirectDownloadUrl(entity)
                         if (refreshed != null) {
-                            dao.updateEngineState(id, EngineDownloadState.DOWNLOADING.name)
+                            dao.updateEngineState(id, activeDownloadPhase)
                         }
                         refreshed
                     },
@@ -643,7 +648,13 @@ class SmartDownloadManager private constructor(
                     status = DownloadStatus.FAILED,
                     threads = 0,
                     errorMsg = emptyErr.userMessageAr,
-                    diagnostic = emptyErr.technicalDetail,
+                    diagnostic = DiagnosticRedactor.buildStructuredDiagnostic(
+                        platform = entity.platform,
+                        failStage = "VERIFYING",
+                        error = emptyErr,
+                        formatId = entity.formatId ?: entity.qualityId,
+                        tempPath = producedFile.absolutePath
+                    ),
                     engineState = EngineDownloadState.FAILED.name,
                     errorCode = emptyErr.code
                 )
@@ -651,11 +662,29 @@ class SmartDownloadManager private constructor(
                 return
             }
 
+            val isImageOrDoc = entity.mimeType.startsWith("image/") || entity.mimeType.contains("pdf", ignoreCase = true)
+            val probeReport = MediaMergeEngine.verifyFinalArtifact(
+                context = appContext,
+                file = producedFile,
+                requireVideo = !entity.isAudioOnly && !isImageOrDoc,
+                requireAudio = entity.isAudioOnly || (!isImageOrDoc && entity.needsMux),
+                isImageOrDocument = isImageOrDoc
+            )
+
+            val actualExt = producedFile.extension.lowercase().takeIf { it.isNotBlank() && it != "part" }
+                ?: entity.fileName.substringAfterLast('.', "mp4")
+            val finalFileName = if (entity.fileName.contains('.')) {
+                "${entity.fileName.substringBeforeLast('.')}.$actualExt"
+            } else {
+                entity.fileName
+            }
+            val finalMime = if (isImageOrDoc) entity.mimeType else MediaMergeEngine.mimeForExt(actualExt, entity.isAudioOnly)
+
             val moveResult = StorageHelper.moveTempFileToPublicDownloads(
                 context = appContext,
                 sourceFile = producedFile,
-                desiredFileName = entity.fileName,
-                mimeType = entity.mimeType,
+                desiredFileName = finalFileName,
+                mimeType = finalMime,
                 isAudioOnly = entity.isAudioOnly
             )
 
@@ -671,13 +700,20 @@ class SmartDownloadManager private constructor(
                     clearLiveStat(id)
                 },
                 onFailure = { err ->
-                    val mapped = DownloadErrorMapper.fromThrowable(err)
+                    val mapped = DownloadErrorMapper.fromThrowable(err, entity.platform)
                     dao.updateStatus(
                         id = id,
                         status = DownloadStatus.FAILED,
                         threads = 0,
                         errorMsg = mapped.userMessageAr,
-                        diagnostic = "${mapped.code}: ${mapped.technicalDetail}",
+                        diagnostic = DiagnosticRedactor.buildStructuredDiagnostic(
+                            platform = entity.platform,
+                            failStage = "STORAGE",
+                            error = mapped,
+                            formatId = entity.formatId ?: entity.qualityId,
+                            tempPath = producedFile.absolutePath,
+                            ffprobeSummary = probeReport.toSummaryString()
+                        ),
                         engineState = EngineDownloadState.FAILED.name,
                         errorCode = mapped.code
                     )
@@ -688,13 +724,20 @@ class SmartDownloadManager private constructor(
             throw ce
         } catch (t: Throwable) {
             if (!pausedByUserIds.contains(id) && !pausedByNetworkIds.contains(id) && !canceledByUserIds.contains(id)) {
-                val mapped = DownloadErrorMapper.fromThrowable(t)
+                val currentEntity = dao.getDownloadById(id) ?: loadedEntity
+                val mapped = DownloadErrorMapper.fromThrowable(t, currentEntity?.platform.orEmpty())
                 dao.updateStatus(
                     id = id,
                     status = DownloadStatus.FAILED,
                     threads = 0,
                     errorMsg = mapped.userMessageAr,
-                    diagnostic = "[${mapped.code}] ${mapped.technicalDetail}",
+                    diagnostic = DiagnosticRedactor.buildStructuredDiagnostic(
+                        platform = currentEntity?.platform ?: "غير محدد",
+                        failStage = currentEntity?.engineState ?: "UNKNOWN",
+                        error = mapped,
+                        formatId = currentEntity?.formatId ?: currentEntity?.qualityId,
+                        tempPath = currentEntity?.tempPartPath
+                    ),
                     engineState = EngineDownloadState.FAILED.name,
                     errorCode = mapped.code
                 )
@@ -716,10 +759,19 @@ class SmartDownloadManager private constructor(
         )
         if (result !is ExtractionResult.SingleVideo) return null
         val matched = result.qualities.firstOrNull { it.id == entity.qualityId }
+            ?: result.qualities.firstOrNull { it.isAudioOnly == entity.isAudioOnly }
             ?: result.qualities.firstOrNull { !it.isAudioOnly }
             ?: return null
         if (matched.directUrl.isBlank()) return null
-        return matched.directUrl to (result.headers + matched.headers)
+        val mergedHeaders = result.headers + matched.headers
+        dao.updateResolvedUrl(
+            id = entity.id,
+            resolvedUrl = matched.directUrl,
+            headersJson = encodeHeaders(mergedHeaders),
+            etag = null,
+            lastModified = null
+        )
+        return matched.directUrl to mergedHeaders
     }
 
     private fun cleanYtDlpPartials(downloadId: String) {

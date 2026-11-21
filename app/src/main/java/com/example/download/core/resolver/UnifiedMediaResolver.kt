@@ -58,48 +58,63 @@ class UnifiedMediaResolver(
             primaryResult.error !is DownloadError.ProtectedContent &&
             primaryResult.error !is DownloadError.PrivateContent
 
+        val sniffDiag = StringBuilder()
         if (shouldTrySniffer) {
             val sniffed = webViewSniffGateway.sniff(canonicalUrl)
             if (sniffed != null && sniffed.mediaUrl.startsWith("http", true)) {
-                val isAudio = sniffed.mimeType.startsWith("audio/")
-                return@withContext ResolvedMediaResult.SingleMedia(
-                    originalUrl = request.rawUrl,
-                    canonicalUrl = canonicalUrl,
-                    title = ResolverHttpUtils.deriveTitleFromUrl(canonicalUrl, "وسائط_هوس_الدراسة"),
-                    authorOrSource = matchedAdapter.platform.labelEn,
-                    sourceDomain = host,
-                    platform = matchedAdapter.platform,
-                    kind = when {
-                        sniffed.isHlsOrDash -> ResolvedMediaKind.HLS_STREAM
-                        isAudio -> ResolvedMediaKind.AUDIO_ONLY
-                        else -> ResolvedMediaKind.SINGLE_VIDEO
-                    },
-                    formats = listOf(
-                        ResolvedMediaFormat(
-                            id = if (isAudio) "audio_m4a" else "best",
-                            labelAr = if (isAudio) "صوت مستخلص" else "جودة الفيديو المتاحة",
-                            labelEn = if (isAudio) "Extracted Audio" else "Stream",
-                            subLabelAr = if (sniffed.isHlsOrDash) "بث مباشر (FFmpeg)" else "رابط مباشر سريع",
-                            containerExt = if (isAudio) "m4a" else "mp4",
-                            mimeType = sniffed.mimeType.ifBlank { if (isAudio) "audio/mp4" else "video/mp4" },
-                            resolutionHeight = if (isAudio) 0 else 720,
-                            streamUrl = sniffed.mediaUrl,
-                            isAudioOnly = isAudio,
-                            isHls = sniffed.isHlsOrDash,
-                            needsMux = sniffed.isHlsOrDash,
-                            headers = sniffed.headers
-                        )
-                    ),
-                    headers = sniffed.headers,
-                    cookiesHeader = request.cookiesHeader
-                )
+                val probe = if (!sniffed.isHlsOrDash && !ResolverHttpUtils.isManifestUrl(sniffed.mediaUrl)) {
+                    ResolverHttpUtils.probeStreamMedia(httpClient, sniffed.mediaUrl, sniffed.headers)
+                } else {
+                    null
+                }
+                if (probe != null && probe.reachable && (probe.isHtmlPage || probe.statusCode >= 400)) {
+                    sniffDiag.appendLine("[sniffer] Rejected sniffed URL: HTTP ${probe.statusCode}, type=${probe.contentType}")
+                } else {
+                    val isAudio = sniffed.mimeType.startsWith("audio/")
+                    val probedSize = probe?.contentLength ?: -1L
+                    return@withContext ResolvedMediaResult.SingleMedia(
+                        originalUrl = request.rawUrl,
+                        canonicalUrl = canonicalUrl,
+                        title = ResolverHttpUtils.deriveTitleFromUrl(canonicalUrl, "وسائط_هوس_الدراسة"),
+                        authorOrSource = matchedAdapter.platform.labelEn,
+                        sourceDomain = host,
+                        platform = matchedAdapter.platform,
+                        kind = when {
+                            sniffed.isHlsOrDash -> ResolvedMediaKind.HLS_STREAM
+                            isAudio -> ResolvedMediaKind.AUDIO_ONLY
+                            else -> ResolvedMediaKind.SINGLE_VIDEO
+                        },
+                        formats = listOf(
+                            ResolvedMediaFormat(
+                                id = if (isAudio) "audio_m4a" else "best",
+                                labelAr = if (isAudio) "صوت مستخلص" else "جودة الفيديو المتاحة",
+                                labelEn = if (isAudio) "Extracted Audio" else "Stream",
+                                subLabelAr = if (sniffed.isHlsOrDash) "بث مباشر (FFmpeg)" else "رابط مباشر سريع",
+                                containerExt = if (isAudio) "m4a" else "mp4",
+                                mimeType = sniffed.mimeType.ifBlank { if (isAudio) "audio/mp4" else "video/mp4" },
+                                resolutionHeight = 0,
+                                streamUrl = sniffed.mediaUrl,
+                                exactBytes = probedSize,
+                                isApproximateBytes = probedSize <= 0L,
+                                isAudioOnly = isAudio,
+                                isHls = sniffed.isHlsOrDash,
+                                needsMux = sniffed.isHlsOrDash,
+                                headers = sniffed.headers
+                            )
+                        ),
+                        headers = sniffed.headers,
+                        cookiesHeader = request.cookiesHeader
+                    )
+                }
+            } else {
+                sniffDiag.appendLine("[sniffer] No playable stream captured")
             }
         }
 
         primaryResult.copy(
             diagnosticLog = buildString {
                 if (primaryResult.diagnosticLog.isNotBlank()) appendLine(primaryResult.diagnosticLog)
-                if (shouldTrySniffer) appendLine("[sniffer] No playable stream captured")
+                if (sniffDiag.isNotBlank()) append(sniffDiag.toString().trim())
             }
         )
     }
