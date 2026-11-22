@@ -6,10 +6,13 @@ import com.example.download.core.model.MediaPlatform
 import com.example.download.core.model.ResolveRequest
 import com.example.download.core.model.ResolvedMediaResult
 import com.example.download.core.resolver.DirectAndStreamAdapter
+import com.example.download.core.resolver.NoOpWebViewSniffGateway
 import com.example.download.core.resolver.NoOpYtDlpGateway
 import com.example.download.core.resolver.PinterestProviderAdapter
+import com.example.download.core.resolver.ResolverHttpUtils
 import com.example.download.core.resolver.TikTokProviderAdapter
 import com.example.download.core.resolver.UnifiedMediaResolver
+import com.example.download.core.resolver.WebViewSniffGateway
 import com.example.download.core.resolver.YouTubeProviderAdapter
 import com.example.download.core.resolver.YtDlpGateway
 import com.hawas.study.rafid.models.ExtractedMediaMetadata
@@ -25,11 +28,13 @@ import java.util.concurrent.TimeUnit
 class UniversalMediaExtractor(
     private val httpClient: OkHttpClient = defaultClient(),
     private val linkResolver: UniversalLinkResolver = UniversalLinkResolver(httpClient),
-    private val ytDlpGateway: YtDlpGateway = NoOpYtDlpGateway
+    private val ytDlpGateway: YtDlpGateway = NoOpYtDlpGateway,
+    private val webViewSniffGateway: WebViewSniffGateway = NoOpWebViewSniffGateway
 ) {
     private val unifiedResolver = UnifiedMediaResolver(
         httpClient = httpClient,
-        ytDlpGateway = ytDlpGateway
+        ytDlpGateway = ytDlpGateway,
+        webViewSniffGateway = webViewSniffGateway
     )
 
     companion object {
@@ -48,7 +53,8 @@ class UniversalMediaExtractor(
     suspend fun extract(
         rawUrl: String,
         cookiesHeader: String? = null,
-        userAgent: String? = null
+        userAgent: String? = null,
+        checkCollection: Boolean = true
     ): Result<ExtractedMediaMetadata> = withContext(Dispatchers.IO) {
         val cleanInput = AdAndTrackerShield.extractFirstUrl(rawUrl) ?: rawUrl.trim()
         val preResolved = runCatching { linkResolver.resolve(cleanInput, cookiesHeader) }.getOrNull()
@@ -57,10 +63,10 @@ class UniversalMediaExtractor(
         when (val res = unifiedResolver.resolve(
             ResolveRequest(
                 rawUrl = targetUrl,
-                checkCollection = true,
+                checkCollection = checkCollection,
                 cookiesHeader = cookiesHeader,
                 userAgent = userAgent,
-                allowWebViewSniffer = false
+                allowWebViewSniffer = webViewSniffGateway != NoOpWebViewSniffGateway
             )
         )) {
             is ResolvedMediaResult.SingleMedia -> {
@@ -180,6 +186,14 @@ class UniversalMediaExtractor(
                 fmt.resolutionHeight > 0 -> "${fmt.resolutionHeight}p"
                 else -> fmt.labelEn.ifBlank { fmt.labelAr }
             }
+            val effectiveStreamUrl = if (fmt.isHlsOrDash &&
+                !ResolverHttpUtils.isManifestUrl(fmt.streamUrl) &&
+                res.canonicalUrl.startsWith("http", true)
+            ) {
+                res.canonicalUrl
+            } else {
+                fmt.streamUrl
+            }
             MediaFormatOption(
                 id = fmt.id,
                 label = shortLabel,
@@ -187,11 +201,11 @@ class UniversalMediaExtractor(
                 mimeType = fmt.mimeType,
                 resolutionHeight = fmt.resolutionHeight.takeIf { it > 0 },
                 bitrateKbps = fmt.bitrateKbps.takeIf { it > 0 },
-                videoUrl = fmt.streamUrl,
+                videoUrl = effectiveStreamUrl,
                 audioUrl = fmt.audioStreamUrl,
                 estimatedSizeBytes = fmt.exactBytes.coerceAtLeast(0L),
                 isAudioOnly = fmt.isAudioOnly,
-                isMuxRequired = fmt.needsMux,
+                isMuxRequired = fmt.needsMux || fmt.isHlsOrDash,
                 isPlaylistBundle = false,
                 badgeTagAr = fmt.badgeAr,
                 badgeTagEn = fmt.badgeEn,

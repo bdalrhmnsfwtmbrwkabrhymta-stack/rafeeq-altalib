@@ -49,6 +49,7 @@ object HeadlessWebViewSniffer {
         timeoutMs: Long = 20_000L
     ): SniffedMediaResult? {
         val resultDeferred = CompletableDeferred<SniffedMediaResult?>()
+        var fallbackAudioCandidate: SniffedMediaResult? = null
         var webView: WebView? = null
 
         return try {
@@ -90,7 +91,15 @@ object HeadlessWebViewSniffer {
                                     if (cookie.isNotBlank()) put("Cookie", cookie)
                                 }
                             }
-                            resultDeferred.complete(matched.copy(headers = headers))
+                            val enriched = matched.copy(headers = headers)
+                            if (enriched.mimeType.startsWith("audio/")) {
+                                // Buffer audio candidate instead of short-circuiting video discovery (e.g. TikTok background audio)
+                                if (fallbackAudioCandidate == null) {
+                                    fallbackAudioCandidate = enriched
+                                }
+                            } else {
+                                resultDeferred.complete(enriched)
+                            }
                         }
                         return super.shouldInterceptRequest(view, request)
                     }
@@ -119,6 +128,8 @@ object HeadlessWebViewSniffer {
                                         headers = mapOf("Referer" to pageUrl, "User-Agent" to MOBILE_USER_AGENT)
                                     )
                                 resultDeferred.complete(classified)
+                            } else if (!resultDeferred.isCompleted && fallbackAudioCandidate != null) {
+                                resultDeferred.complete(fallbackAudioCandidate)
                             }
                         }
                     }
@@ -129,9 +140,9 @@ object HeadlessWebViewSniffer {
 
             withTimeoutOrNull(timeoutMs) {
                 resultDeferred.await()
-            }
+            } ?: fallbackAudioCandidate
         } catch (_: Throwable) {
-            null
+            fallbackAudioCandidate
         } finally {
             withContext(Dispatchers.Main) {
                 runCatching {
@@ -153,7 +164,7 @@ object HeadlessWebViewSniffer {
         return blockedAdHosts.any { lower == it || lower.endsWith(".$it") }
     }
 
-    private fun classifyCandidateUrl(url: String, acceptHeader: String): SniffedMediaResult? {
+    internal fun classifyCandidateUrl(url: String, acceptHeader: String): SniffedMediaResult? {
         val lower = url.lowercase(Locale.ROOT)
         if (!lower.startsWith("http://") && !lower.startsWith("https://")) return null
         if (lower.contains(".js") || lower.contains(".css") || lower.contains(".png") ||
@@ -167,18 +178,20 @@ object HeadlessWebViewSniffer {
         val isHls = cleanPath.endsWith(".m3u8") || lower.contains("mime=application/x-mpegurl") ||
             lower.contains(".m3u8")
         val isDash = cleanPath.endsWith(".mpd") || lower.contains(".mpd")
-        val isVideoExt = videoExtensions.any { cleanPath.endsWith(it) } ||
-            lower.contains("mime=video/") ||
-            lower.contains("videoplayback")
         val isAudioExt = cleanPath.endsWith(".m4a") || cleanPath.endsWith(".mp3") ||
-            lower.contains("mime=audio/")
-        val isVideoAccept = acceptHeader.contains("video/") && lower.length > 24
+            cleanPath.endsWith(".aac") || cleanPath.endsWith(".opus") ||
+            lower.contains("mime=audio/") || lower.contains("mime_type=audio")
+        val isVideoExt = !isAudioExt && (videoExtensions.any { cleanPath.endsWith(it) } ||
+            lower.contains("mime=video/") ||
+            lower.contains("mime_type=video") ||
+            lower.contains("videoplayback"))
+        val isVideoAccept = !isAudioExt && acceptHeader.contains("video/") && lower.length > 24
 
         return when {
             isHls -> SniffedMediaResult(url, "application/x-mpegURL", true, emptyMap())
             isDash -> SniffedMediaResult(url, "application/dash+xml", true, emptyMap())
             isVideoExt || isVideoAccept -> SniffedMediaResult(url, "video/mp4", false, emptyMap())
-            isAudioExt -> SniffedMediaResult(url, "audio/mp4", false, emptyMap())
+            isAudioExt -> SniffedMediaResult(url, if (cleanPath.endsWith(".mp3")) "audio/mpeg" else "audio/mp4", false, emptyMap())
             else -> null
         }
     }

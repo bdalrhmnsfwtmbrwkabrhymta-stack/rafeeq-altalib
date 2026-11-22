@@ -39,7 +39,7 @@ class YtDlpRunner(
         val outputTemplate = "${tempBase.absolutePath}.%(ext)s"
         val storedHeaders = decodeHeaders(entity.headersJson)
 
-        fun buildRequest(extraExtractorArgs: String? = null): YoutubeDLRequest =
+        fun buildRequest(extraExtractorArgs: String? = null, formatOverride: String? = null): YoutubeDLRequest =
             YoutubeDLRequest(entity.originalUrl).apply {
                 addOption("--no-playlist")
                 addOption("--no-warnings")
@@ -81,7 +81,9 @@ class YtDlpRunner(
                     addOption("--audio-format", audioFmt)
                     addOption("--audio-quality", "0")
                 } else {
-                    val fmt = entity.formatId?.takeIf { it.isNotBlank() } ?: "bestvideo+bestaudio/best"
+                    val fmt = formatOverride?.takeIf { it.isNotBlank() }
+                        ?: entity.formatId?.takeIf { it.isNotBlank() }
+                        ?: "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
                     addOption("-f", fmt)
                     addOption("--merge-output-format", "mp4")
                 }
@@ -95,8 +97,16 @@ class YtDlpRunner(
         val requestsToTry = if (entity.originalUrl.contains("tiktok.com", ignoreCase = true)) {
             listOf(
                 buildRequest(null),
-                buildRequest("tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com")
+                buildRequest("tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com"),
+                buildRequest("tiktok:api_hostname=api16-normal-c-useast1a.tiktokv.com")
             )
+        } else if (!entity.isAudioOnly) {
+            val fallbackFmt = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+            if (entity.formatId != null && entity.formatId != fallbackFmt) {
+                listOf(buildRequest(null), buildRequest(null, fallbackFmt))
+            } else {
+                listOf(buildRequest(null))
+            }
         } else {
             listOf(buildRequest(null))
         }

@@ -138,28 +138,38 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
             return@withContext Result.failure(IllegalStateException("yt-dlp initialization failed"))
         }
         runCatching {
+            val isYouTubeCollection = url.contains("youtube.com", ignoreCase = true) ||
+                url.contains("youtu.be", ignoreCase = true)
             val req = YoutubeDLRequest(url).apply {
                 addOption("--flat-playlist")
                 addOption("--no-warnings")
                 addOption("--playlist-end", maxItems.coerceIn(1, 200).toString())
-                addOption("--print", "%(id)s\t%(title)s\t%(webpage_url)s\t%(duration)s")
+                addOption("--print", "%(id)s\t%(title)s\t%(webpage_url)s\t%(url)s\t%(duration)s")
                 if (cookiesFile != null && cookiesFile.exists() && cookiesFile.length() > 20L) {
                     addOption("--cookies", cookiesFile.absolutePath)
                 }
             }
             val lines = mutableListOf<String>()
             YoutubeDL.getInstance().execute(req, "col_${System.currentTimeMillis()}") { _, _, line ->
-                if (line.contains("\thttp")) {
-                    lines.add(line.trim())
+                val clean = line?.trim().orEmpty()
+                if (clean.contains("\t") && clean.count { it == '\t' } >= 3) {
+                    lines.add(clean)
                 }
             }
             lines.mapIndexedNotNull { idx, raw ->
                 val parts = raw.split("\t")
-                val entryUrl = parts.getOrNull(2)?.trim() ?: return@mapIndexedNotNull null
-                if (!entryUrl.startsWith("http", true)) return@mapIndexedNotNull null
-                val itemId = parts.getOrNull(0)?.takeIf { it.isNotBlank() && it != "NA" } ?: "item_${idx + 1}"
-                val title = parts.getOrNull(1)?.takeIf { it.isNotBlank() && it != "NA" } ?: "فيديو رقم ${idx + 1}"
-                val dur = parts.getOrNull(3)?.toDoubleOrNull()?.toInt() ?: 0
+                val rawId = parts.getOrNull(0)?.trim()?.takeIf { it.isNotBlank() && it != "NA" && it != "null" }
+                val webpageUrl = parts.getOrNull(2)?.trim()?.takeIf { it.startsWith("http", true) }
+                val altUrl = parts.getOrNull(3)?.trim()?.takeIf { it.startsWith("http", true) }
+                val entryUrl = webpageUrl
+                    ?: altUrl
+                    ?: if (isYouTubeCollection && rawId != null) "https://www.youtube.com/watch?v=$rawId" else null
+                if (entryUrl == null) return@mapIndexedNotNull null
+                val itemId = rawId ?: "item_${idx + 1}"
+                val title = parts.getOrNull(1)?.trim()
+                    ?.takeIf { it.isNotBlank() && it != "NA" && it != "null" }
+                    ?: "فيديو رقم ${idx + 1}"
+                val dur = parts.getOrNull(4)?.trim()?.toDoubleOrNull()?.toInt()?.coerceAtLeast(0) ?: 0
                 ResolvedCollectionEntry(
                     index = idx + 1,
                     itemId = itemId,
@@ -194,10 +204,34 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
         val filesizeApprox: Long,
         val headers: Map<String, String>
     ) {
-        val hasVideo: Boolean get() = vcodec.isNotBlank() && vcodec != "none"
-        val hasAudio: Boolean get() = acodec.isNotBlank() && acodec != "none"
+        private val vcodecMissing: Boolean
+            get() = vcodec.isBlank() || vcodec == "none" || vcodec == "null"
+        private val acodecMissing: Boolean
+            get() = acodec.isBlank() || acodec == "none" || acodec == "null"
+        private val urlLower: String
+            get() = url.lowercase(Locale.ROOT)
+        private val isAudioHintUrlOrExt: Boolean
+            get() = ext in AUDIO_ONLY_EXTS ||
+                urlLower.contains("mime_type=audio") ||
+                urlLower.contains("mime=audio") ||
+                urlLower.substringBefore('?').let { p -> AUDIO_ONLY_EXTS.any { p.endsWith(".$it") } }
+        private val isVideoContainerExt: Boolean
+            get() = ext in VIDEO_CONTAINER_EXTS
+
+        val hasVideo: Boolean
+            get() = (!vcodecMissing) ||
+                (!isAudioHintUrlOrExt && (width > 0 || height > 0 || vbrKbps > 0.0 ||
+                    (isVideoContainerExt && acodecMissing && abrKbps <= 0.0)))
+        val hasAudio: Boolean
+            get() = (!acodecMissing) ||
+                (!hasVideo && isAudioHintUrlOrExt)
+        val hasDeclaredMuxedOrUnknownAudio: Boolean
+            get() = hasAudio || (hasVideo && vcodecMissing && acodecMissing &&
+                !formatNote.contains("video only", ignoreCase = true) &&
+                !formatId.contains("dash", ignoreCase = true) &&
+                !protocol.contains("dash", ignoreCase = true))
         val isVideoOnly: Boolean get() = hasVideo && !hasAudio
-        val isAudioOnly: Boolean get() = !hasVideo && hasAudio
+        val isAudioOnly: Boolean get() = !hasVideo && (hasAudio || isAudioHintUrlOrExt)
         val effectiveHeight: Int
             get() = when {
                 width > 0 && height > 0 -> minOf(width, height)
@@ -226,28 +260,30 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
                 val f = rawArr.optJSONObject(i) ?: continue
                 val streamUrl = f.optString("url").trim()
                 if (!streamUrl.startsWith("http", true)) continue
-                val protocol = f.optString("protocol").lowercase(Locale.ROOT)
+                val protocol = optCleanString(f, "protocol").lowercase(Locale.ROOT)
                 // Skip non-media storyboard image grids
-                val ext = f.optString("ext").lowercase(Locale.ROOT)
+                val ext = optCleanString(f, "ext").lowercase(Locale.ROOT)
                 if (ext == "mhtml" || protocol == "mhtml") continue
 
-                val note = f.optString("format_note").trim()
-                val lang = f.optString("language").trim().lowercase(Locale.ROOT)
+                val note = optCleanString(f, "format_note")
+                val lang = optCleanString(f, "language").lowercase(Locale.ROOT)
                 val langPref = f.optInt("language_preference", 0)
                 val lowerNote = note.lowercase(Locale.ROOT)
                 val isDubbed = lowerNote.contains("dub") || lowerNote.contains("مدبلج") || lowerNote.contains("auto")
                 val isOrig = lowerNote.contains("original") || langPref >= 10
+                val rawVcodec = optCleanString(f, "vcodec").lowercase(Locale.ROOT).ifBlank { "none" }
+                val rawAcodec = optCleanString(f, "acodec").lowercase(Locale.ROOT).ifBlank { "none" }
 
                 add(
                     RawFormatNode(
-                        formatId = f.optString("format_id").ifBlank { "fmt_$i" },
+                        formatId = optCleanString(f, "format_id").ifBlank { "fmt_$i" },
                         ext = ext.ifBlank { "mp4" },
                         url = streamUrl,
                         width = f.optInt("width", 0),
                         height = f.optInt("height", 0),
                         fps = f.optDouble("fps", 0.0).toInt().coerceAtLeast(0),
-                        vcodec = f.optString("vcodec").lowercase(Locale.ROOT).ifBlank { "none" },
-                        acodec = f.optString("acodec").lowercase(Locale.ROOT).ifBlank { "none" },
+                        vcodec = rawVcodec,
+                        acodec = rawAcodec,
                         protocol = protocol,
                         formatNote = note,
                         language = lang,
@@ -306,10 +342,10 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
             val chosenHasOwnAudio = chosen.hasAudio
             val pairedAudio = if (!chosenHasOwnAudio) primaryAudio else null
 
-            val isHls = chosen.protocol.contains("m3u8") || ResolverHttpUtils.isManifestUrl(chosen.url) && !chosen.url.contains(".mpd", true)
+            val isHls = chosen.protocol.contains("m3u8") || (ResolverHttpUtils.isManifestUrl(chosen.url) && !chosen.url.contains(".mpd", true))
             val isDash = chosen.protocol.contains("dash") || chosen.url.contains(".mpd", true)
-            val needsMux = !chosenHasOwnAudio && pairedAudio != null || isHls || isDash
-            val effectivelyHasAudio = chosenHasOwnAudio || pairedAudio != null
+            val needsMux = (!chosenHasOwnAudio && pairedAudio != null) || isHls || isDash
+            val effectivelyHasAudio = chosenHasOwnAudio || pairedAudio != null || chosen.hasDeclaredMuxedOrUnknownAudio
 
             val (vSize, vApprox) = chosen.resolvedSizeBytes(durationSec)
             val (aSize, aApprox) = pairedAudio?.resolvedSizeBytes(durationSec) ?: (0L to false)
@@ -428,42 +464,54 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
         }
 
         // Single-URL fallback when formats array is empty in yt-dlp payload
+        var fallbackAudioUrl: String? = null
         if (builtOptions.isEmpty()) {
-            val topUrl = info.optString("url").takeIf { it.startsWith("http", true) }
+            val topUrl = optCleanString(info, "url").takeIf { it.startsWith("http", true) }
             if (topUrl != null) {
                 val topW = info.optInt("width", 0)
                 val topH = info.optInt("height", 0)
                 val effH = if (topW > 0 && topH > 0) minOf(topW, topH) else topH.coerceAtLeast(0)
                 val isHls = ResolverHttpUtils.isManifestUrl(topUrl)
-                val topVcodec = info.optString("vcodec").lowercase(Locale.ROOT)
-                val topAcodec = info.optString("acodec").lowercase(Locale.ROOT)
-                builtOptions += ResolvedMediaFormat(
-                    id = if (effH > 0) "${effH}p" else "best",
-                    labelAr = if (effH > 0) qualityLabelAr(effH, 0) else "أفضل جودة متاحة",
-                    labelEn = if (effH > 0) "${effH}p" else "Best",
-                    subLabelAr = if (isHls) "بث مجزأ + دمج تلقائي" else "تحميل مباشر سريع",
-                    containerExt = info.optString("ext").takeIf { it in setOf("mp4", "webm", "mkv") } ?: "mp4",
-                    mimeType = "video/mp4",
-                    resolutionHeight = effH,
-                    streamUrl = topUrl,
-                    formatExpression = info.optString("format_id").ifBlank { "best" },
-                    isHls = isHls,
-                    needsMux = isHls,
-                    headers = baseHeaders,
-                    width = topW,
-                    vcodec = topVcodec,
-                    acodec = topAcodec,
-                    hasVideo = true,
-                    hasAudio = topAcodec != "none"
-                )
+                val topVcodec = optCleanString(info, "vcodec").lowercase(Locale.ROOT)
+                val topAcodec = optCleanString(info, "acodec").lowercase(Locale.ROOT)
+                val topExt = optCleanString(info, "ext").lowercase(Locale.ROOT)
+                val topUrlLower = topUrl.lowercase(Locale.ROOT)
+                val topIsAudioOnly = topExt in AUDIO_ONLY_EXTS ||
+                    topUrlLower.contains("mime_type=audio") ||
+                    topUrlLower.contains("mime=audio") ||
+                    (topVcodec == "none" && effH == 0 && topW == 0 && topAcodec.isNotBlank() && topAcodec != "none")
+                if (topIsAudioOnly) {
+                    fallbackAudioUrl = topUrl
+                } else {
+                    builtOptions += ResolvedMediaFormat(
+                        id = if (effH > 0) "${effH}p" else "best",
+                        labelAr = if (effH > 0) qualityLabelAr(effH, 0) else "أفضل جودة متاحة",
+                        labelEn = if (effH > 0) "${effH}p" else "Best",
+                        subLabelAr = if (isHls) "بث مجزأ + دمج تلقائي" else "تحميل مباشر سريع",
+                        containerExt = topExt.takeIf { it in setOf("mp4", "webm", "mkv") } ?: "mp4",
+                        mimeType = "video/mp4",
+                        resolutionHeight = effH,
+                        streamUrl = topUrl,
+                        formatExpression = optCleanString(info, "format_id").ifBlank { "best" },
+                        isHls = isHls,
+                        needsMux = isHls,
+                        headers = baseHeaders,
+                        width = topW,
+                        vcodec = topVcodec,
+                        acodec = topAcodec,
+                        hasVideo = true,
+                        hasAudio = topAcodec != "none" || effH > 0
+                    )
+                }
             }
         }
 
         // Audio-only options (preserving multi-language choices if present + M4A & MP3)
-        if (primaryAudio != null || builtOptions.isNotEmpty()) {
+        if (primaryAudio != null || builtOptions.isNotEmpty() || fallbackAudioUrl != null) {
             val mainAudio = primaryAudio
             val (audioSz, audioApprox) = mainAudio?.resolvedSizeBytes(durationSec) ?: (-1L to true)
-            val directAudioUrl = mainAudio?.url?.takeIf { !ResolverHttpUtils.isManifestUrl(it) }
+            val resolvedAudioSource = mainAudio?.url ?: fallbackAudioUrl
+            val directAudioUrl = resolvedAudioSource?.takeIf { !ResolverHttpUtils.isManifestUrl(it) }
             builtOptions += ResolvedMediaFormat(
                 id = "audio_m4a",
                 labelAr = "صوت فقط • M4A عالي النقاء",
@@ -527,12 +575,12 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
                 containerExt = "mp3",
                 mimeType = "audio/mpeg",
                 bitrateKbps = 320,
-                streamUrl = mainAudio?.url ?: canonicalUrl,
+                streamUrl = resolvedAudioSource ?: canonicalUrl,
                 formatExpression = mainAudio?.formatId ?: "bestaudio/best",
                 exactBytes = audioSz,
                 isApproximateBytes = true,
                 isAudioOnly = true,
-                isHls = mainAudio == null,
+                isHls = resolvedAudioSource == null,
                 needsMux = true,
                 headers = mainAudio?.headers ?: baseHeaders,
                 badgeAr = "للمحاضرات",
@@ -633,9 +681,12 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
         val baseHeaders = info.httpHeaders ?: emptyMap()
 
         val audioCandidates = rawFormats.filter { fmt ->
-            val vcodec = fmt.vcodec?.lowercase(Locale.ROOT) ?: "none"
-            val acodec = fmt.acodec?.lowercase(Locale.ROOT) ?: "none"
-            (vcodec == "none" || vcodec.isBlank()) && acodec != "none" && !fmt.url.isNullOrBlank()
+            val vcodec = fmt.vcodec?.lowercase(Locale.ROOT).orEmpty().takeUnless { it == "null" } ?: "none"
+            val acodec = fmt.acodec?.lowercase(Locale.ROOT).orEmpty().takeUnless { it == "null" } ?: "none"
+            val ext = fmt.ext?.lowercase(Locale.ROOT).orEmpty()
+            val urlLower = fmt.url.orEmpty().lowercase(Locale.ROOT)
+            val isAudioHint = ext in AUDIO_ONLY_EXTS || urlLower.contains("mime_type=audio") || urlLower.contains("mime=audio")
+            ((vcodec == "none" || vcodec.isBlank()) && (acodec != "none" || isAudioHint)) && !fmt.url.isNullOrBlank()
         }
         val bestAudio = audioCandidates.maxByOrNull { parseSize(it, durationSec).first }
 
@@ -643,8 +694,14 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
         val videoByRes = rawFormats
             .filter { fmt ->
                 val fh = fmt.height
-                val vcodec = fmt.vcodec?.lowercase(Locale.ROOT) ?: ""
-                vcodec != "none" && fh > 0 && !fmt.url.isNullOrBlank()
+                val fw = fmt.width
+                val vcodec = fmt.vcodec?.lowercase(Locale.ROOT).orEmpty().takeUnless { it == "null" } ?: "none"
+                val ext = fmt.ext?.lowercase(Locale.ROOT).orEmpty()
+                val urlLower = fmt.url.orEmpty().lowercase(Locale.ROOT)
+                val isAudioHint = ext in AUDIO_ONLY_EXTS || urlLower.contains("mime_type=audio") || urlLower.contains("mime=audio")
+                val hasVid = (vcodec != "none" && vcodec.isNotBlank()) ||
+                    (!isAudioHint && (fh > 0 || fw > 0 || ext in VIDEO_CONTAINER_EXTS))
+                hasVid && !fmt.url.isNullOrBlank()
             }
             .groupBy { fmt ->
                 val fw = fmt.width
@@ -667,8 +724,12 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
 
             val isHls = ResolverHttpUtils.isManifestUrl(chosen.url)
             val isDash = chosen.url?.contains(".mpd", ignoreCase = true) == true
-            val hasAudio = (chosen.acodec?.lowercase(Locale.ROOT) ?: "none") != "none"
-            val effectivelyHasAudio = hasAudio || bestAudio != null
+            val vcodecClean = chosen.vcodec?.lowercase(Locale.ROOT).orEmpty().takeUnless { it == "null" } ?: "none"
+            val acodecClean = chosen.acodec?.lowercase(Locale.ROOT).orEmpty().takeUnless { it == "null" } ?: "none"
+            val hasAudio = acodecClean != "none" && acodecClean.isNotBlank()
+            val implicitMuxed = vcodecClean == "none" && acodecClean == "none" &&
+                bestAudio == null && !isDash
+            val effectivelyHasAudio = hasAudio || bestAudio != null || implicitMuxed
             val needsMux = (!hasAudio && bestAudio != null) || isHls || isDash
             val (videoSize, videoApprox) = parseSize(chosen, durationSec)
             val (audioSize, audioApprox) = if (!hasAudio && bestAudio != null) {
@@ -685,13 +746,13 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
             val formatExpr = if (!hasAudio && bestAudio?.formatId != null && chosen.formatId != null) {
                 "${chosen.formatId}+${bestAudio.formatId}"
             } else {
-                chosen.formatId ?: "best[height<=$h]"
+                chosen.formatId ?: if (h > 0) "best[height<=$h]" else "best"
             }
 
             builtOptions += ResolvedMediaFormat(
-                id = "${h}p",
-                labelAr = qualityLabelAr(h, 0),
-                labelEn = "${h}p",
+                id = if (h > 0) "${h}p" else (chosen.formatId ?: "best"),
+                labelAr = if (h > 0) qualityLabelAr(h, 0) else "أفضل جودة متاحة",
+                labelEn = if (h > 0) "${h}p" else "Best",
                 subLabelAr = when {
                     !effectivelyHasAudio -> "فيديو فقط (بدون صوت في المصدر)"
                     isHls || isDash -> "بث مجزأ + دمج تلقائي"
@@ -711,7 +772,7 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
                 isHls = isHls,
                 isDash = isDash,
                 needsMux = needsMux,
-                headers = chosen.httpHeaders ?: baseHeaders,
+                headers = chosen.headersMap(),
                 badgeAr = badgeArForHeight(h),
                 badgeEn = badgeEnForHeight(h),
                 width = chosen.width,
@@ -742,6 +803,27 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
                 headers = bestAudio?.httpHeaders ?: baseHeaders,
                 badgeAr = "صوت أصلي",
                 badgeEn = "Original Audio",
+                hasVideo = false,
+                hasAudio = true
+            )
+            builtOptions += ResolvedMediaFormat(
+                id = "audio_mp3",
+                labelAr = "صوت فقط • MP3",
+                labelEn = "MP3",
+                subLabelAr = "تحويل تلقائي متوافق مع كل المشغلات",
+                containerExt = "mp3",
+                mimeType = "audio/mpeg",
+                bitrateKbps = 320,
+                streamUrl = bestAudio?.url ?: canonicalUrl,
+                formatExpression = bestAudio?.formatId ?: "bestaudio/best",
+                exactBytes = audioSz,
+                isApproximateBytes = true,
+                isAudioOnly = true,
+                isHls = bestAudio == null,
+                needsMux = true,
+                headers = bestAudio?.httpHeaders ?: baseHeaders,
+                badgeAr = "للمحاضرات",
+                badgeEn = "For Lectures",
                 hasVideo = false,
                 hasAudio = true
             )
@@ -801,6 +883,19 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
         h == 720 -> "HD"
         h in 1..144 -> "Data Saver"
         else -> null
+    }
+
+    private fun optCleanString(obj: JSONObject, key: String): String {
+        if (obj.isNull(key)) return ""
+        val raw = obj.optString(key, "").trim()
+        return if (raw.equals("null", ignoreCase = true)) "" else raw
+    }
+
+    private fun VideoFormat.headersMap(): Map<String, String> = httpHeaders ?: emptyMap()
+
+    private companion object {
+        val AUDIO_ONLY_EXTS = setOf("mp3", "m4a", "aac", "opus", "ogg", "wav", "flac", "weba")
+        val VIDEO_CONTAINER_EXTS = setOf("mp4", "mov", "webm", "m4v", "mkv", "ts", "3gp")
     }
 }
 

@@ -72,6 +72,69 @@ class UnifiedMediaResolver(
                 } else {
                     val isAudio = sniffed.mimeType.startsWith("audio/")
                     val probedSize = probe?.contentLength ?: -1L
+                    val primarySniffedFormat = ResolvedMediaFormat(
+                        id = if (isAudio) "audio_m4a" else "best",
+                        labelAr = if (isAudio) "صوت مستخلص" else "جودة الفيديو المتاحة • MP4",
+                        labelEn = if (isAudio) "Extracted Audio" else "MP4",
+                        subLabelAr = if (sniffed.isHlsOrDash) "بث مباشر (FFmpeg)" else "رابط مباشر سريع",
+                        containerExt = if (isAudio) "m4a" else "mp4",
+                        mimeType = sniffed.mimeType.ifBlank { if (isAudio) "audio/mp4" else "video/mp4" },
+                        resolutionHeight = 0,
+                        streamUrl = sniffed.mediaUrl,
+                        exactBytes = probedSize,
+                        isApproximateBytes = probedSize <= 0L,
+                        isAudioOnly = isAudio,
+                        isHls = sniffed.isHlsOrDash,
+                        needsMux = sniffed.isHlsOrDash,
+                        headers = sniffed.headers,
+                        hasVideo = !isAudio,
+                        hasAudio = true
+                    )
+                    val sniffedFormats = if (matchedAdapter.platform == MediaPlatform.TIKTOK && !isAudio) {
+                        listOf(
+                            primarySniffedFormat,
+                            ResolvedMediaFormat(
+                                id = "audio_m4a",
+                                labelAr = "صوت فقط • M4A عالي النقاء",
+                                labelEn = "M4A",
+                                subLabelAr = "استخلاص الصوت الأصلي من الفيديو",
+                                containerExt = "m4a",
+                                mimeType = "audio/mp4",
+                                bitrateKbps = 192,
+                                streamUrl = sniffed.mediaUrl,
+                                formatExpression = "bestaudio/best",
+                                isApproximateBytes = true,
+                                isAudioOnly = true,
+                                needsMux = true,
+                                headers = sniffed.headers,
+                                badgeAr = "صوت أصلي",
+                                badgeEn = "M4A Audio",
+                                hasVideo = false,
+                                hasAudio = true
+                            ),
+                            ResolvedMediaFormat(
+                                id = "audio_mp3",
+                                labelAr = "صوت فقط • MP3",
+                                labelEn = "MP3",
+                                subLabelAr = "تحويل تلقائي متوافق مع كل المشغلات",
+                                containerExt = "mp3",
+                                mimeType = "audio/mpeg",
+                                bitrateKbps = 320,
+                                streamUrl = sniffed.mediaUrl,
+                                formatExpression = "bestaudio/best",
+                                isApproximateBytes = true,
+                                isAudioOnly = true,
+                                needsMux = true,
+                                headers = sniffed.headers,
+                                badgeAr = "صوت فقط",
+                                badgeEn = "MP3 Audio",
+                                hasVideo = false,
+                                hasAudio = true
+                            )
+                        )
+                    } else {
+                        listOf(primarySniffedFormat)
+                    }
                     return@withContext ResolvedMediaResult.SingleMedia(
                         originalUrl = request.rawUrl,
                         canonicalUrl = canonicalUrl,
@@ -84,24 +147,7 @@ class UnifiedMediaResolver(
                             isAudio -> ResolvedMediaKind.AUDIO_ONLY
                             else -> ResolvedMediaKind.SINGLE_VIDEO
                         },
-                        formats = listOf(
-                            ResolvedMediaFormat(
-                                id = if (isAudio) "audio_m4a" else "best",
-                                labelAr = if (isAudio) "صوت مستخلص" else "جودة الفيديو المتاحة",
-                                labelEn = if (isAudio) "Extracted Audio" else "Stream",
-                                subLabelAr = if (sniffed.isHlsOrDash) "بث مباشر (FFmpeg)" else "رابط مباشر سريع",
-                                containerExt = if (isAudio) "m4a" else "mp4",
-                                mimeType = sniffed.mimeType.ifBlank { if (isAudio) "audio/mp4" else "video/mp4" },
-                                resolutionHeight = 0,
-                                streamUrl = sniffed.mediaUrl,
-                                exactBytes = probedSize,
-                                isApproximateBytes = probedSize <= 0L,
-                                isAudioOnly = isAudio,
-                                isHls = sniffed.isHlsOrDash,
-                                needsMux = sniffed.isHlsOrDash,
-                                headers = sniffed.headers
-                            )
-                        ),
+                        formats = sniffedFormats,
                         headers = sniffed.headers,
                         cookiesHeader = request.cookiesHeader
                     )

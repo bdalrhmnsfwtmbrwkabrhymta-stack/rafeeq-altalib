@@ -222,10 +222,11 @@ class SmartDownloadManager private constructor(
         preferredQualityId: String = "720p"
     ): Int {
         var addedCount = 0
-        for (entry in entries) {
-            if (!entry.selected) continue
+        val baseTimestamp = System.currentTimeMillis()
+        entries.forEachIndexed { idx, entry ->
+            if (!entry.selected) return@forEachIndexed
             val existing = dao.findDuplicate(entry.url, preferredQualityId)
-            if (existing != null) continue
+            if (existing != null) return@forEachIndexed
 
             val id = UUID.randomUUID().toString()
             val isAudio = preferredQualityId.startsWith("audio")
@@ -233,17 +234,22 @@ class SmartDownloadManager private constructor(
             val fileName = StorageHelper.sanitizeFileName(entry.title, ext)
             val partFile = StorageHelper.prepareTempPartFile(appContext, id, fileName)
             val fmtExpr = when (preferredQualityId) {
-                "2160p" -> "bestvideo[height<=2160]+bestaudio/best[height<=2160]"
-                "1440p" -> "bestvideo[height<=1440]+bestaudio/best[height<=1440]"
-                "1080p" -> "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
-                "720p" -> "bestvideo[height<=720]+bestaudio/best[height<=720]"
-                "480p" -> "bestvideo[height<=480]+bestaudio/best[height<=480]"
-                "360p" -> "bestvideo[height<=360]+bestaudio/best[height<=360]"
+                "2160p" -> "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio/best[height<=2160]/best"
+                "1440p" -> "bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio/best[height<=1440]/best"
+                "1080p" -> "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+                "720p" -> "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+                "480p" -> "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]/best"
+                "360p" -> "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]/best"
                 "audio_m4a", "audio_mp3" -> "bestaudio/best"
-                else -> "bestvideo[height<=720]+bestaudio/best"
+                else -> "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best"
             }
 
             val waitingNet = shouldWaitForWifiOrNetwork()
+            val resolvedMime = when {
+                preferredQualityId == "audio_mp3" -> "audio/mpeg"
+                isAudio -> "audio/mp4"
+                else -> "video/mp4"
+            }
             val entity = DownloadEntity(
                 id = id,
                 originalUrl = entry.url,
@@ -258,12 +264,13 @@ class SmartDownloadManager private constructor(
                 isHlsOrDash = true,
                 needsMux = true,
                 fileName = fileName,
-                mimeType = if (isAudio) "audio/mp4" else "video/mp4",
+                mimeType = resolvedMime,
                 tempPartPath = partFile.absolutePath,
                 outputDisplayPath = "Download/HawasElDirasa/${if (isAudio) "Audio" else "Video"}/$fileName",
                 status = if (waitingNet) DownloadStatus.WAITING_NETWORK else DownloadStatus.QUEUED,
                 engineState = if (waitingNet) EngineDownloadState.PAUSED.name else EngineDownloadState.QUEUED.name,
-                durationSeconds = entry.durationSeconds
+                durationSeconds = entry.durationSeconds,
+                createdAt = baseTimestamp + idx
             )
             dao.upsertDownload(entity)
             addedCount++
@@ -663,11 +670,13 @@ class SmartDownloadManager private constructor(
             }
 
             val isImageOrDoc = entity.mimeType.startsWith("image/") || entity.mimeType.contains("pdf", ignoreCase = true)
+            val requireAudioForVideo = !isImageOrDoc &&
+                (entity.needsMux || entity.platform.contains("تيك توك") || entity.platform.contains("قائمة"))
             val probeReport = MediaMergeEngine.verifyFinalArtifact(
                 context = appContext,
                 file = producedFile,
                 requireVideo = !entity.isAudioOnly && !isImageOrDoc,
-                requireAudio = entity.isAudioOnly || (!isImageOrDoc && entity.needsMux),
+                requireAudio = entity.isAudioOnly || requireAudioForVideo,
                 isImageOrDocument = isImageOrDoc
             )
 

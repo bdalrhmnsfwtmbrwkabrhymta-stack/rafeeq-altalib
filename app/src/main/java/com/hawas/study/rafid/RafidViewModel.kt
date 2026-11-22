@@ -45,7 +45,8 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = RafidDatabase.getInstance(appContext).rafidDao()
     private val prefs = RafidPreferencesRepository(appContext)
     private val extractor = UniversalMediaExtractor(
-        ytDlpGateway = com.example.download.core.resolver.AndroidYtDlpGateway(appContext)
+        ytDlpGateway = com.example.download.core.resolver.AndroidYtDlpGateway(appContext),
+        webViewSniffGateway = com.example.download.core.resolver.AndroidWebViewSniffGateway(appContext)
     )
 
     val downloads: StateFlow<List<RafidDownloadEntity>> = dao.observeAllDownloads()
@@ -141,6 +142,26 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                 enqueuePlaylistBundle(metadata, selectedFormat, saveToStudyFolder)
             } else {
                 val streamUrl = selectedFormat.videoUrl ?: metadata.resolvedUrl
+                val fallbackPairedAudioUrl = if (!selectedFormat.isAudioOnly &&
+                    !selectedFormat.hasAudio &&
+                    selectedFormat.audioUrl.isNullOrBlank()
+                ) {
+                    metadata.formats.firstOrNull {
+                        it.isAudioOnly &&
+                            it.containerExt.equals("m4a", true) &&
+                            !it.videoUrl.isNullOrBlank() &&
+                            it.videoUrl != metadata.resolvedUrl
+                    }?.videoUrl ?: metadata.formats.firstOrNull {
+                        it.isAudioOnly &&
+                            !it.videoUrl.isNullOrBlank() &&
+                            it.videoUrl != metadata.resolvedUrl
+                    }?.videoUrl
+                } else {
+                    selectedFormat.audioUrl
+                }
+                val needsAudioTrackMux = selectedFormat.isMuxRequired ||
+                    !fallbackPairedAudioUrl.isNullOrBlank() ||
+                    (!selectedFormat.isAudioOnly && !selectedFormat.hasAudio)
                 val category = AdAndTrackerShield.categoryFromMimeOrExt(selectedFormat.mimeType, selectedFormat.containerExt)
                 val headersJson = selectedFormat.headers.takeIf { it.isNotEmpty() }?.let {
                     org.json.JSONObject(it).toString()
@@ -152,7 +173,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                     originalUrl = metadata.originalUrl,
                     resolvedUrl = metadata.resolvedUrl,
                     videoStreamUrl = streamUrl,
-                    audioStreamUrl = selectedFormat.audioUrl,
+                    audioStreamUrl = fallbackPairedAudioUrl,
                     title = metadata.title,
                     sourceDomain = metadata.sourceDomain,
                     platformName = metadata.platform.name,
@@ -162,7 +183,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                     mimeType = selectedFormat.mimeType,
                     categoryName = category.name,
                     isAudioOnly = selectedFormat.isAudioOnly,
-                    isMuxRequired = selectedFormat.isMuxRequired || !selectedFormat.audioUrl.isNullOrBlank(),
+                    isMuxRequired = needsAudioTrackMux,
                     saveToStudyFolder = saveToStudyFolder,
                     cookiesHeader = metadata.cookiesHeader,
                     userAgent = metadata.userAgent,
@@ -185,70 +206,129 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
         selectedFormat: MediaFormatOption,
         saveToStudyFolder: Boolean
     ) {
-        val wantAudioOnly = selectedFormat.isAudioOnly
-        val entries = mutableListOf<RafidDownloadEntity>()
+        val entries = buildPlaylistDownloadEntities(
+            metadata = metadata,
+            selectedFormat = selectedFormat,
+            saveToStudyFolder = saveToStudyFolder,
+            extractor = extractor
+        )
+        if (entries.isNotEmpty()) {
+            dao.upsertDownloads(entries)
+            dispatchQueueSlots()
+        }
+    }
 
-        for (item in metadata.playlistItems) {
-            val extractedItem = extractor.extract(
-                rawUrl = item.videoUrl,
-                cookiesHeader = metadata.cookiesHeader,
-                userAgent = metadata.userAgent
-            ).getOrNull()
+    internal companion object {
+        internal suspend fun buildPlaylistDownloadEntities(
+            metadata: ExtractedMediaMetadata,
+            selectedFormat: MediaFormatOption,
+            saveToStudyFolder: Boolean,
+            extractor: UniversalMediaExtractor
+        ): List<RafidDownloadEntity> {
+            val wantAudioOnly = selectedFormat.isAudioOnly
+            val baseTimestamp = System.currentTimeMillis()
+            val orderedItems = metadata.playlistItems.sortedBy { it.index }
+            val entries = mutableListOf<RafidDownloadEntity>()
 
-            val chosenFormat = if (extractedItem != null) {
-                if (wantAudioOnly) {
-                    extractedItem.formats.firstOrNull { it.isAudioOnly } ?: extractedItem.formats.firstOrNull()
+            orderedItems.forEachIndexed { idx, item ->
+                val extractedItem = extractor.extract(
+                    rawUrl = item.videoUrl,
+                    cookiesHeader = metadata.cookiesHeader,
+                    userAgent = metadata.userAgent,
+                    checkCollection = false
+                ).getOrNull()
+
+                val chosenFormat = if (extractedItem != null) {
+                    if (wantAudioOnly) {
+                        extractedItem.formats.firstOrNull {
+                            it.isAudioOnly && it.containerExt.equals(selectedFormat.containerExt, ignoreCase = true)
+                        } ?: extractedItem.formats.firstOrNull { it.isAudioOnly }
+                    } else {
+                        extractedItem.formats.firstOrNull {
+                            !it.isAudioOnly && it.hasAudio && (it.resolutionHeight ?: 0) <= 1080
+                        } ?: extractedItem.formats.firstOrNull {
+                            !it.isAudioOnly && (it.resolutionHeight ?: 0) <= 1080
+                        } ?: extractedItem.formats.firstOrNull {
+                            !it.isAudioOnly
+                        }
+                    }
                 } else {
-                    extractedItem.formats.firstOrNull { !it.isAudioOnly && (it.resolutionHeight ?: 0) <= 1080 }
-                        ?: extractedItem.formats.firstOrNull { !it.isAudioOnly }
-                        ?: extractedItem.formats.firstOrNull()
+                    null
                 }
-            } else {
-                null
-            }
 
-            if (chosenFormat != null && !chosenFormat.videoUrl.isNullOrBlank()) {
-                val category = AdAndTrackerShield.categoryFromMimeOrExt(chosenFormat.mimeType, chosenFormat.containerExt)
-                val headersJson = chosenFormat.headers.takeIf { it.isNotEmpty() }?.let {
+                val targetExt = if (wantAudioOnly) {
+                    chosenFormat?.containerExt?.ifBlank { selectedFormat.containerExt }
+                        ?: selectedFormat.containerExt.ifBlank { "m4a" }
+                } else {
+                    "mp4"
+                }
+                val targetMime = if (wantAudioOnly) {
+                    if (targetExt.equals("mp3", true)) "audio/mpeg" else "audio/mp4"
+                } else {
+                    "video/mp4"
+                }
+
+                val pairedAudioUrl = if (!wantAudioOnly && chosenFormat != null && chosenFormat.audioUrl.isNullOrBlank() && !chosenFormat.hasAudio) {
+                    extractedItem?.formats?.firstOrNull {
+                        it.isAudioOnly && it.containerExt.equals("m4a", true) && !it.videoUrl.isNullOrBlank() && it.videoUrl != extractedItem.resolvedUrl
+                    }?.videoUrl ?: extractedItem?.formats?.firstOrNull {
+                        it.isAudioOnly && !it.videoUrl.isNullOrBlank() && it.videoUrl != extractedItem.resolvedUrl
+                    }?.videoUrl
+                } else {
+                    chosenFormat?.audioUrl
+                }
+
+                val effectiveVideoUrl = chosenFormat?.videoUrl?.takeIf { it.isNotBlank() } ?: item.videoUrl
+                val effectiveFormatExpr = chosenFormat?.formatExpression?.takeIf { it.isNotBlank() }
+                    ?: if (wantAudioOnly) {
+                        "bestaudio/best"
+                    } else {
+                        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+                    }
+                val needsMux = chosenFormat == null ||
+                    chosenFormat.isMuxRequired ||
+                    !pairedAudioUrl.isNullOrBlank() ||
+                    (!wantAudioOnly && !chosenFormat.hasAudio)
+
+                val category = AdAndTrackerShield.categoryFromMimeOrExt(targetMime, targetExt)
+                val headersJson = chosenFormat?.headers?.takeIf { it.isNotEmpty() }?.let {
                     org.json.JSONObject(it).toString()
                 }
-                val audioLang = chosenFormat.languageCode.takeIf { it.isNotBlank() }
-                    ?: chosenFormat.languageLabel.takeIf { it.isNotBlank() }
+                val audioLang = chosenFormat?.languageCode?.takeIf { it.isNotBlank() }
+                    ?: chosenFormat?.languageLabel?.takeIf { it.isNotBlank() }
+
                 entries += RafidDownloadEntity(
                     id = UUID.randomUUID().toString(),
                     originalUrl = item.videoUrl,
                     resolvedUrl = extractedItem?.resolvedUrl ?: item.videoUrl,
-                    videoStreamUrl = chosenFormat.videoUrl,
-                    audioStreamUrl = chosenFormat.audioUrl,
+                    videoStreamUrl = effectiveVideoUrl,
+                    audioStreamUrl = if (wantAudioOnly) null else pairedAudioUrl,
                     title = "${item.index}. ${item.title}",
                     sourceDomain = metadata.sourceDomain,
                     platformName = metadata.platform.name,
                     thumbnailUrl = item.thumbnailUrl ?: metadata.thumbnailUrl,
-                    qualityLabel = chosenFormat.label,
-                    containerExt = chosenFormat.containerExt,
-                    mimeType = chosenFormat.mimeType,
+                    qualityLabel = chosenFormat?.label ?: if (wantAudioOnly) targetExt.uppercase() else "1080p MP4",
+                    containerExt = targetExt,
+                    mimeType = targetMime,
                     categoryName = category.name,
-                    isAudioOnly = chosenFormat.isAudioOnly,
-                    isMuxRequired = chosenFormat.isMuxRequired || !chosenFormat.audioUrl.isNullOrBlank(),
+                    isAudioOnly = wantAudioOnly,
+                    isMuxRequired = needsMux,
                     saveToStudyFolder = saveToStudyFolder,
                     isPlaylistItem = true,
                     playlistTitle = metadata.title,
                     cookiesHeader = extractedItem?.cookiesHeader ?: metadata.cookiesHeader,
                     userAgent = metadata.userAgent,
                     status = RafidDownloadStatus.QUEUED.name,
-                    totalBytes = chosenFormat.estimatedSizeBytes,
+                    totalBytes = chosenFormat?.estimatedSizeBytes ?: -1L,
                     displayPath = RafidMediaStoreSaver.buildDisplaySubfolder(category, saveToStudyFolder),
                     headersJson = headersJson,
-                    formatExpression = chosenFormat.formatExpression,
+                    formatExpression = effectiveFormatExpr,
                     audioLanguage = audioLang,
+                    createdAtMillis = baseTimestamp + idx,
                     engineState = "QUEUED"
                 )
             }
-        }
-
-        if (entries.isNotEmpty()) {
-            dao.upsertDownloads(entries)
-            dispatchQueueSlots()
+            return entries
         }
     }
 

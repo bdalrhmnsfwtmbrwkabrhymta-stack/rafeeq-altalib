@@ -419,6 +419,7 @@ class TikTokProviderAdapter(
 
     override suspend fun resolve(canonicalUrl: String, request: ResolveRequest): ResolvedMediaResult {
         val diag = StringBuilder()
+        val isExplicitMusicPage = canonicalUrl.contains("/music/", ignoreCase = true)
 
         if (ytDlpGateway.isAvailable()) {
             // Leave extraArgs empty so AndroidYtDlpGateway executes its default + multi-hostname fallback cascade cleanly
@@ -427,15 +428,34 @@ class TikTokProviderAdapter(
                 cookiesFile = request.cookiesFile
             ).onSuccess { info ->
                 if (info.formats.isNotEmpty()) {
+                    val sanitizedFormats = info.formats.map { fmt ->
+                        if (!fmt.isAudioOnly && isLikelyAudioOnlyUrl(fmt.streamUrl)) {
+                            fmt.copy(
+                                isAudioOnly = true,
+                                hasVideo = false,
+                                hasAudio = true,
+                                containerExt = if (fmt.streamUrl.contains(".mp3", true)) "mp3" else "m4a",
+                                mimeType = if (fmt.streamUrl.contains(".mp3", true)) "audio/mpeg" else "audio/mp4"
+                            )
+                        } else {
+                            fmt
+                        }
+                    }
                     val candidateMedia = buildPlatformMediaFromYtDlp(
                         originalUrl = request.rawUrl,
                         canonicalUrl = canonicalUrl,
                         platform = MediaPlatform.TIKTOK,
-                        info = info,
+                        info = info.copy(formats = sanitizedFormats),
                         cookiesHeader = request.cookiesHeader
                     )
                     val verified = filterPlayableFormatsOrFail(candidateMedia, diag)
-                    if (verified is ResolvedMediaResult.SingleMedia) return verified
+                    if (verified is ResolvedMediaResult.SingleMedia) {
+                        val hasPlayableVideo = verified.formats.any { !it.isAudioOnly }
+                        if (hasPlayableVideo || isExplicitMusicPage) {
+                            return verified
+                        }
+                        diag.appendLine("[yt-dlp-tt] Returned audio-only formats for TikTok video URL; falling back to HTML/sniffer")
+                    }
                 }
             }.onFailure { diag.appendLine("[yt-dlp-tt] ${it.message}") }
         }
@@ -460,10 +480,33 @@ class TikTokProviderAdapter(
         val mergedCookies = ResolverHttpUtils.mergeCookieStrings(request.cookiesHeader, resp.setCookiesHeader)
         val parsed = parseTikTokHtml(request.rawUrl, resp.finalUrl, resp.body, mergedCookies, diag)
         return if (parsed is ResolvedMediaResult.SingleMedia) {
-            filterPlayableFormatsOrFail(parsed, diag)
+            val verified = filterPlayableFormatsOrFail(parsed, diag)
+            if (!isExplicitMusicPage &&
+                verified is ResolvedMediaResult.SingleMedia &&
+                verified.formats.none { !it.isAudioOnly }
+            ) {
+                ResolvedMediaResult.Failure(
+                    DownloadError.ExtractionFailed("تيك توك", "TikTok HTML returned audio only without video stream"),
+                    diag.toString()
+                )
+            } else {
+                verified
+            }
         } else {
             parsed
         }
+    }
+
+    private fun isLikelyAudioOnlyUrl(url: String?): Boolean {
+        val lower = url?.lowercase(Locale.ROOT).orEmpty()
+        if (lower.isBlank()) return false
+        val path = lower.substringBefore('?').substringBefore('#')
+        return path.endsWith(".mp3") ||
+            path.endsWith(".m4a") ||
+            path.endsWith(".aac") ||
+            path.endsWith(".opus") ||
+            lower.contains("mime_type=audio") ||
+            lower.contains("mime=audio")
     }
 
     private fun filterPlayableFormatsOrFail(
@@ -487,27 +530,41 @@ class TikTokProviderAdapter(
                 }
             }
             val probe = ResolverHttpUtils.probeStreamMedia(httpClient, fmt.streamUrl, mergedHeaders)
+            val audioProbe = fmt.audioStreamUrl?.takeIf {
+                it.startsWith("http", true) && !ResolverHttpUtils.isManifestUrl(it)
+            }?.let { audioUrl ->
+                ResolverHttpUtils.probeStreamMedia(httpClient, audioUrl, mergedHeaders)
+            }
+
             if (!probe.reachable) {
                 // Offline / no direct network reachability in probe -> preserve candidate for downstream engine
                 verifiedFormats += fmt
-            } else if (probe.isHtmlPage) {
+            } else if (probe.isHtmlPage || (audioProbe != null && audioProbe.reachable && audioProbe.isHtmlPage)) {
                 sawHtmlResponse = true
                 diag.appendLine("[tt-probe] Rejected HTML response for ${fmt.id} (${probe.contentType})")
-            } else if (probe.statusCode >= 400) {
-                lastStatusCode = probe.statusCode
-                diag.appendLine("[tt-probe] Rejected HTTP ${probe.statusCode} for ${fmt.id}")
+            } else if (probe.statusCode >= 400 || (audioProbe != null && audioProbe.reachable && audioProbe.statusCode >= 400)) {
+                lastStatusCode = maxOf(probe.statusCode, audioProbe?.statusCode ?: 0)
+                diag.appendLine("[tt-probe] Rejected HTTP $lastStatusCode for ${fmt.id}")
             } else {
+                val isAudioActual = probe.contentType.startsWith("audio/", ignoreCase = true)
                 val updatedBytes = if (fmt.exactBytes <= 0L && probe.contentLength > 0L) probe.contentLength else fmt.exactBytes
                 verifiedFormats += fmt.copy(
                     exactBytes = updatedBytes,
                     isApproximateBytes = updatedBytes <= 0L,
+                    isAudioOnly = fmt.isAudioOnly || isAudioActual,
+                    hasVideo = !fmt.isAudioOnly && !isAudioActual,
+                    hasAudio = fmt.hasAudio || isAudioActual,
                     headers = mergedHeaders
                 )
             }
         }
 
         if (verifiedFormats.isNotEmpty()) {
-            return media.copy(formats = verifiedFormats)
+            val sortedVerified = verifiedFormats.sortedWith(
+                compareBy<ResolvedMediaFormat> { it.isAudioOnly }
+                    .thenByDescending { it.resolutionHeight }
+            )
+            return media.copy(formats = sortedVerified)
         }
         return if (sawHtmlResponse) {
             ResolvedMediaResult.Failure(
@@ -552,109 +609,161 @@ class TikTokProviderAdapter(
         }
 
         val rehydrationJson = ResolverHttpUtils.extractScriptJsonById(html, "__UNIVERSAL_DATA_FOR_REHYDRATION__")
-        if (rehydrationJson != null) {
-            val defaultScope = rehydrationJson.optJSONObject("__DEFAULT_SCOPE__")
-            val itemStruct = defaultScope?.optJSONObject("webapp.video-detail")
-                ?.optJSONObject("itemInfo")
-                ?.optJSONObject("itemStruct")
-            if (itemStruct != null) {
-                title = itemStruct.optString("desc").takeIf { it.isNotBlank() } ?: title
-                author = itemStruct.optJSONObject("author")?.optString("nickname")
-                    ?.takeIf { it.isNotBlank() } ?: author
-                val videoObj = itemStruct.optJSONObject("video")
-                if (videoObj != null) {
-                    duration = videoObj.optInt("duration", 0)
-                    thumb = videoObj.optString("cover").takeIf { it.isNotBlank() } ?: thumb
+        val rehydrationItem = rehydrationJson?.optJSONObject("__DEFAULT_SCOPE__")
+            ?.optJSONObject("webapp.video-detail")
+            ?.optJSONObject("itemInfo")
+            ?.optJSONObject("itemStruct")
 
-                    val vidW = videoObj.optInt("width", 0)
-                    val vidH = videoObj.optInt("height", 0)
-                    val baseEffH = if (vidW > 0 && vidH > 0) minOf(vidW, vidH) else vidH.coerceAtLeast(0)
+        val sigiItem = if (rehydrationItem == null) {
+            val sigiJson = ResolverHttpUtils.extractScriptJsonById(html, "SIGI_STATE")
+            val itemModule = sigiJson?.optJSONObject("ItemModule")
+            val firstKey = itemModule?.keys()?.let { if (it.hasNext()) it.next() else null }
+            firstKey?.let { itemModule.optJSONObject(it) }
+        } else {
+            null
+        }
 
-                    val bitrateInfo = videoObj.optJSONArray("bitrateInfo") ?: JSONArray()
-                    val seenUrls = hashSetOf<String>()
-                    for (i in 0 until bitrateInfo.length()) {
-                        val bObj = bitrateInfo.optJSONObject(i) ?: continue
-                        val playAddrObj = bObj.optJSONObject("PlayAddr")
-                        val urlList = playAddrObj?.optJSONArray("UrlList") ?: continue
-                        val streamUrl = urlList.optString(0).takeIf { it.startsWith("http", true) } ?: continue
-                        if (!seenUrls.add(streamUrl)) continue
-                        val pW = playAddrObj.optInt("Width", 0)
-                        val pH = playAddrObj.optInt("Height", 0)
-                        val height = when {
-                            pW > 0 && pH > 0 -> minOf(pW, pH)
-                            pH > 0 -> pH
-                            else -> baseEffH
+        val itemStruct = rehydrationItem ?: sigiItem
+        if (itemStruct != null) {
+            title = itemStruct.optString("desc").takeIf { it.isNotBlank() } ?: title
+            author = itemStruct.optJSONObject("author")?.optString("nickname")
+                ?.takeIf { it.isNotBlank() }
+                ?: itemStruct.optString("author").takeIf { it.isNotBlank() && !it.startsWith("{") }
+                ?: author
+            val videoObj = itemStruct.optJSONObject("video")
+            if (videoObj != null) {
+                duration = videoObj.optInt("duration", 0)
+                thumb = videoObj.optString("cover").takeIf { it.isNotBlank() } ?: thumb
+
+                val vidW = videoObj.optInt("width", 0)
+                val vidH = videoObj.optInt("height", 0)
+                val baseEffH = if (vidW > 0 && vidH > 0) minOf(vidW, vidH) else vidH.coerceAtLeast(0)
+
+                val bitrateInfo = videoObj.optJSONArray("bitrateInfo") ?: JSONArray()
+                val seenUrls = hashSetOf<String>()
+                for (i in 0 until bitrateInfo.length()) {
+                    val bObj = bitrateInfo.optJSONObject(i) ?: continue
+                    val playAddrObj = bObj.optJSONObject("PlayAddr")
+                    val urlList = playAddrObj?.optJSONArray("UrlList") ?: continue
+                    var chosenStreamUrl: String? = null
+                    for (j in 0 until urlList.length()) {
+                        val cand = urlList.optString(j).takeIf { it.startsWith("http", true) } ?: continue
+                        if (!isLikelyAudioOnlyUrl(cand)) {
+                            chosenStreamUrl = cand
+                            break
                         }
-                        val dataSize = playAddrObj.optLong("DataSize", -1L)
-                        formats += ResolvedMediaFormat(
-                            id = "tt_br_$i",
-                            labelAr = qualityLabelForHeight(height),
-                            labelEn = if (height > 0) "${height}p" else "Original",
-                            subLabelAr = "بدون علامة مائية • MP4",
-                            containerExt = "mp4",
-                            mimeType = "video/mp4",
-                            resolutionHeight = height,
-                            width = pW,
-                            bitrateKbps = bObj.optInt("Bitrate", 0) / 1000,
-                            streamUrl = streamUrl,
-                            exactBytes = dataSize,
-                            isApproximateBytes = dataSize <= 0L,
-                            headers = headers,
-                            badgeAr = "بدون علامة مائية",
-                            badgeEn = "No Watermark"
-                        )
                     }
-
-                    val playAddr = videoObj.optString("playAddr").ifBlank { videoObj.optString("downloadAddr") }
-                    if (playAddr.startsWith("http", true) && seenUrls.add(playAddr)) {
-                        val size = ResolverHttpUtils.probeContentLength(httpClient, playAddr, headers)
-                        formats += ResolvedMediaFormat(
-                            id = "tt_hd_nowm",
-                            labelAr = qualityLabelForHeight(baseEffH),
-                            labelEn = if (baseEffH > 0) "${baseEffH}p" else "Original",
-                            subLabelAr = "بدون علامة مائية • MP4",
-                            containerExt = "mp4",
-                            mimeType = "video/mp4",
-                            resolutionHeight = baseEffH,
-                            width = vidW,
-                            streamUrl = playAddr,
-                            exactBytes = size,
-                            isApproximateBytes = size <= 0L,
-                            headers = headers,
-                            badgeAr = "بدون علامة مائية",
-                            badgeEn = "No Watermark"
-                        )
+                    val streamUrl = chosenStreamUrl ?: continue
+                    if (!seenUrls.add(streamUrl)) continue
+                    val pW = playAddrObj.optInt("Width", 0)
+                    val pH = playAddrObj.optInt("Height", 0)
+                    val height = when {
+                        pW > 0 && pH > 0 -> minOf(pW, pH)
+                        pH > 0 -> pH
+                        else -> baseEffH
                     }
-                }
-
-                val musicUrl = itemStruct.optJSONObject("music")?.optString("playUrl")
-                if (!musicUrl.isNullOrBlank() && musicUrl.startsWith("http", true)) {
-                    val aSize = ResolverHttpUtils.probeContentLength(httpClient, musicUrl, headers)
+                    val dataSize = playAddrObj.optLong("DataSize", -1L)
                     formats += ResolvedMediaFormat(
-                        id = "tt_audio",
-                        labelAr = "صوت الفيديو فقط • MP3",
-                        labelEn = "MP3 Audio",
-                        subLabelAr = "صوت أصلي سريع بدون فيديو",
-                        containerExt = "mp3",
-                        mimeType = "audio/mpeg",
-                        bitrateKbps = 320,
-                        streamUrl = musicUrl,
-                        exactBytes = aSize,
-                        isAudioOnly = true,
+                        id = "tt_br_$i",
+                        labelAr = qualityLabelForHeight(height),
+                        labelEn = if (height > 0) "${height}p MP4" else "MP4",
+                        subLabelAr = "بدون علامة مائية • MP4",
+                        containerExt = "mp4",
+                        mimeType = "video/mp4",
+                        resolutionHeight = height,
+                        width = pW,
+                        bitrateKbps = bObj.optInt("Bitrate", 0) / 1000,
+                        streamUrl = streamUrl,
+                        exactBytes = dataSize,
+                        isApproximateBytes = dataSize <= 0L,
                         headers = headers,
-                        badgeAr = "صوت فقط",
-                        badgeEn = "Audio Only"
+                        badgeAr = "بدون علامة مائية",
+                        badgeEn = "No Watermark",
+                        hasVideo = true,
+                        hasAudio = true
                     )
                 }
+
+                val playAddr = videoObj.optString("playAddr").ifBlank { videoObj.optString("downloadAddr") }
+                if (playAddr.startsWith("http", true) && !isLikelyAudioOnlyUrl(playAddr) && seenUrls.add(playAddr)) {
+                    val size = ResolverHttpUtils.probeContentLength(httpClient, playAddr, headers)
+                    formats += ResolvedMediaFormat(
+                        id = "tt_hd_nowm",
+                        labelAr = qualityLabelForHeight(baseEffH),
+                        labelEn = if (baseEffH > 0) "${baseEffH}p MP4" else "MP4",
+                        subLabelAr = "بدون علامة مائية • MP4",
+                        containerExt = "mp4",
+                        mimeType = "video/mp4",
+                        resolutionHeight = baseEffH,
+                        width = vidW,
+                        streamUrl = playAddr,
+                        exactBytes = size,
+                        isApproximateBytes = size <= 0L,
+                        headers = headers,
+                        badgeAr = "بدون علامة مائية",
+                        badgeEn = "No Watermark",
+                        hasVideo = true,
+                        hasAudio = true
+                    )
+                }
+            }
+
+            val musicUrl = itemStruct.optJSONObject("music")?.optString("playUrl")
+            if (!musicUrl.isNullOrBlank() && musicUrl.startsWith("http", true)) {
+                val aSize = ResolverHttpUtils.probeContentLength(httpClient, musicUrl, headers)
+                val primaryVidUrl = formats.firstOrNull { !it.isAudioOnly }?.streamUrl
+                formats += ResolvedMediaFormat(
+                    id = "audio_m4a",
+                    labelAr = "صوت فقط • M4A عالي النقاء",
+                    labelEn = "M4A",
+                    subLabelAr = "صوت أصلي سريع بدون فيديو",
+                    containerExt = "m4a",
+                    mimeType = "audio/mp4",
+                    bitrateKbps = 192,
+                    streamUrl = primaryVidUrl ?: musicUrl,
+                    formatExpression = "bestaudio/best",
+                    exactBytes = aSize,
+                    isApproximateBytes = aSize <= 0L,
+                    isAudioOnly = true,
+                    needsMux = true,
+                    headers = headers,
+                    badgeAr = "صوت أصلي",
+                    badgeEn = "M4A Audio",
+                    hasVideo = false,
+                    hasAudio = true
+                )
+                formats += ResolvedMediaFormat(
+                    id = "tt_audio",
+                    labelAr = "صوت الفيديو فقط • MP3",
+                    labelEn = "MP3 Audio",
+                    subLabelAr = "صوت أصلي سريع بدون فيديو",
+                    containerExt = "mp3",
+                    mimeType = "audio/mpeg",
+                    bitrateKbps = 320,
+                    streamUrl = musicUrl,
+                    exactBytes = aSize,
+                    isAudioOnly = true,
+                    headers = headers,
+                    badgeAr = "صوت فقط",
+                    badgeEn = "Audio Only",
+                    hasVideo = false,
+                    hasAudio = true
+                )
             }
         }
 
         if (formats.none { !it.isAudioOnly }) {
             val ogVid = ResolverHttpUtils.extractMetaContent(html, "og:video:secure_url")
                 ?: ResolverHttpUtils.extractMetaContent(html, "og:video")
+                ?: Regex(""""(?:playAddr|downloadAddr)"\s*:\s*"(https?:[^"]+)"""")
+                    .find(html)?.groupValues?.getOrNull(1)?.let {
+                        ResolverHttpUtils.decodeHtmlEntities(it.replace("\\u0026", "&"))
+                    }
                 ?: Regex("""https://[^\s"'<>\\]*tiktokcdn[^\s"'<>\\]*""", RegexOption.IGNORE_CASE)
-                    .find(html)?.value?.let(ResolverHttpUtils::decodeHtmlEntities)
-            if (!ogVid.isNullOrBlank() && ogVid.startsWith("http", true)) {
+                    .findAll(html)
+                    .map { ResolverHttpUtils.decodeHtmlEntities(it.value) }
+                    .firstOrNull { !isLikelyAudioOnlyUrl(it) }
+            if (!ogVid.isNullOrBlank() && ogVid.startsWith("http", true) && !isLikelyAudioOnlyUrl(ogVid)) {
                 val size = ResolverHttpUtils.probeContentLength(httpClient, ogVid, headers)
                 formats += ResolvedMediaFormat(
                     id = "tt_og_video",
@@ -669,9 +778,55 @@ class TikTokProviderAdapter(
                     isApproximateBytes = size <= 0L,
                     headers = headers,
                     badgeAr = "بدون علامة مائية",
-                    badgeEn = "No Watermark"
+                    badgeEn = "No Watermark",
+                    hasVideo = true,
+                    hasAudio = true
                 )
             }
+        }
+
+        val bestVideoFormat = formats.firstOrNull { !it.isAudioOnly }
+        if (bestVideoFormat != null && formats.none { it.isAudioOnly && it.containerExt.equals("m4a", true) }) {
+            formats += ResolvedMediaFormat(
+                id = "audio_m4a",
+                labelAr = "صوت فقط • M4A عالي النقاء",
+                labelEn = "M4A",
+                subLabelAr = "استخلاص الصوت الأصلي من الفيديو",
+                containerExt = "m4a",
+                mimeType = "audio/mp4",
+                bitrateKbps = 192,
+                streamUrl = bestVideoFormat.streamUrl,
+                formatExpression = "bestaudio/best",
+                isApproximateBytes = true,
+                isAudioOnly = true,
+                needsMux = true,
+                headers = headers,
+                badgeAr = "صوت أصلي",
+                badgeEn = "M4A Audio",
+                hasVideo = false,
+                hasAudio = true
+            )
+        }
+        if (bestVideoFormat != null && formats.none { it.isAudioOnly && it.containerExt.equals("mp3", true) }) {
+            formats += ResolvedMediaFormat(
+                id = "tt_audio",
+                labelAr = "صوت الفيديو فقط • MP3",
+                labelEn = "MP3 Audio",
+                subLabelAr = "تحويل تلقائي متوافق مع كل المشغلات",
+                containerExt = "mp3",
+                mimeType = "audio/mpeg",
+                bitrateKbps = 320,
+                streamUrl = bestVideoFormat.streamUrl,
+                formatExpression = "bestaudio/best",
+                isApproximateBytes = true,
+                isAudioOnly = true,
+                needsMux = true,
+                headers = headers,
+                badgeAr = "صوت فقط",
+                badgeEn = "MP3 Audio",
+                hasVideo = false,
+                hasAudio = true
+            )
         }
 
         if (formats.isEmpty()) {

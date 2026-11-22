@@ -20,16 +20,17 @@ import com.hawas.study.rafid.engine.AdAndTrackerShield
 import com.hawas.study.rafid.engine.RafidMediaStoreSaver
 import com.hawas.study.rafid.models.RafidDownloadStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
 
 /**
  * Decoupled Serial Muxer Queue Worker:
- * Runs strictly 1 job at a time via ExistingWorkPolicy.APPEND_OR_REPLACE so multiple
- * simultaneous network downloads never cause OOM or hang at 100% while muxing.
- * Uses Android MediaMuxer first (zero-reencode), with safe FFmpeg fallback if MediaMuxer
- * cannot mux incompatible tracks; never discards partial tracks on recoverable failure.
+ * Uses a Mutex lock so strictly 1 FFmpeg/MediaMuxer job runs at a time without OOM,
+ * while isolating WorkManager unique work per downloadId so a single item failure
+ * never cascades to cancel subsequent playlist items.
  */
 class SerialFFmpegMuxerWorker(
     appContext: Context,
@@ -42,6 +43,30 @@ class SerialFFmpegMuxerWorker(
         const val KEY_VIDEO_FILE = "video_file_path"
         const val KEY_AUDIO_FILE = "audio_file_path"
         const val KEY_AUDIO_ONLY = "is_audio_only"
+
+        private val muxMutex = Mutex()
+
+        fun uniqueMuxWorkName(downloadId: String): String = "rafid_mux_$downloadId"
+
+        suspend fun runSerializedMux(
+            context: Context,
+            primaryMediaFile: File,
+            secondaryAudioFile: File?,
+            desiredOutputFile: File,
+            desiredExtension: String,
+            audioOnly: Boolean
+        ): com.example.download.core.media.MergeExecutionResult = withContext(Dispatchers.IO) {
+            muxMutex.withLock {
+                MediaMergeEngine.muxTracksWithFfmpeg(
+                    context = context,
+                    primaryMediaFile = primaryMediaFile,
+                    secondaryAudioFile = secondaryAudioFile,
+                    desiredOutputFile = desiredOutputFile,
+                    desiredExtension = desiredExtension,
+                    audioOnly = audioOnly
+                )
+            }
+        }
 
         fun enqueueSerialMux(
             context: Context,
@@ -59,13 +84,14 @@ class SerialFFmpegMuxerWorker(
 
             val request = OneTimeWorkRequestBuilder<SerialFFmpegMuxerWorker>()
                 .setInputData(data)
+                .addTag(UNIQUE_SERIAL_MUX_WORK)
                 .addTag("rafid_mux_$downloadId")
                 .build()
 
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(
-                    UNIQUE_SERIAL_MUX_WORK,
-                    ExistingWorkPolicy.APPEND_OR_REPLACE,
+                    uniqueMuxWorkName(downloadId),
+                    ExistingWorkPolicy.REPLACE,
                     request
                 )
         }
@@ -228,7 +254,7 @@ class SerialFFmpegMuxerWorker(
         var completedOk = false
 
         return@withContext try {
-            val mergeResult = MediaMergeEngine.muxTracksWithFfmpeg(
+            val mergeResult = runSerializedMux(
                 context = applicationContext,
                 primaryMediaFile = primaryFile,
                 secondaryAudioFile = secondaryFile,

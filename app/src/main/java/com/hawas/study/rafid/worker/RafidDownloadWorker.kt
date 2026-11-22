@@ -21,6 +21,7 @@ import com.example.download.core.model.DownloadEngineException
 import com.example.download.core.model.DownloadError
 import com.example.download.core.model.DownloadErrorMapper
 import com.example.download.core.model.EngineDownloadState
+import com.example.download.core.resolver.AndroidWebViewSniffGateway
 import com.example.download.core.resolver.AndroidYtDlpGateway
 import com.example.download.core.resolver.ResolverHttpUtils
 import com.hawas.study.rafid.data.RafidDao
@@ -32,6 +33,7 @@ import com.hawas.study.rafid.engine.UniversalLinkResolver
 import com.hawas.study.rafid.engine.UniversalMediaExtractor
 import com.hawas.study.rafid.models.RafidDownloadStatus
 import com.hawas.study.rafid.models.RafidMediaCategory
+import com.hawas.study.rafid.models.RafidPlatform
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
@@ -119,7 +121,11 @@ class RafidDownloadWorker(
         val tempDir = File(applicationContext.cacheDir, "rafid_tmp/$downloadId").apply { mkdirs() }
         val primaryTemp = File(tempDir, "primary.${record.containerExt.ifBlank { "mp4" }}")
         val ytDlpGateway = AndroidYtDlpGateway(applicationContext)
-        val extractor = UniversalMediaExtractor(client, ytDlpGateway = ytDlpGateway)
+        val extractor = UniversalMediaExtractor(
+            httpClient = client,
+            ytDlpGateway = ytDlpGateway,
+            webViewSniffGateway = AndroidWebViewSniffGateway(applicationContext)
+        )
 
         var resolvedStreamUrl = record.videoStreamUrl
         var resolvedAudioUrl = record.audioStreamUrl
@@ -145,8 +151,8 @@ class RafidDownloadWorker(
 
         suspend fun refreshStreamsFromSource(): Pair<String, Map<String, String>>? {
             dao.updateEngineState(downloadId, "RESOLVING")
-            val reExtracted = extractor.extract(record.resolvedUrl, activeCookies, record.userAgent).getOrNull()
-                ?: extractor.extract(record.originalUrl, activeCookies, record.userAgent).getOrNull()
+            val reExtracted = extractor.extract(record.resolvedUrl, activeCookies, record.userAgent, checkCollection = false).getOrNull()
+                ?: extractor.extract(record.originalUrl, activeCookies, record.userAgent, checkCollection = false).getOrNull()
                 ?: return null
             val candidate = reExtracted.formats.firstOrNull { fmt ->
                 !fmt.videoUrl.isNullOrBlank() &&
@@ -194,9 +200,21 @@ class RafidDownloadWorker(
                 etaSeconds = 0L
             )
 
-            // Handle HLS / DASH manifests through yt-dlp + FFmpeg cleanly
-            if (ResolverHttpUtils.isManifestUrl(resolvedStreamUrl)) {
-                val manifestDownloadUrl = if (record.formatExpression?.contains("+") == true) {
+            val mustRequireVideoAndAudio = !record.isAudioOnly && !isImageOrDoc &&
+                (record.isMuxRequired || record.platformName == RafidPlatform.TIKTOK.name || record.isPlaylistItem)
+
+            // Handle HLS / DASH manifests or unresolved page/watch URLs cleanly through yt-dlp + FFmpeg
+            val shouldUseYtDlpManifestPath = !isImageOrDoc && (
+                ResolverHttpUtils.isManifestUrl(resolvedStreamUrl) ||
+                    resolvedStreamUrl == record.resolvedUrl ||
+                    (record.isMuxRequired && resolvedAudioUrl.isNullOrBlank() && !record.formatExpression.isNullOrBlank() && !record.isAudioOnly)
+                )
+
+            if (shouldUseYtDlpManifestPath) {
+                val manifestDownloadUrl = if (resolvedStreamUrl == record.resolvedUrl ||
+                    record.formatExpression?.contains("+") == true ||
+                    (record.isAudioOnly && record.resolvedUrl.startsWith("http", true))
+                ) {
                     record.resolvedUrl.ifBlank { resolvedStreamUrl }
                 } else {
                     resolvedStreamUrl
@@ -206,7 +224,7 @@ class RafidDownloadWorker(
                     url = manifestDownloadUrl,
                     outDir = tempDir,
                     isAudioOnly = record.isAudioOnly,
-                    targetExt = record.containerExt.ifBlank { "mp4" },
+                    targetExt = record.containerExt.ifBlank { if (record.isAudioOnly) "m4a" else "mp4" },
                     formatExpression = record.formatExpression,
                     headers = activeHeaders,
                     knownTotalBytes = record.totalBytes,
@@ -221,7 +239,7 @@ class RafidDownloadWorker(
                     context = applicationContext,
                     file = downloadedManifestFile,
                     requireVideo = !record.isAudioOnly && !isImageOrDoc,
-                    requireAudio = record.isAudioOnly || (!isImageOrDoc && record.isMuxRequired),
+                    requireAudio = record.isAudioOnly || mustRequireVideoAndAudio,
                     isImageOrDocument = isImageOrDoc
                 )
                 val category = AdAndTrackerShield.categoryFromMimeOrExt(manifestMime, manifestExt)
@@ -293,7 +311,14 @@ class RafidDownloadWorker(
             val secondaryAudioTemp = if (!resolvedAudioUrl.isNullOrBlank()) {
                 currentStage = "DOWNLOADING_AUDIO"
                 dao.updateEngineState(downloadId, "DOWNLOADING_AUDIO")
-                val audioFile = File(tempDir, "audio_track.m4a")
+                val inferredAudioExt = when {
+                    resolvedAudioUrl!!.contains("mime=audio/webm", ignoreCase = true) ||
+                        resolvedAudioUrl!!.contains("mime=audio%2Fwebm", ignoreCase = true) ||
+                        resolvedAudioUrl!!.contains(".webm", ignoreCase = true) -> "webm"
+                    resolvedAudioUrl!!.contains(".mp3", ignoreCase = true) -> "mp3"
+                    else -> "m4a"
+                }
+                val audioFile = File(tempDir, "audio_track.$inferredAudioExt")
                 val audioStore = RafidFileChunkStore(File(tempDir, "audio_chunks.meta"), dao, CoroutineScope(Dispatchers.IO))
                 val audioEngine = SegmentedDownloadEngine(audioStore, client)
                 audioEngine.download(
@@ -302,11 +327,11 @@ class RafidDownloadWorker(
                         url = resolvedAudioUrl!!,
                         headers = activeHeaders,
                         targetPartFile = audioFile,
-                        expectedMimeType = "audio/mp4",
+                        expectedMimeType = if (inferredAudioExt == "webm") "audio/webm" else "audio/mp4",
                         requestedChunks = 4,
                         isPausedOrCanceled = isPausedCheck,
                         onRefreshExpiredUrl = {
-                            val re = extractor.extract(record.resolvedUrl, activeCookies, record.userAgent).getOrNull()
+                            val re = extractor.extract(record.resolvedUrl, activeCookies, record.userAgent, checkCollection = false).getOrNull()
                             val candAudio = re?.formats?.firstOrNull {
                                 !it.audioUrl.isNullOrBlank() &&
                                     (record.audioLanguage.isNullOrBlank() || it.languageCode == record.audioLanguage)
@@ -327,13 +352,83 @@ class RafidDownloadWorker(
                 currentStage = "MERGING"
                 dao.updateEngineState(downloadId, "MERGING")
                 dao.updateDownloadStatus(downloadId, RafidDownloadStatus.MUXING.name, null)
-                SerialFFmpegMuxerWorker.enqueueSerialMux(
+
+                val targetExt = if (record.isAudioOnly) {
+                    if (record.containerExt.equals("mp3", ignoreCase = true)) "mp3" else "m4a"
+                } else {
+                    record.containerExt.ifBlank { "mp4" }
+                }
+                val muxedOutput = File(tempDir, "muxed_output.$targetExt")
+
+                val mergeExecution = try {
+                    val merged = SerialFFmpegMuxerWorker.runSerializedMux(
+                        context = applicationContext,
+                        primaryMediaFile = downloadedPrimary,
+                        secondaryAudioFile = secondaryAudioTemp,
+                        desiredOutputFile = muxedOutput,
+                        desiredExtension = targetExt,
+                        audioOnly = record.isAudioOnly
+                    )
+                    currentStage = "VERIFYING"
+                    dao.updateEngineState(downloadId, "VERIFYING")
+                    MediaMergeEngine.verifyFinalArtifact(
+                        context = applicationContext,
+                        file = merged.outputFile,
+                        requireVideo = !record.isAudioOnly && !isImageOrDoc,
+                        requireAudio = record.isAudioOnly || mustRequireVideoAndAudio,
+                        isImageOrDocument = isImageOrDoc
+                    )
+                    merged.outputFile to (merged.finalExtension to merged.finalMimeType)
+                } catch (mergeFailure: Throwable) {
+                    if (record.resolvedUrl.startsWith("http", ignoreCase = true) && !isImageOrDoc) {
+                        val fallbackFile = downloadManifestWithYtDlp(
+                            downloadId = downloadId,
+                            url = record.resolvedUrl,
+                            outDir = tempDir,
+                            isAudioOnly = record.isAudioOnly,
+                            targetExt = targetExt,
+                            formatExpression = record.formatExpression,
+                            headers = activeHeaders,
+                            knownTotalBytes = record.totalBytes,
+                            ytDlpGateway = ytDlpGateway,
+                            dao = dao
+                        )
+                        currentStage = "VERIFYING"
+                        dao.updateEngineState(downloadId, "VERIFYING")
+                        val fbExt = fallbackFile.extension.ifBlank { targetExt }
+                        val fbMime = MediaMergeEngine.mimeForExt(fbExt, record.isAudioOnly)
+                        MediaMergeEngine.verifyFinalArtifact(
+                            context = applicationContext,
+                            file = fallbackFile,
+                            requireVideo = !record.isAudioOnly,
+                            requireAudio = record.isAudioOnly || mustRequireVideoAndAudio,
+                            isImageOrDocument = false
+                        )
+                        fallbackFile to (fbExt to fbMime)
+                    } else {
+                        throw mergeFailure
+                    }
+                }
+
+                val (finalMergedFile, extAndMime) = mergeExecution
+                val (finalExt, finalMime) = extAndMime
+                val category = AdAndTrackerShield.categoryFromMimeOrExt(finalMime, finalExt)
+                val saved = RafidMediaStoreSaver.saveFileToRafidDownloads(
                     context = applicationContext,
-                    downloadId = downloadId,
-                    videoFilePath = downloadedPrimary.absolutePath,
-                    audioFilePath = secondaryAudioTemp?.absolutePath,
-                    isAudioOnly = record.isAudioOnly
+                    sourceFile = finalMergedFile,
+                    title = record.title,
+                    extension = finalExt,
+                    mimeType = finalMime,
+                    category = category,
+                    saveToStudyFolder = record.saveToStudyFolder
                 )
+                dao.markDownloadCompleted(
+                    id = downloadId,
+                    finalSize = saved.fileSizeBytes,
+                    mediaStoreUri = saved.uriString,
+                    displayPath = saved.displayPath
+                )
+                runCatching { tempDir.deleteRecursively() }
             } else {
                 currentStage = "VERIFYING"
                 dao.updateEngineState(downloadId, "VERIFYING")
@@ -341,7 +436,7 @@ class RafidDownloadWorker(
                     context = applicationContext,
                     file = downloadedPrimary,
                     requireVideo = !record.isAudioOnly && !isImageOrDoc,
-                    requireAudio = record.isAudioOnly,
+                    requireAudio = record.isAudioOnly || mustRequireVideoAndAudio,
                     isImageOrDocument = isImageOrDoc
                 )
                 val category = AdAndTrackerShield.categoryFromMimeOrExt(record.mimeType, record.containerExt)
@@ -409,11 +504,13 @@ class RafidDownloadWorker(
         }
         val runtimePaths = MediaMergeEngine.ensureRuntimeReady(applicationContext)
         val outBase = File(outDir, "hls_out")
-        val req = YoutubeDLRequest(url).apply {
+        fun buildYtDlpRequest(exprOverride: String?): YoutubeDLRequest = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
             addOption("--no-warnings")
             addOption("--continue")
             addOption("--concurrent-fragments", "8")
+            addOption("--retries", "8")
+            addOption("--fragment-retries", "8")
             addOption("--ffmpeg-location", runtimePaths.binDir.absolutePath)
             addOption("-o", "${outBase.absolutePath}.%(ext)s")
             headers.forEach { (k, v) ->
@@ -424,37 +521,59 @@ class RafidDownloadWorker(
             }
             if (isAudioOnly) {
                 addOption("-x")
-                addOption("--audio-format", targetExt)
+                addOption("--audio-format", targetExt.ifBlank { "m4a" })
+                addOption("--audio-quality", "0")
             } else {
-                if (!formatExpression.isNullOrBlank()) {
-                    addOption("-f", formatExpression)
-                }
+                val chosenExpr = exprOverride?.takeIf { it.isNotBlank() }
+                    ?: "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+                addOption("-f", chosenExpr)
                 addOption("--merge-output-format", "mp4")
             }
         }
+
+        val fallbackExpr = if (isAudioOnly) {
+            "bestaudio/best"
+        } else {
+            "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+        }
+        val expressionsToTry = listOfNotNull(
+            formatExpression?.takeIf { it.isNotBlank() },
+            fallbackExpr
+        ).distinct()
+
         var mergedSent = false
-        YoutubeDL.getInstance().execute(req, "rafid_$downloadId") { progress, eta, line ->
-            val cleanLine = line ?: ""
-            if (!mergedSent && (cleanLine.contains("[Merger]", true) || cleanLine.contains("Fixing", true))) {
-                mergedSent = true
-                runBlocking {
-                    dao.updateEngineState(downloadId, "MERGING")
-                    dao.updateDownloadStatus(downloadId, RafidDownloadStatus.MUXING.name, null)
+        var lastExecError: Throwable? = null
+        for (expr in expressionsToTry) {
+            lastExecError = null
+            try {
+                YoutubeDL.getInstance().execute(buildYtDlpRequest(expr), "rafid_$downloadId") { progress, eta, line ->
+                    val cleanLine = line ?: ""
+                    if (!mergedSent && (cleanLine.contains("[Merger]", true) || cleanLine.contains("Fixing", true))) {
+                        mergedSent = true
+                        runBlocking {
+                            dao.updateEngineState(downloadId, "MERGING")
+                            dao.updateDownloadStatus(downloadId, RafidDownloadStatus.MUXING.name, null)
+                        }
+                    } else {
+                        val estDone = if (knownTotalBytes > 0L) ((progress.coerceIn(0f, 100f) / 100f) * knownTotalBytes).toLong() else 0L
+                        runBlocking {
+                            dao.updateDownloadProgress(
+                                id = downloadId,
+                                status = RafidDownloadStatus.DOWNLOADING.name,
+                                downloadedBytes = estDone,
+                                totalBytes = knownTotalBytes,
+                                speedBytesPerSec = 0L,
+                                etaSeconds = eta.coerceAtLeast(0L)
+                            )
+                        }
+                    }
                 }
-            } else {
-                val estDone = if (knownTotalBytes > 0L) ((progress.coerceIn(0f, 100f) / 100f) * knownTotalBytes).toLong() else 0L
-                runBlocking {
-                    dao.updateDownloadProgress(
-                        id = downloadId,
-                        status = RafidDownloadStatus.DOWNLOADING.name,
-                        downloadedBytes = estDone,
-                        totalBytes = knownTotalBytes,
-                        speedBytesPerSec = 0L,
-                        etaSeconds = eta.coerceAtLeast(0L)
-                    )
-                }
+                break
+            } catch (t: Throwable) {
+                lastExecError = t
             }
         }
+        if (lastExecError != null) throw lastExecError
 
         val producedFiles = outDir.listFiles()
             ?.filter { it.name.startsWith("hls_out.") && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") && it.length() > 0L }
@@ -467,7 +586,7 @@ class RafidDownloadWorker(
             if (vidPart != null && audPart != null) {
                 dao.updateEngineState(downloadId, "MERGING")
                 val muxedFile = File(outDir, "hls_merged.${targetExt.ifBlank { "mp4" }}")
-                val res = MediaMergeEngine.muxTracksWithFfmpeg(
+                val res = SerialFFmpegMuxerWorker.runSerializedMux(
                     context = applicationContext,
                     primaryMediaFile = vidPart,
                     secondaryAudioFile = audPart,
@@ -479,8 +598,27 @@ class RafidDownloadWorker(
             }
         }
 
-        return producedFiles.maxByOrNull { it.lastModified() }
+        val latest = producedFiles.maxByOrNull { it.lastModified() }
             ?: throw DownloadEngineException(DownloadError.MergeFailed("HLS/DASH output file missing after FFmpeg merge"))
+
+        if (isAudioOnly) {
+            val cleanAudioExt = if (targetExt.equals("mp3", true)) "mp3" else "m4a"
+            if (!latest.extension.equals(cleanAudioExt, ignoreCase = true)) {
+                dao.updateEngineState(downloadId, "MERGING")
+                val convertedAudio = File(outDir, "hls_audio.$cleanAudioExt")
+                val res = SerialFFmpegMuxerWorker.runSerializedMux(
+                    context = applicationContext,
+                    primaryMediaFile = latest,
+                    secondaryAudioFile = null,
+                    desiredOutputFile = convertedAudio,
+                    desiredExtension = cleanAudioExt,
+                    audioOnly = true
+                )
+                return res.outputFile
+            }
+        }
+
+        return latest
     }
 
     private fun buildEffectiveHeaders(

@@ -509,8 +509,9 @@ object MediaMergeEngine {
         val aCodec = (secondaryProbe?.audioStreams?.firstOrNull() ?: primaryProbe.audioStreams.firstOrNull())
             ?.codecName.orEmpty().lowercase(Locale.ROOT)
 
-        val mp4VideoOk = vCodec.isBlank() || vCodec in setOf("h264", "avc", "hevc", "h265", "av1", "mpeg4")
-        val mp4AudioOk = aCodec.isBlank() || aCodec in setOf("aac", "mp3", "ac3", "eac3", "alac", "mp4a")
+        val mp4VideoOk = vCodec.isBlank() || vCodec in setOf("h264", "avc", "hevc", "h265", "av1", "av01", "mpeg4")
+        val mp4AudioOk = aCodec.isBlank() || aCodec.startsWith("mp4a") ||
+            aCodec in setOf("aac", "mp3", "ac3", "eac3", "alac")
 
         val baseInputs = if (secondaryAudioFile != null) {
             listOf(
@@ -545,8 +546,10 @@ object MediaMergeEngine {
                     )
                 )
             }
-            // If video codec is VP8/VP9 + Opus -> lossless WebM container or MKV container keeps 100% quality without re-encoding video
-            if (vCodec in setOf("vp8", "vp9", "av1") && aCodec in setOf("", "opus", "vorbis")) {
+            // If video codec is VP8/VP9/AV1 + Opus/Vorbis (or unknown probe) -> lossless WebM container keeps 100% quality without re-encoding video
+            if ((vCodec in setOf("vp8", "vp9", "av1", "av01") || (vCodec.isBlank() && cleanExt == "webm")) &&
+                aCodec in setOf("", "opus", "vorbis")
+            ) {
                 add(
                     FfmpegAttempt(
                         tag = "webm_stream_copy",
@@ -570,7 +573,7 @@ object MediaMergeEngine {
         val aCodec = (secondary?.audioStreams?.firstOrNull() ?: primary.audioStreams.firstOrNull())
             ?.codecName.orEmpty().lowercase(Locale.ROOT)
         val videoOk = vCodec in setOf("h264", "avc", "hevc", "h265")
-        val audioOk = aCodec in setOf("aac", "mp4a")
+        val audioOk = aCodec in setOf("aac", "mp4a") || aCodec.startsWith("mp4a")
         return videoOk && audioOk
     }
 
@@ -689,7 +692,14 @@ object MediaMergeEngine {
                     mime.startsWith("audio/") -> "audio"
                     else -> "other"
                 }
-                val codec = mime.substringAfter('/').substringBefore(';')
+                val rawCodec = mime.substringAfter('/').substringBefore(';')
+                val codec = when {
+                    rawCodec == "mp4a-latm" || rawCodec.startsWith("mp4a") -> "aac"
+                    rawCodec.contains("vp9") -> "vp9"
+                    rawCodec.contains("vp8") -> "vp8"
+                    rawCodec == "av01" -> "av1"
+                    else -> rawCodec
+                }
                 val w = if (fmt.containsKey(MediaFormat.KEY_WIDTH)) fmt.getInteger(MediaFormat.KEY_WIDTH) else 0
                 val h = if (fmt.containsKey(MediaFormat.KEY_HEIGHT)) fmt.getInteger(MediaFormat.KEY_HEIGHT) else 0
                 val lang = if (fmt.containsKey(MediaFormat.KEY_LANGUAGE)) fmt.getString(MediaFormat.KEY_LANGUAGE).orEmpty() else ""

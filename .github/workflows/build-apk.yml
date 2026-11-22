@@ -218,16 +218,14 @@ jobs:
           RELEASE_TAG="debug-apk-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           RELEASE_TITLE="Debug APK Build #${GITHUB_RUN_NUMBER}"
 
-          RELEASE_NOTES="$(cat <<EOF
-          This is an automatically generated debug APK built by GitHub Actions.
-
-          - **Workflow Run Number:** ${GITHUB_RUN_NUMBER}
-          - **Workflow Run Attempt:** ${GITHUB_RUN_ATTEMPT}
-          - **Source Commit SHA:** ${GITHUB_SHA}
-
-          > **Note:** This APK is intended for testing only. It is **not** a Google Play Store production release and is signed only with a temporary debug keystore.
-          EOF
-          )"
+          RELEASE_NOTES="$(printf '%s\n' \
+            "This is an automatically generated debug APK built by GitHub Actions." \
+            "" \
+            "- **Workflow Run Number:** ${GITHUB_RUN_NUMBER}" \
+            "- **Workflow Run Attempt:** ${GITHUB_RUN_ATTEMPT}" \
+            "- **Source Commit SHA:** ${GITHUB_SHA}" \
+            "" \
+            "> **Note:** This APK is intended for testing only. It is **not** a Google Play Store production release and is signed only with a temporary debug keystore.")"
 
           gh release create "$RELEASE_TAG" "$ASSET_PATH" \
             --target "$GITHUB_SHA" \
@@ -239,7 +237,7 @@ jobs:
           echo "release_title=${RELEASE_TITLE}" >> "$GITHUB_OUTPUT"
 
       - name: Report APK download result
-        if: ${{ always() && steps.prepare_asset.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && steps.prepare_asset.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISH_OUTCOME: ${{ steps.publish_release.outcome }}
@@ -251,7 +249,7 @@ jobs:
           RELEASE_TITLE="Debug APK Build #${GITHUB_RUN_NUMBER}"
 
           if [ "$PUBLISH_OUTCOME" = "success" ]; then
-            RELEASE_URL="$(gh release view "$RELEASE_TAG" --json url -q .url)"
+            RELEASE_URL="$(gh release view "$RELEASE_TAG" --json url -q .url 2>/dev/null || true)"
             if [ -z "$RELEASE_URL" ]; then
               echo "::warning::Release was created, but its URL could not be retrieved via gh release view."
               {

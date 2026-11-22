@@ -205,8 +205,9 @@ object AdAndTrackerShield {
         if (!isSniffableMediaUrl(url)) return null
         val lower = url.lowercase(Locale.US)
         val ext = when {
+            lower.contains("mime_type=video") -> "mp4"
             lower.contains(".mp3") -> "mp3"
-            lower.contains(".m4a") || lower.contains("mime=audio") -> "m4a"
+            lower.contains(".m4a") || lower.contains("mime=audio") || lower.contains("mime_type=audio") -> "m4a"
             lower.contains(".webm") -> "webm"
             lower.contains(".m3u8") -> "m3u8"
             else -> "mp4"
