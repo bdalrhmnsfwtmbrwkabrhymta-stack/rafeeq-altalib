@@ -226,9 +226,18 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
             extractor: UniversalMediaExtractor
         ): List<RafidDownloadEntity> {
             val wantAudioOnly = selectedFormat.isAudioOnly
+            val targetHeight = (selectedFormat.resolutionHeight ?: 1080).coerceAtLeast(144)
+            val preferDubbedArabic = selectedFormat.isAutoDubbed ||
+                selectedFormat.languageCode.equals("ar", ignoreCase = true) ||
+                selectedFormat.languageLabel.contains("مدبلج") ||
+                selectedFormat.id.contains("dubbed", ignoreCase = true)
+
             val baseTimestamp = System.currentTimeMillis()
             val orderedItems = metadata.playlistItems.sortedBy { it.index }
             val entries = mutableListOf<RafidDownloadEntity>()
+
+            fun MediaFormatOption.isArabicDubbedTrack(): Boolean =
+                isAutoDubbed || languageCode.startsWith("ar", ignoreCase = true) || languageLabel.contains("مدبلج")
 
             orderedItems.forEachIndexed { idx, item ->
                 val extractedItem = extractor.extract(
@@ -240,17 +249,35 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
 
                 val chosenFormat = if (extractedItem != null) {
                     if (wantAudioOnly) {
-                        extractedItem.formats.firstOrNull {
-                            it.isAudioOnly && it.containerExt.equals(selectedFormat.containerExt, ignoreCase = true)
-                        } ?: extractedItem.formats.firstOrNull { it.isAudioOnly }
-                    } else {
-                        extractedItem.formats.firstOrNull {
-                            !it.isAudioOnly && it.hasAudio && (it.resolutionHeight ?: 0) <= 1080
-                        } ?: extractedItem.formats.firstOrNull {
-                            !it.isAudioOnly && (it.resolutionHeight ?: 0) <= 1080
-                        } ?: extractedItem.formats.firstOrNull {
-                            !it.isAudioOnly
+                        val audioCandidates = extractedItem.formats.filter { it.isAudioOnly }
+                        if (preferDubbedArabic) {
+                            audioCandidates.firstOrNull {
+                                it.isArabicDubbedTrack() && it.containerExt.equals(selectedFormat.containerExt, ignoreCase = true)
+                            } ?: audioCandidates.firstOrNull { it.isArabicDubbedTrack() }
+                                ?: audioCandidates.firstOrNull { it.containerExt.equals(selectedFormat.containerExt, ignoreCase = true) }
+                                ?: audioCandidates.firstOrNull()
+                        } else {
+                            audioCandidates.firstOrNull {
+                                !it.isAutoDubbed && it.containerExt.equals(selectedFormat.containerExt, ignoreCase = true)
+                            } ?: audioCandidates.firstOrNull { !it.isAutoDubbed }
+                                ?: audioCandidates.firstOrNull { it.containerExt.equals(selectedFormat.containerExt, ignoreCase = true) }
+                                ?: audioCandidates.firstOrNull()
                         }
+                    } else {
+                        val videoCandidates = extractedItem.formats.filter { !it.isAudioOnly }
+                        val audioMatchedVideos = if (preferDubbedArabic) {
+                            videoCandidates.filter { it.isArabicDubbedTrack() }.ifEmpty { videoCandidates }
+                        } else {
+                            videoCandidates.filter { !it.isAutoDubbed }.ifEmpty { videoCandidates }
+                        }
+                        audioMatchedVideos
+                            .filter { it.hasAudio && (it.resolutionHeight ?: 0) in 1..targetHeight }
+                            .maxByOrNull { it.resolutionHeight ?: 0 }
+                            ?: audioMatchedVideos
+                                .filter { (it.resolutionHeight ?: 0) in 1..targetHeight }
+                                .maxByOrNull { it.resolutionHeight ?: 0 }
+                            ?: audioMatchedVideos.firstOrNull { it.hasAudio }
+                            ?: audioMatchedVideos.firstOrNull()
                     }
                 } else {
                     null
@@ -269,21 +296,31 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val pairedAudioUrl = if (!wantAudioOnly && chosenFormat != null && chosenFormat.audioUrl.isNullOrBlank() && !chosenFormat.hasAudio) {
-                    extractedItem?.formats?.firstOrNull {
-                        it.isAudioOnly && it.containerExt.equals("m4a", true) && !it.videoUrl.isNullOrBlank() && it.videoUrl != extractedItem.resolvedUrl
-                    }?.videoUrl ?: extractedItem?.formats?.firstOrNull {
+                    val audioPool = extractedItem?.formats?.filter {
                         it.isAudioOnly && !it.videoUrl.isNullOrBlank() && it.videoUrl != extractedItem.resolvedUrl
-                    }?.videoUrl
+                    }.orEmpty()
+                    val preferredPool = if (preferDubbedArabic) {
+                        audioPool.filter { it.isArabicDubbedTrack() }.ifEmpty { audioPool }
+                    } else {
+                        audioPool.filter { !it.isAutoDubbed }.ifEmpty { audioPool }
+                    }
+                    preferredPool.firstOrNull { it.containerExt.equals("m4a", true) }?.videoUrl
+                        ?: preferredPool.firstOrNull()?.videoUrl
                 } else {
                     chosenFormat?.audioUrl
                 }
 
                 val effectiveVideoUrl = chosenFormat?.videoUrl?.takeIf { it.isNotBlank() } ?: item.videoUrl
+                val fallbackAudioExpr = if (preferDubbedArabic) {
+                    "bestaudio[language^=ar][ext=m4a]/bestaudio[language^=ar]/bestaudio[ext=m4a]/bestaudio"
+                } else {
+                    "bestaudio[ext=m4a]/bestaudio"
+                }
                 val effectiveFormatExpr = chosenFormat?.formatExpression?.takeIf { it.isNotBlank() }
                     ?: if (wantAudioOnly) {
-                        "bestaudio/best"
+                        if (preferDubbedArabic) "bestaudio[language^=ar]/bestaudio/best" else "bestaudio/best"
                     } else {
-                        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+                        "bestvideo[height<=$targetHeight][ext=mp4]+$fallbackAudioExpr/bestvideo[height<=$targetHeight]+bestaudio/best[height<=$targetHeight]/best"
                     }
                 val needsMux = chosenFormat == null ||
                     chosenFormat.isMuxRequired ||
@@ -296,6 +333,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val audioLang = chosenFormat?.languageCode?.takeIf { it.isNotBlank() }
                     ?: chosenFormat?.languageLabel?.takeIf { it.isNotBlank() }
+                    ?: if (preferDubbedArabic) "ar" else null
 
                 entries += RafidDownloadEntity(
                     id = UUID.randomUUID().toString(),
@@ -307,7 +345,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                     sourceDomain = metadata.sourceDomain,
                     platformName = metadata.platform.name,
                     thumbnailUrl = item.thumbnailUrl ?: metadata.thumbnailUrl,
-                    qualityLabel = chosenFormat?.label ?: if (wantAudioOnly) targetExt.uppercase() else "1080p MP4",
+                    qualityLabel = chosenFormat?.label ?: if (wantAudioOnly) targetExt.uppercase() else "${targetHeight}p MP4",
                     containerExt = targetExt,
                     mimeType = targetMime,
                     categoryName = category.name,

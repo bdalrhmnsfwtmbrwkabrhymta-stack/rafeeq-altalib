@@ -213,7 +213,9 @@ class UniversalMediaExtractor(
                 formatExpression = fmt.formatExpression,
                 headers = res.headers + fmt.headers,
                 languageCode = fmt.languageCode,
-                hasAudio = fmt.hasAudio
+                hasAudio = fmt.hasAudio,
+                isAutoDubbed = fmt.isAutoDubbed,
+                isOriginalAudio = fmt.isOriginalAudio || !fmt.isAutoDubbed
             )
         }
 

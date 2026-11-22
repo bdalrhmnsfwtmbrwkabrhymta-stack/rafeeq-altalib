@@ -170,12 +170,18 @@ class AndroidYtDlpGateway(private val context: Context) : YtDlpGateway {
                     ?.takeIf { it.isNotBlank() && it != "NA" && it != "null" }
                     ?: "فيديو رقم ${idx + 1}"
                 val dur = parts.getOrNull(4)?.trim()?.toDoubleOrNull()?.toInt()?.coerceAtLeast(0) ?: 0
+                val thumbUrl = if (isYouTubeCollection && rawId != null) {
+                    "https://i.ytimg.com/vi/$rawId/hqdefault.jpg"
+                } else {
+                    null
+                }
                 ResolvedCollectionEntry(
                     index = idx + 1,
                     itemId = itemId,
                     title = title,
                     url = entryUrl,
                     durationSeconds = dur,
+                    thumbnailUrl = thumbUrl,
                     selected = true
                 )
             }

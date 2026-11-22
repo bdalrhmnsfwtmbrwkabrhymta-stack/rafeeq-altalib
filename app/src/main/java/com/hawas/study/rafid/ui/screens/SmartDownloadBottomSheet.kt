@@ -67,6 +67,7 @@ import com.hawas.study.rafid.ExtractionUiState
 import com.hawas.study.rafid.models.ExtractedMediaMetadata
 import com.hawas.study.rafid.models.MediaFormatOption
 import com.hawas.study.rafid.models.RafidFormatUtils
+import com.hawas.study.rafid.models.RafidPlatform
 import com.hawas.study.rafid.ui.theme.LocalRafidIsEnglish
 import com.hawas.study.rafid.ui.theme.LocalRafidPalette
 
@@ -223,7 +224,8 @@ fun SmartDownloadBottomSheet(
             is ExtractionUiState.Success -> {
                 SmartDownloadSuccessContent(
                     metadata = extractionState.metadata,
-                    onStartDownload = onStartDownload
+                    onStartDownload = onStartDownload,
+                    onDismiss = onDismiss
                 )
             }
         }
@@ -233,8 +235,25 @@ fun SmartDownloadBottomSheet(
 @Composable
 fun SmartDownloadSuccessContent(
     metadata: ExtractedMediaMetadata,
-    onStartDownload: (metadata: ExtractedMediaMetadata, format: MediaFormatOption, saveToStudyFolder: Boolean) -> Unit
+    onStartDownload: (metadata: ExtractedMediaMetadata, format: MediaFormatOption, saveToStudyFolder: Boolean) -> Unit,
+    onDismiss: () -> Unit = {}
 ) {
+    if (metadata.isPlaylist && metadata.playlistItems.isNotEmpty()) {
+        ZajilPlaylistDownloadContent(
+            metadata = metadata,
+            onStartDownload = onStartDownload,
+            onDismiss = onDismiss
+        )
+        return
+    }
+    if (metadata.platform == RafidPlatform.TIKTOK) {
+        ZajilTikTokDownloadContent(
+            metadata = metadata,
+            onStartDownload = onStartDownload
+        )
+        return
+    }
+
     val palette = LocalRafidPalette.current
     val isEnglish = LocalRafidIsEnglish.current
 

@@ -73,7 +73,9 @@ data class MediaFormatOption(
     val formatExpression: String? = null,
     val headers: Map<String, String> = emptyMap(),
     val languageCode: String = "",
-    val hasAudio: Boolean = true
+    val hasAudio: Boolean = true,
+    val isAutoDubbed: Boolean = false,
+    val isOriginalAudio: Boolean = true
 )
 
 data class PlaylistEntryItem(
