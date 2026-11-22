@@ -154,16 +154,71 @@ class RafidDownloadWorker(
             val reExtracted = extractor.extract(record.resolvedUrl, activeCookies, record.userAgent, checkCollection = false).getOrNull()
                 ?: extractor.extract(record.originalUrl, activeCookies, record.userAgent, checkCollection = false).getOrNull()
                 ?: return null
-            val candidate = reExtracted.formats.firstOrNull { fmt ->
-                !fmt.videoUrl.isNullOrBlank() &&
-                    fmt.isAudioOnly == record.isAudioOnly &&
-                    (fmt.label == record.qualityLabel || (!record.audioLanguage.isNullOrBlank() && fmt.languageCode == record.audioLanguage))
-            } ?: reExtracted.formats.firstOrNull {
-                !it.videoUrl.isNullOrBlank() && it.videoUrl != record.resolvedUrl && it.isAudioOnly == record.isAudioOnly
+
+            val targetMaxHeight = Regex("""(\d{3,4})p""").find(record.qualityLabel)
+                ?.groupValues?.getOrNull(1)?.toIntOrNull()
+            val preferDubbedArabic = record.audioLanguage.equals("ar", ignoreCase = true) ||
+                record.audioLanguage?.contains("مدبلج") == true
+
+            val sameKindFormats = reExtracted.formats.filter {
+                !it.videoUrl.isNullOrBlank() &&
+                    it.videoUrl != record.resolvedUrl &&
+                    it.isAudioOnly == record.isAudioOnly
+            }
+
+            val candidate = if (record.isAudioOnly) {
+                val langMatched = if (preferDubbedArabic) {
+                    sameKindFormats.filter { it.isAutoDubbed || it.languageCode.startsWith("ar", true) }.ifEmpty { sameKindFormats }
+                } else {
+                    sameKindFormats.filter { !it.isAutoDubbed }.ifEmpty { sameKindFormats }
+                }
+                langMatched.firstOrNull { it.containerExt.equals(record.containerExt, true) }
+                    ?: langMatched.firstOrNull()
+            } else {
+                val exactMatch = sameKindFormats.firstOrNull { fmt ->
+                    fmt.label == record.qualityLabel &&
+                        (record.audioLanguage.isNullOrBlank() || fmt.languageCode == record.audioLanguage)
+                }
+                exactMatch ?: run {
+                    val langMatched = if (preferDubbedArabic) {
+                        sameKindFormats.filter { it.isAutoDubbed || it.languageCode.startsWith("ar", true) }.ifEmpty { sameKindFormats }
+                    } else {
+                        sameKindFormats.filter { !it.isAutoDubbed }.ifEmpty { sameKindFormats }
+                    }
+                    if (targetMaxHeight != null) {
+                        val withinCap = langMatched.filter { (it.resolutionHeight ?: 0) in 1..targetMaxHeight }
+                        val bestHeight = withinCap.maxOfOrNull { it.resolutionHeight ?: 0 }
+                        if (bestHeight != null) {
+                            val atBestHeight = withinCap.filter { (it.resolutionHeight ?: 0) == bestHeight }
+                            atBestHeight.firstOrNull { it.hasAudio && it.containerExt.equals("mp4", true) }
+                                ?: atBestHeight.firstOrNull { it.hasAudio }
+                                ?: atBestHeight.firstOrNull { it.containerExt.equals("mp4", true) }
+                                ?: atBestHeight.firstOrNull()
+                        } else {
+                            langMatched.minByOrNull { it.resolutionHeight ?: Int.MAX_VALUE }
+                        }
+                    } else {
+                        langMatched.firstOrNull { it.hasAudio } ?: langMatched.firstOrNull()
+                    }
+                }
             } ?: return null
 
             val newVideoUrl = candidate.videoUrl ?: return null
-            val newAudioUrl = candidate.audioUrl
+            val newAudioUrl = if (!record.isAudioOnly && candidate.audioUrl.isNullOrBlank() && !candidate.hasAudio) {
+                val audioPool = reExtracted.formats.filter {
+                    it.isAudioOnly && !it.videoUrl.isNullOrBlank() && it.videoUrl != record.resolvedUrl
+                }
+                val preferredPool = if (preferDubbedArabic) {
+                    audioPool.filter { it.isAutoDubbed || it.languageCode.startsWith("ar", true) }.ifEmpty { audioPool }
+                } else {
+                    audioPool.filter { !it.isAutoDubbed }.ifEmpty { audioPool }
+                }
+                preferredPool.firstOrNull { it.containerExt.equals("m4a", true) }?.videoUrl
+                    ?: preferredPool.firstOrNull()?.videoUrl
+            } else {
+                candidate.audioUrl
+            }
+
             activeCookies = ResolverHttpUtils.mergeCookieStrings(activeCookies, reExtracted.cookiesHeader)
             val refreshedHeaders = buildMap {
                 putAll(activeHeaders)
@@ -484,6 +539,23 @@ class RafidDownloadWorker(
                 )
             }
             Result.failure()
+        } finally {
+            runCatching {
+                val snap = RafidPreferencesRepository(applicationContext).getSnapshot()
+                if (!snap.isQueuePaused) {
+                    val activeCount = dao.countActiveDownloads()
+                    val freeSlots = (snap.maxConcurrentDownloads - activeCount).coerceAtLeast(0)
+                    if (freeSlots > 0) {
+                        dao.getQueuedDownloads().take(freeSlots).forEach { next ->
+                            enqueueDownload(
+                                context = applicationContext,
+                                downloadId = next.id,
+                                wifiOnly = snap.wifiOnly
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 

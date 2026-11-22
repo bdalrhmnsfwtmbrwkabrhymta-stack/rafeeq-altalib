@@ -106,9 +106,43 @@ private fun playlistItemKey(item: PlaylistEntryItem): String =
 private fun formatTabTitleClean(option: MediaFormatOption): String {
     return when {
         option.isAudioOnly -> option.containerExt.uppercase()
-        option.resolutionHeight != null && option.resolutionHeight > 0 -> "${option.resolutionHeight}p"
         else -> option.label
     }
+}
+
+private fun prepareTikTokDisplayFormats(
+    formats: List<MediaFormatOption>,
+    isEnglish: Boolean
+): List<MediaFormatOption> {
+    val videoFormats = formats.filter { !it.isAudioOnly }
+    val audioFormats = formats.filter { it.isAudioOnly }
+    if (videoFormats.isEmpty()) return formats
+
+    val sortedVideos = videoFormats.sortedWith(
+        compareBy<MediaFormatOption> { opt ->
+            val hint = "${opt.id} ${opt.label} ${opt.videoUrl.orEmpty()}".lowercase()
+            hint.contains("wmplay") ||
+                (hint.contains("watermark") && !hint.contains("no watermark") && !hint.contains("بدون علامة"))
+        }
+            .thenByDescending { it.estimatedSizeBytes.coerceAtLeast(0L) }
+            .thenByDescending { it.resolutionHeight ?: 0 }
+            .thenByDescending { it.bitrateKbps ?: 0 }
+    )
+
+    val labeledVideos = sortedVideos.mapIndexed { index, opt ->
+        val standardLabel = when (index) {
+            0 -> if (isEnglish) "1080p HD (No Watermark — Clearer)" else "1080p HD (بدون علامة مائية — الأوضح)"
+            1 -> if (isEnglish) "720p (No Watermark)" else "720p (بدون علامة مائية)"
+            2 -> "480p"
+            else -> if (isEnglish) "360p (Data Saver)" else "360p (توفير البيانات)"
+        }
+        opt.copy(
+            label = standardLabel,
+            badgeTagAr = null,
+            badgeTagEn = null
+        )
+    }
+    return labeledVideos + audioFormats
 }
 
 private fun MediaFormatOption.matchesAudioPreference(pref: ZajilAudioPreference): Boolean {
@@ -401,9 +435,9 @@ fun ZajilPlaylistDownloadContent(
             ) {
                 Text(
                     text = if (isEnglish) {
-                        "Download $selectedCount videos"
+                        "Download Selected ($selectedCount)"
                     } else {
-                        "تحميل $selectedCount فيديو"
+                        "تحميل المحدد ($selectedCount)"
                     },
                     fontSize = 15.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -487,8 +521,11 @@ fun ZajilTikTokDownloadContent(
     val palette = LocalRafidPalette.current
     val isEnglish = LocalRafidIsEnglish.current
 
-    val videoFormats = remember(metadata) { metadata.formats.filter { !it.isAudioOnly } }
-    val audioFormats = remember(metadata) { metadata.formats.filter { it.isAudioOnly } }
+    val normalizedFormats = remember(metadata, isEnglish) {
+        prepareTikTokDisplayFormats(metadata.formats, isEnglish)
+    }
+    val videoFormats = remember(normalizedFormats) { normalizedFormats.filter { !it.isAudioOnly } }
+    val audioFormats = remember(normalizedFormats) { normalizedFormats.filter { it.isAudioOnly } }
 
     var selectedTab by remember(metadata) {
         mutableIntStateOf(if (videoFormats.isNotEmpty()) 0 else 1)
@@ -505,7 +542,7 @@ fun ZajilTikTokDownloadContent(
     var selectedFormatId by remember(metadata) {
         mutableStateOf(
             videoFormats.firstOrNull { !it.isAutoDubbed }?.id
-                ?: metadata.formats.firstOrNull()?.id
+                ?: normalizedFormats.firstOrNull()?.id
                 ?: ""
         )
     }

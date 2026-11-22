@@ -76,7 +76,7 @@ class ZajilPlaylistAndTikTokUiTest {
 
         composeTestRule.onNodeWithTag("smart_sheet_title").assertTextContains("أدوات الذكاء الاصطناعي")
         composeTestRule.onNodeWithTag("playlist_selected_count").assertTextContains("حُدّد 3 فيديو")
-        composeTestRule.onNodeWithTag("btn_start_fast_download").assertTextContains("تحميل 3 فيديو")
+        composeTestRule.onNodeWithTag("btn_start_fast_download").assertTextContains("تحميل المحدد (3)")
 
         // Uncheck 1 item -> 2 remaining
         composeTestRule.onNodeWithTag("playlist_item_2").performClick()
@@ -206,5 +206,84 @@ class ZajilPlaylistAndTikTokUiTest {
         assertTrue(entities[0].formatExpression!!.contains("height<=480"))
         assertTrue(entities[0].formatExpression!!.contains("language^=ar"))
         assertEquals("ar", entities[0].audioLanguage)
+    }
+
+    @Test
+    fun tiktokSheetSortsBySizeAndShowsStandardCleanQualityLabels() {
+        var startedFormatId: String? = null
+        val tiktokMeta = ExtractedMediaMetadata(
+            originalUrl = "https://www.tiktok.com/@creator/video/999",
+            resolvedUrl = "https://www.tiktok.com/@creator/video/999",
+            title = "مراجعة نهائية",
+            authorOrSource = "creator",
+            sourceDomain = "tiktok.com",
+            platform = RafidPlatform.TIKTOK,
+            durationSeconds = 45,
+            formats = listOf(
+                MediaFormatOption(
+                    id = "tt_small",
+                    label = "576p MP4",
+                    containerExt = "mp4",
+                    mimeType = "video/mp4",
+                    resolutionHeight = 576,
+                    estimatedSizeBytes = 3_200_000L,
+                    isAudioOnly = false
+                ),
+                MediaFormatOption(
+                    id = "tt_wm",
+                    label = "1280p watermark",
+                    containerExt = "mp4",
+                    mimeType = "video/mp4",
+                    resolutionHeight = 1280,
+                    estimatedSizeBytes = 15_000_000L,
+                    videoUrl = "https://cdn.example.com/wmplay.mp4",
+                    isAudioOnly = false
+                ),
+                MediaFormatOption(
+                    id = "tt_hdplay",
+                    label = "1024p MP4",
+                    containerExt = "mp4",
+                    mimeType = "video/mp4",
+                    resolutionHeight = 1024,
+                    estimatedSizeBytes = 12_500_000L,
+                    isAudioOnly = false
+                ),
+                MediaFormatOption(
+                    id = "tt_play",
+                    label = "720p MP4",
+                    containerExt = "mp4",
+                    mimeType = "video/mp4",
+                    resolutionHeight = 720,
+                    estimatedSizeBytes = 6_800_000L,
+                    isAudioOnly = false
+                ),
+                MediaFormatOption(
+                    id = "a_m4a",
+                    label = "M4A",
+                    containerExt = "m4a",
+                    mimeType = "audio/mp4",
+                    estimatedSizeBytes = 900_000L,
+                    isAudioOnly = true
+                )
+            )
+        )
+
+        composeTestRule.setContent {
+            RafidTheme(darkOverride = false, languageMode = RafidLanguageMode.ARABIC) {
+                SmartDownloadSuccessContent(
+                    metadata = tiktokMeta,
+                    onStartDownload = { _, fmt, _ -> startedFormatId = fmt.id }
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("1080p HD (بدون علامة مائية — الأوضح)").assertIsDisplayed()
+        composeTestRule.onNodeWithText("720p (بدون علامة مائية)").assertIsDisplayed()
+        composeTestRule.onNodeWithText("480p").assertIsDisplayed()
+        composeTestRule.onNodeWithText("360p (توفير البيانات)").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("btn_start_fast_download").assertIsEnabled().performClick()
+        assertEquals("tt_hdplay", startedFormatId)
     }
 }

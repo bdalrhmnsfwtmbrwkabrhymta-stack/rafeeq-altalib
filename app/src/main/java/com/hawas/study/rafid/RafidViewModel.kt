@@ -206,12 +206,72 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
         selectedFormat: MediaFormatOption,
         saveToStudyFolder: Boolean
     ) {
-        val entries = buildPlaylistDownloadEntities(
-            metadata = metadata,
-            selectedFormat = selectedFormat,
-            saveToStudyFolder = saveToStudyFolder,
-            extractor = extractor
-        )
+        val wantAudioOnly = selectedFormat.isAudioOnly
+        val targetHeight = (selectedFormat.resolutionHeight ?: 1080).coerceAtLeast(144)
+        val preferDubbedArabic = selectedFormat.isAutoDubbed ||
+            selectedFormat.languageCode.equals("ar", ignoreCase = true) ||
+            selectedFormat.languageLabel.contains("مدبلج") ||
+            selectedFormat.id.contains("dubbed", ignoreCase = true)
+
+        val targetExt = if (wantAudioOnly) selectedFormat.containerExt.ifBlank { "m4a" } else "mp4"
+        val targetMime = if (wantAudioOnly) {
+            if (targetExt.equals("mp3", true)) "audio/mpeg" else "audio/mp4"
+        } else {
+            "video/mp4"
+        }
+        val category = AdAndTrackerShield.categoryFromMimeOrExt(targetMime, targetExt)
+        val fallbackAudioExpr = if (preferDubbedArabic) {
+            "bestaudio[language^=ar][ext=m4a]/bestaudio[language^=ar]/bestaudio[ext=m4a]/bestaudio"
+        } else {
+            "bestaudio[ext=m4a]/bestaudio"
+        }
+        val effectiveFormatExpr = if (wantAudioOnly) {
+            if (preferDubbedArabic) "bestaudio[language^=ar]/bestaudio/best" else "bestaudio/best"
+        } else {
+            "bestvideo[height<=$targetHeight][ext=mp4]+$fallbackAudioExpr/bestvideo[height<=$targetHeight]+bestaudio/best[height<=$targetHeight]/best"
+        }
+        val baseTimestamp = System.currentTimeMillis()
+        val orderedItems = metadata.playlistItems.sortedBy { it.index }
+
+        val entries = orderedItems.mapIndexed { idx, item ->
+            val watchUrl = if (metadata.platform == com.hawas.study.rafid.models.RafidPlatform.YOUTUBE &&
+                item.videoId.isNotBlank() &&
+                !item.videoId.startsWith("item_")
+            ) {
+                "https://www.youtube.com/watch?v=${item.videoId}"
+            } else {
+                item.videoUrl
+            }
+            RafidDownloadEntity(
+                id = UUID.randomUUID().toString(),
+                originalUrl = watchUrl,
+                resolvedUrl = watchUrl,
+                videoStreamUrl = watchUrl,
+                audioStreamUrl = null,
+                title = "${item.index}. ${item.title}",
+                sourceDomain = metadata.sourceDomain,
+                platformName = metadata.platform.name,
+                thumbnailUrl = item.thumbnailUrl ?: metadata.thumbnailUrl,
+                qualityLabel = if (wantAudioOnly) targetExt.uppercase() else "${targetHeight}p",
+                containerExt = targetExt,
+                mimeType = targetMime,
+                categoryName = category.name,
+                isAudioOnly = wantAudioOnly,
+                isMuxRequired = !wantAudioOnly,
+                saveToStudyFolder = saveToStudyFolder,
+                isPlaylistItem = true,
+                playlistTitle = metadata.title,
+                cookiesHeader = metadata.cookiesHeader,
+                userAgent = metadata.userAgent,
+                status = RafidDownloadStatus.QUEUED.name,
+                totalBytes = -1L,
+                displayPath = RafidMediaStoreSaver.buildDisplaySubfolder(category, saveToStudyFolder),
+                formatExpression = effectiveFormatExpr,
+                audioLanguage = if (preferDubbedArabic) "ar" else null,
+                createdAtMillis = baseTimestamp + idx,
+                engineState = "QUEUED"
+            )
+        }
         if (entries.isNotEmpty()) {
             dao.upsertDownloads(entries)
             dispatchQueueSlots()
@@ -270,14 +330,18 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             videoCandidates.filter { !it.isAutoDubbed }.ifEmpty { videoCandidates }
                         }
-                        audioMatchedVideos
-                            .filter { it.hasAudio && (it.resolutionHeight ?: 0) in 1..targetHeight }
-                            .maxByOrNull { it.resolutionHeight ?: 0 }
-                            ?: audioMatchedVideos
-                                .filter { (it.resolutionHeight ?: 0) in 1..targetHeight }
-                                .maxByOrNull { it.resolutionHeight ?: 0 }
-                            ?: audioMatchedVideos.firstOrNull { it.hasAudio }
-                            ?: audioMatchedVideos.firstOrNull()
+                        val withinCap = audioMatchedVideos.filter { (it.resolutionHeight ?: 0) in 1..targetHeight }
+                        val bestHeight = withinCap.maxOfOrNull { it.resolutionHeight ?: 0 }
+                        if (bestHeight != null) {
+                            val atBestHeight = withinCap.filter { (it.resolutionHeight ?: 0) == bestHeight }
+                            atBestHeight.firstOrNull { it.hasAudio && it.containerExt.equals("mp4", true) }
+                                ?: atBestHeight.firstOrNull { it.hasAudio }
+                                ?: atBestHeight.firstOrNull { it.containerExt.equals("mp4", true) }
+                                ?: atBestHeight.firstOrNull()
+                        } else {
+                            audioMatchedVideos.firstOrNull { it.hasAudio }
+                                ?: audioMatchedVideos.firstOrNull()
+                        }
                     }
                 } else {
                     null

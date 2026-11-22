@@ -547,7 +547,11 @@ class TikTokProviderAdapter(
                 diag.appendLine("[tt-probe] Rejected HTTP $lastStatusCode for ${fmt.id}")
             } else {
                 val isAudioActual = probe.contentType.startsWith("audio/", ignoreCase = true)
-                val updatedBytes = if (fmt.exactBytes <= 0L && probe.contentLength > 0L) probe.contentLength else fmt.exactBytes
+                val updatedBytes = if ((fmt.exactBytes <= 0L || fmt.isApproximateBytes) && probe.contentLength > 0L) {
+                    probe.contentLength
+                } else {
+                    fmt.exactBytes
+                }
                 verifiedFormats += fmt.copy(
                     exactBytes = updatedBytes,
                     isApproximateBytes = updatedBytes <= 0L,
@@ -562,7 +566,13 @@ class TikTokProviderAdapter(
         if (verifiedFormats.isNotEmpty()) {
             val sortedVerified = verifiedFormats.sortedWith(
                 compareBy<ResolvedMediaFormat> { it.isAudioOnly }
+                    .thenBy { fmt ->
+                        val hint = "${fmt.id} ${fmt.labelEn} ${fmt.streamUrl}".lowercase(Locale.ROOT)
+                        hint.contains("wmplay") || (hint.contains("watermark") && !hint.contains("no watermark"))
+                    }
+                    .thenByDescending { it.exactBytes.coerceAtLeast(0L) }
                     .thenByDescending { it.resolutionHeight }
+                    .thenByDescending { it.bitrateKbps }
             )
             return media.copy(formats = sortedVerified)
         }
@@ -836,7 +846,12 @@ class TikTokProviderAdapter(
             )
         }
 
-        val sorted = formats.sortedWith(compareBy<ResolvedMediaFormat> { it.isAudioOnly }.thenByDescending { it.resolutionHeight })
+        val sorted = formats.sortedWith(
+            compareBy<ResolvedMediaFormat> { it.isAudioOnly }
+                .thenByDescending { it.exactBytes.coerceAtLeast(0L) }
+                .thenByDescending { it.resolutionHeight }
+                .thenByDescending { it.bitrateKbps }
+        )
         return ResolvedMediaResult.SingleMedia(
             originalUrl = originalUrl,
             canonicalUrl = canonicalUrl,

@@ -290,6 +290,18 @@ fun RafidRootHost(
                 },
                 onStartDownload = { metadata, format, saveToStudyFolder ->
                     rafidViewModel.enqueueDownload(metadata, format, saveToStudyFolder)
+                    if (metadata.isPlaylist && metadata.playlistItems.isNotEmpty()) {
+                        val count = metadata.playlistItems.size
+                        Toast.makeText(
+                            context,
+                            if (config.languageMode == com.hawas.study.rafid.models.RafidLanguageMode.ENGLISH) {
+                                "Added $count videos to download queue"
+                            } else {
+                                "تمت إضافة $count فيديوهات لطابور التحميل"
+                            },
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                     rafidViewModel.resetExtraction()
                     currentTab = RafidScreenTab.HOME
                 },
