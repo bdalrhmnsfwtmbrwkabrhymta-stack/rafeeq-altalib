@@ -67,9 +67,19 @@ android {
     includeInApk = false
     includeInBundle = true
   }
+  androidResources {
+    localeFilters += listOf("ar", "en")
+  }
   packaging {
     jniLibs {
       useLegacyPackaging = true
+      keepDebugSymbols += setOf(
+        "**/*.zip.so",
+        "**/libpython*.so",
+        "**/libffmpeg*.so",
+        "**/libaria2c*.so",
+        "**/libffprobe*.so"
+      )
       excludes += setOf(
         "**/x86/**",
         "**/x86_64/**",

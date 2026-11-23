@@ -41,7 +41,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -50,10 +52,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.rafid.ExtractionUiState
 import com.hawas.study.rafid.RafidViewModel
 import com.hawas.study.rafid.models.RafidDownloadEntity
+import com.hawas.study.rafid.models.RafidDownloadStatus
 import com.hawas.study.rafid.models.RafidFormatUtils
 import com.hawas.study.rafid.models.RafidScreenTab
 import com.hawas.study.rafid.ui.components.DownloadItemInfoDialog
@@ -442,6 +446,9 @@ private fun RafidPlaylistsScreen(
                 }
             } else {
                 items(playlistItems, key = { it.id }) { item ->
+                    val resolvedThumb = remember(item.thumbnailUrl, item.originalUrl, item.resolvedUrl) {
+                        resolveDownloadItemThumbnail(item)
+                    }
                     Surface(
                         onClick = { onOpenItem(item) },
                         shape = RoundedCornerShape(18.dp),
@@ -449,33 +456,66 @@ private fun RafidPlaylistsScreen(
                         border = BorderStroke(1.dp, palette.borderSubtle),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            if (!item.playlistTitle.isNullOrBlank()) {
-                                Text(
-                                    text = item.playlistTitle,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = palette.heroBlue
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 86.dp, height = 52.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(palette.heroBlue.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlaylistPlay,
+                                    contentDescription = null,
+                                    tint = palette.heroBlue,
+                                    modifier = Modifier.size(26.dp)
                                 )
+                                if (!resolvedThumb.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = resolvedThumb,
+                                        contentDescription = item.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
-                            Text(
-                                text = item.title,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = palette.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${item.qualityLabel} • ${
-                                    RafidFormatUtils.formatFileSize(item.totalBytes, isEnglish)
-                                }",
-                                fontSize = 12.sp,
-                                color = palette.textSecondary
-                            )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                if (!item.playlistTitle.isNullOrBlank()) {
+                                    Text(
+                                        text = item.playlistTitle,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = palette.heroBlue,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Text(
+                                    text = item.title,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = palette.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${item.qualityLabel} • ${
+                                        RafidFormatUtils.formatFileSize(item.totalBytes, isEnglish)
+                                    }",
+                                    fontSize = 12.sp,
+                                    color = palette.textSecondary
+                                )
+                                if (item.status == RafidDownloadStatus.DOWNLOADING.name) {
+                                    GreenDownloadingBadgePill(isEnglish = isEnglish)
+                                }
+                            }
                         }
                     }
                 }

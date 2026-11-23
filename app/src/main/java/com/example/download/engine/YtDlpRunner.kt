@@ -101,12 +101,13 @@ class YtDlpRunner(
                 buildRequest("tiktok:api_hostname=api16-normal-c-useast1a.tiktokv.com")
             )
         } else if (!entity.isAudioOnly) {
-            val fallbackFmt = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
-            if (entity.formatId != null && entity.formatId != fallbackFmt) {
-                listOf(buildRequest(null), buildRequest(null, fallbackFmt))
-            } else {
-                listOf(buildRequest(null))
-            }
+            val h264FallbackFmt = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]/best"
+            val progressiveFmt = "best[height<=720][ext=mp4]/best[ext=mp4]/best"
+            listOfNotNull(
+                buildRequest(null),
+                if (entity.formatId != h264FallbackFmt) buildRequest(null, h264FallbackFmt) else null,
+                if (entity.formatId != progressiveFmt) buildRequest(null, progressiveFmt) else null
+            )
         } else {
             listOf(buildRequest(null))
         }

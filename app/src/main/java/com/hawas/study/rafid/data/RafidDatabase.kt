@@ -63,6 +63,12 @@ interface RafidDao {
     suspend fun updateDownloadStatus(id: String, status: String, errorMessage: String? = null)
 
     @Query(
+        "UPDATE rafid_downloads SET status = 'QUEUED', engineState = 'QUEUED', speedBytesPerSec = 0, " +
+            "etaSeconds = 0, errorMessage = NULL WHERE id = :id AND status IN ('DOWNLOADING', 'MUXING')"
+    )
+    suspend fun resetOrphanedActiveToQueued(id: String)
+
+    @Query(
         "UPDATE rafid_downloads SET engineState = :engineState, errorCode = :errorCode, " +
             "diagnosticLog = COALESCE(:diagnosticLog, diagnosticLog) WHERE id = :id"
     )

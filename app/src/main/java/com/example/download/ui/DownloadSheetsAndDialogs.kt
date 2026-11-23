@@ -11,6 +11,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -275,7 +276,7 @@ fun PlaylistSelectionBottomSheet(
     val entries = remember(playlist) {
         mutableStateListOf<PlaylistEntry>().apply { addAll(playlist.entries) }
     }
-    val qualityChoices = listOf("1080p", "720p", "480p", "360p")
+    val qualityChoices = listOf("2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p")
     var selectedQuality by remember { mutableStateOf("720p") }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -311,14 +312,16 @@ fun PlaylistSelectionBottomSheet(
             }
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 qualityChoices.forEach { q ->
                     FilterChip(
                         selected = selectedQuality == q,
                         onClick = { selectedQuality = q },
-                        label = { Text(q) }
+                        label = { Text(if (q == "2160p") "4K 2160p" else q) }
                     )
                 }
             }
@@ -346,6 +349,10 @@ fun PlaylistSelectionBottomSheet(
             ) {
                 items(entries.size) { index ->
                     val item = entries[index]
+                    val resolvedEntryThumb = item.thumbnailUrl?.takeIf { it.startsWith("http", true) }
+                        ?: Regex("""(?:youtu\.be/|youtube\.com/(?:shorts/|watch\?.*v=))([A-Za-z0-9_-]{6,})""")
+                            .find(item.url)?.groupValues?.getOrNull(1)
+                            ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -354,7 +361,8 @@ fun PlaylistSelectionBottomSheet(
                                 entries[index] = item.copy(selected = !item.selected)
                             }
                             .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Checkbox(
                             checked = item.selected,
@@ -362,6 +370,16 @@ fun PlaylistSelectionBottomSheet(
                                 entries[index] = item.copy(selected = checked)
                             }
                         )
+                        if (!resolvedEntryThumb.isNullOrBlank()) {
+                            AsyncImage(
+                                model = resolvedEntryThumb,
+                                contentDescription = item.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(width = 64.dp, height = 40.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                            )
+                        }
                         Text(
                             text = "${item.index}. ${item.title}",
                             style = MaterialTheme.typography.bodyMedium,

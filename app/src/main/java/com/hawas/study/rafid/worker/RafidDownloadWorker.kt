@@ -1,14 +1,21 @@
 package com.hawas.study.rafid.worker
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.example.download.core.downloader.ChunkMetadataStore
@@ -55,6 +62,7 @@ class RafidDownloadWorker(
 
     companion object {
         const val KEY_DOWNLOAD_ID = "download_id"
+        private const val CHANNEL_ID = "rafid_downloads_channel"
 
         fun uniqueWorkName(downloadId: String): String = "rafid_dl_$downloadId"
 
@@ -76,6 +84,8 @@ class RafidDownloadWorker(
 
             if (initialDelayMillis > 0L) {
                 requestBuilder.setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+            } else {
+                requestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             }
 
             WorkManager.getInstance(context).enqueueUniqueWork(
@@ -88,6 +98,31 @@ class RafidDownloadWorker(
         fun cancelDownloadWork(context: Context, downloadId: String) {
             WorkManager.getInstance(context).cancelUniqueWork(uniqueWorkName(downloadId))
             runCatching { YoutubeDL.getInstance().destroyProcessById("rafid_$downloadId") }
+        }
+    }
+
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "تنزيلات التطبيق",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            nm.createNotificationChannel(channel)
+        }
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("هوس الدراسة")
+            .setContentText("جاري التحميل...")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        val notifId = 8400 + (id.hashCode() and 0x0FFF)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(notifId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(notifId, notification)
         }
     }
 
@@ -239,8 +274,18 @@ class RafidDownloadWorker(
         }
 
         return@withContext try {
+            // Immediately transition DB status to DOWNLOADING so UI replaces "في الانتظار" in <1s
+            dao.updateEngineState(downloadId, "RESOLVING")
+            dao.updateDownloadProgress(
+                id = downloadId,
+                status = RafidDownloadStatus.DOWNLOADING.name,
+                downloadedBytes = primaryTemp.length(),
+                totalBytes = record.totalBytes,
+                speedBytesPerSec = 0L,
+                etaSeconds = 0L
+            )
+
             if (resolvedStreamUrl == record.resolvedUrl && !ResolverHttpUtils.isManifestUrl(resolvedStreamUrl)) {
-                dao.updateEngineState(downloadId, "RESOLVING")
                 refreshStreamsFromSource()
             }
 
@@ -541,20 +586,7 @@ class RafidDownloadWorker(
             Result.failure()
         } finally {
             runCatching {
-                val snap = RafidPreferencesRepository(applicationContext).getSnapshot()
-                if (!snap.isQueuePaused) {
-                    val activeCount = dao.countActiveDownloads()
-                    val freeSlots = (snap.maxConcurrentDownloads - activeCount).coerceAtLeast(0)
-                    if (freeSlots > 0) {
-                        dao.getQueuedDownloads().take(freeSlots).forEach { next ->
-                            enqueueDownload(
-                                context = applicationContext,
-                                downloadId = next.id,
-                                wifiOnly = snap.wifiOnly
-                            )
-                        }
-                    }
-                }
+                DownloadQueueManager.triggerQueueProcessing(applicationContext)
             }
         }
     }
@@ -603,15 +635,18 @@ class RafidDownloadWorker(
             }
         }
 
-        val fallbackExpr = if (isAudioOnly) {
-            "bestaudio/best"
+        val h264FallbackExpr = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]/best"
+        val progressiveFallbackExpr = "best[height<=720][ext=mp4]/best[ext=mp4]/best"
+        val fallbackExpr = if (isAudioOnly) "bestaudio/best" else h264FallbackExpr
+        val expressionsToTry = if (isAudioOnly) {
+            listOfNotNull(formatExpression?.takeIf { it.isNotBlank() }, fallbackExpr).distinct()
         } else {
-            "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+            listOfNotNull(
+                formatExpression?.takeIf { it.isNotBlank() },
+                fallbackExpr,
+                progressiveFallbackExpr
+            ).distinct()
         }
-        val expressionsToTry = listOfNotNull(
-            formatExpression?.takeIf { it.isNotBlank() },
-            fallbackExpr
-        ).distinct()
 
         var mergedSent = false
         var lastExecError: Throwable? = null

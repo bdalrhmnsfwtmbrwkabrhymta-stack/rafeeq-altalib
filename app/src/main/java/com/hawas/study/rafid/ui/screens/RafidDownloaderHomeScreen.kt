@@ -1,6 +1,10 @@
 package com.hawas.study.rafid.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -51,6 +55,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -72,8 +77,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +88,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.ui.theme.ReadexProFontFamily
 import com.hawas.study.rafid.models.RafidActivityFilter
 import com.hawas.study.rafid.models.RafidConfigState
@@ -570,30 +578,30 @@ private fun StackedHeroDownloadCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Top Pills: Quality badge + Live Speed + ETA
+                // Top Pills: Animated Green Downloading Badge + Quality badge + Live Speed + ETA
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFFD6E4FA)
-                    ) {
-                        val badgeLabel = if (isMuxing) {
-                            if (isEnglish) "Muxing..." else "دمج سريع..."
-                        } else if (activeDownload.isAudioOnly) {
-                            activeDownload.qualityLabel
-                        } else {
-                            (if (isEnglish) "Video " else "فيديو ") + activeDownload.qualityLabel
-                        }
-                        Text(
-                            text = badgeLabel,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = palette.heroBlue,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    if (!isMuxing) {
+                        GreenDownloadingBadgePill(
+                            isEnglish = isEnglish,
+                            onDarkHero = true
                         )
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFFD6E4FA)
+                        ) {
+                            Text(
+                                text = if (isEnglish) "Muxing..." else "دمج سريع...",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = palette.heroBlue,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                            )
+                        }
                     }
 
                     Surface(
@@ -647,7 +655,7 @@ private fun StackedHeroDownloadCard(
                     }
                 }
 
-                // Title
+                // Title & Quality subtitle
                 Text(
                     text = activeDownload.title,
                     fontSize = 19.sp,
@@ -820,6 +828,100 @@ private fun QuickShortcutTile(
     }
 }
 
+private val DownloadingGreen = Color(0xFF10B981)
+private val DownloadingMintOnHero = Color(0xFF6EE7B7)
+
+@Composable
+internal fun GreenDownloadingBadgePill(
+    isEnglish: Boolean,
+    onDarkHero: Boolean = false,
+    extraSuffix: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "downloading_arrow")
+    val arrowOffsetY by infiniteTransition.animateFloat(
+        initialValue = -3f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 650),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "arrow_bounce"
+    )
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.62f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 650),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "arrow_pulse"
+    )
+
+    val textAndIconTint = if (onDarkHero) DownloadingMintOnHero else DownloadingGreen
+    val circleBg = if (onDarkHero) {
+        DownloadingGreen.copy(alpha = 0.28f)
+    } else {
+        DownloadingGreen.copy(alpha = 0.16f)
+    }
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(circleBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.ArrowDownward,
+                contentDescription = if (isEnglish) "Downloading" else "جاري التحميل",
+                tint = textAndIconTint,
+                modifier = Modifier
+                    .size(14.dp)
+                    .graphicsLayer {
+                        translationY = arrowOffsetY.dp.toPx()
+                        alpha = pulseAlpha
+                    }
+            )
+        }
+        Text(
+            text = buildString {
+                append(if (isEnglish) "Downloading..." else "جاري التحميل...")
+                if (!extraSuffix.isNullOrBlank()) {
+                    append(" • ")
+                    append(extraSuffix)
+                }
+            },
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = textAndIconTint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+internal fun resolveDownloadItemThumbnail(item: RafidDownloadEntity): String? {
+    item.thumbnailUrl?.takeIf { it.startsWith("http", ignoreCase = true) }?.let { return it }
+    val rawUrl = item.originalUrl.ifBlank { item.resolvedUrl }
+    val ytId = extractYouTubeVideoIdSafe(rawUrl) ?: extractYouTubeVideoIdSafe(item.resolvedUrl)
+    return ytId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+}
+
+private fun extractYouTubeVideoIdSafe(url: String): String? {
+    if (!url.contains("youtu", ignoreCase = true)) return null
+    val shortMatch = Regex("""youtu\.be/([A-Za-z0-9_-]{6,})""").find(url)?.groupValues?.getOrNull(1)
+    if (!shortMatch.isNullOrBlank()) return shortMatch
+    val shortsMatch = Regex("""youtube\.com/shorts/([A-Za-z0-9_-]{6,})""").find(url)?.groupValues?.getOrNull(1)
+    if (!shortsMatch.isNullOrBlank()) return shortsMatch
+    return Regex("""[?&]v=([A-Za-z0-9_-]{6,})""").find(url)?.groupValues?.getOrNull(1)
+}
+
 @Composable
 private fun DownloadActivityCard(
     item: RafidDownloadEntity,
@@ -842,22 +944,29 @@ private fun DownloadActivityCard(
     }
 
     val statusColor = when (statusEnum) {
-        RafidDownloadStatus.COMPLETED -> palette.emeraldTint
+        RafidDownloadStatus.COMPLETED, RafidDownloadStatus.DOWNLOADING -> DownloadingGreen
         RafidDownloadStatus.FAILED -> palette.dangerTint
-        RafidDownloadStatus.DOWNLOADING, RafidDownloadStatus.MUXING -> palette.heroBlue
+        RafidDownloadStatus.MUXING -> palette.heroBlue
         RafidDownloadStatus.PAUSED -> palette.warningTint
         else -> palette.textSecondary
     }
 
     val statusText = when (statusEnum) {
         RafidDownloadStatus.QUEUED -> if (isEnglish) "Queued" else "في الانتظار"
-        RafidDownloadStatus.DOWNLOADING -> "${RafidFormatUtils.formatSpeed(item.speedBytesPerSec, isEnglish)}"
+        RafidDownloadStatus.DOWNLOADING -> if (isEnglish) "Downloading..." else "جاري التحميل..."
         RafidDownloadStatus.MUXING -> if (isEnglish) "Serial Muxing..." else "جاري الدمج المتسلسل..."
         RafidDownloadStatus.PAUSED -> if (isEnglish) "Paused" else "متوقف مؤقتاً"
         RafidDownloadStatus.COMPLETED -> if (isEnglish) "Saved in ${item.displayPath}" else "محفوظ في ${item.displayPath}"
         RafidDownloadStatus.FAILED -> item.errorMessage ?: if (isEnglish) "Failed" else "تعذر التحميل"
         RafidDownloadStatus.CANCELLED -> if (isEnglish) "Cancelled" else "ملغى"
     }
+
+    val resolvedThumbnail = remember(item.thumbnailUrl, item.originalUrl, item.resolvedUrl) {
+        resolveDownloadItemThumbnail(item)
+    }
+    val pct = if (item.totalBytes > 0L) {
+        ((item.downloadedBytes.toFloat() / item.totalBytes.toFloat()) * 100f).toInt().coerceIn(0, 100)
+    } else 0
 
     Surface(
         shape = RoundedCornerShape(18.dp),
@@ -882,9 +991,9 @@ private fun DownloadActivityCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = statusColor.copy(alpha = 0.12f),
-                    modifier = Modifier.size(44.dp)
+                    modifier = Modifier.size(width = 64.dp, height = 48.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
@@ -893,10 +1002,18 @@ private fun DownloadActivityCard(
                             tint = statusColor,
                             modifier = Modifier.size(22.dp)
                         )
+                        if (!resolvedThumbnail.isNullOrBlank()) {
+                            AsyncImage(
+                                model = resolvedThumbnail,
+                                contentDescription = item.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = item.title,
                         fontWeight = FontWeight.Bold,
@@ -905,33 +1022,53 @@ private fun DownloadActivityCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                    val progressSizeLabel = if (statusEnum == RafidDownloadStatus.COMPLETED) {
+                        RafidFormatUtils.formatFileSize(item.totalBytes, isEnglish)
+                    } else if (item.totalBytes > 0L) {
+                        "${RafidFormatUtils.formatFileSize(item.downloadedBytes, isEnglish)} / ${
+                            RafidFormatUtils.formatFileSize(item.totalBytes, isEnglish)
+                        }"
+                    } else {
+                        RafidFormatUtils.formatFileSize(item.downloadedBytes, isEnglish)
+                    }
                     Text(
-                        text = "${item.qualityLabel} • ${item.sourceDomain} • ${
-                            RafidFormatUtils.formatFileSize(
-                                if (statusEnum == RafidDownloadStatus.COMPLETED) item.totalBytes else item.downloadedBytes,
-                                isEnglish
-                            )
-                        }",
+                        text = "${item.qualityLabel} • ${item.sourceDomain} • $progressSizeLabel",
                         fontSize = 13.sp,
                         color = palette.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        text = statusText,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = statusColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (statusEnum == RafidDownloadStatus.DOWNLOADING) {
+                        val speedSuffix = buildString {
+                            if (item.totalBytes > 0L) append("$pct%")
+                            if (item.speedBytesPerSec > 0L) {
+                                if (isNotEmpty()) append(" • ")
+                                append(RafidFormatUtils.formatSpeed(item.speedBytesPerSec, isEnglish))
+                            }
+                        }.takeIf { it.isNotBlank() }
+                        GreenDownloadingBadgePill(
+                            isEnglish = isEnglish,
+                            onDarkHero = false,
+                            extraSuffix = speedSuffix,
+                            modifier = Modifier.testTag("downloading_indicator_${item.id}")
+                        )
+                    } else {
+                        Text(
+                            text = statusText,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = statusColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     when (statusEnum) {
                         RafidDownloadStatus.DOWNLOADING -> {
                             IconButton(onClick = onPause, modifier = Modifier.size(40.dp)) {
-                                Icon(Icons.Filled.Pause, contentDescription = "Pause", tint = palette.heroBlue)
+                                Icon(Icons.Filled.Pause, contentDescription = "Pause", tint = DownloadingGreen)
                             }
                         }
                         RafidDownloadStatus.PAUSED, RafidDownloadStatus.FAILED -> {
@@ -945,7 +1082,7 @@ private fun DownloadActivityCard(
                         }
                         RafidDownloadStatus.COMPLETED -> {
                             IconButton(onClick = onOpen, modifier = Modifier.size(40.dp)) {
-                                Icon(Icons.Filled.PlayArrow, contentDescription = "Open", tint = palette.emeraldTint)
+                                Icon(Icons.Filled.PlayArrow, contentDescription = "Open", tint = DownloadingGreen)
                             }
                         }
                         else -> {
@@ -966,7 +1103,7 @@ private fun DownloadActivityCard(
                 else 0f
                 LinearProgressIndicator(
                     progress = { p },
-                    color = palette.heroBlue,
+                    color = if (statusEnum == RafidDownloadStatus.DOWNLOADING) DownloadingGreen else palette.heroBlue,
                     trackColor = palette.surfaceVariant,
                     strokeCap = StrokeCap.Round,
                     modifier = Modifier

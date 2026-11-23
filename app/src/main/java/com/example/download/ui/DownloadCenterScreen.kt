@@ -10,7 +10,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -44,6 +51,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -76,6 +85,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -560,7 +570,7 @@ private fun DownloadItemCard(
     val statusLabel = when (item.status) {
         DownloadStatus.QUEUED -> "في الطابور"
         DownloadStatus.EXTRACTING -> "جارٍ التحليل"
-        DownloadStatus.DOWNLOADING -> "جارٍ التحميل"
+        DownloadStatus.DOWNLOADING -> "جاري التحميل..."
         DownloadStatus.PAUSED -> "موقوف مؤقتاً"
         DownloadStatus.WAITING_NETWORK -> "بانتظار الإنترنت"
         DownloadStatus.MERGING -> "جارٍ الدمج"
@@ -569,6 +579,15 @@ private fun DownloadItemCard(
         DownloadStatus.CANCELED -> "ملغى"
     }
 
+    val resolvedThumb = remember(item.thumbnailUrl, item.originalUrl, item.resolvedUrl) {
+        item.thumbnailUrl?.takeIf { it.startsWith("http", true) }
+            ?: listOf(item.originalUrl, item.resolvedUrl).firstNotNullOfOrNull { u ->
+                Regex("""(?:youtu\.be/|youtube\.com/(?:shorts/|watch\?.*v=))([A-Za-z0-9_-]{6,})""")
+                    .find(u)?.groupValues?.getOrNull(1)
+                    ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+            }
+    }
+    val emeraldGreen = Color(0xFF10B981)
     val progressFraction = if (item.totalBytes > 0L) {
         (item.downloadedBytes.toFloat() / item.totalBytes.toFloat()).coerceIn(0f, 1f)
     } else 0f
@@ -590,28 +609,73 @@ private fun DownloadItemCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (!item.thumbnailUrl.isNullOrBlank()) {
+                if (!resolvedThumb.isNullOrBlank()) {
                     AsyncImage(
-                        model = item.thumbnailUrl,
+                        model = resolvedThumb,
                         contentDescription = item.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(width = 68.dp, height = 48.dp)
                             .clip(RoundedCornerShape(10.dp))
                     )
                 }
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = item.title,
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        text = "${item.platform} • ${item.qualityId} • $statusLabel",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    if (item.status == DownloadStatus.DOWNLOADING) {
+                        val inf = rememberInfiniteTransition(label = "dc_dl")
+                        val offsetY by inf.animateFloat(
+                            initialValue = -3f,
+                            targetValue = 4f,
+                            animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
+                            label = "dc_dl_y"
+                        )
+                        val alphaAnim by inf.animateFloat(
+                            initialValue = 0.6f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
+                            label = "dc_dl_a"
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(emeraldGreen.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ArrowDownward,
+                                    contentDescription = "جاري التحميل",
+                                    tint = emeraldGreen,
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .graphicsLayer {
+                                            translationY = offsetY.dp.toPx()
+                                            alpha = alphaAnim
+                                        }
+                                )
+                            }
+                            Text(
+                                text = "جاري التحميل... • ${item.qualityId}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = emeraldGreen
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "${item.platform} • ${item.qualityId} • $statusLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
@@ -622,6 +686,7 @@ private fun DownloadItemCard(
                 if (item.totalBytes > 0L) {
                     LinearProgressIndicator(
                         progress = { progressFraction },
+                        color = if (item.status == DownloadStatus.DOWNLOADING) emeraldGreen else MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)
@@ -629,6 +694,7 @@ private fun DownloadItemCard(
                     )
                 } else {
                     LinearProgressIndicator(
+                        color = if (item.status == DownloadStatus.DOWNLOADING) emeraldGreen else MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)

@@ -20,6 +20,7 @@ import com.hawas.study.rafid.models.RafidDownloadEntity
 import com.hawas.study.rafid.models.RafidDownloadStatus
 import com.hawas.study.rafid.models.RafidExcludedDomainEntity
 import com.hawas.study.rafid.models.RafidLanguageMode
+import com.hawas.study.rafid.worker.DownloadQueueManager
 import com.hawas.study.rafid.worker.RafidDownloadWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -227,6 +228,8 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
         }
         val effectiveFormatExpr = if (wantAudioOnly) {
             if (preferDubbedArabic) "bestaudio[language^=ar]/bestaudio/best" else "bestaudio/best"
+        } else if (targetHeight <= 1080) {
+            "bestvideo[height<=$targetHeight][vcodec^=avc1]+$fallbackAudioExpr/bestvideo[height<=$targetHeight][ext=mp4]+$fallbackAudioExpr/bestvideo[height<=$targetHeight]+bestaudio/best[height<=$targetHeight][ext=mp4]/best[height<=$targetHeight]/best"
         } else {
             "bestvideo[height<=$targetHeight][ext=mp4]+$fallbackAudioExpr/bestvideo[height<=$targetHeight]+bestaudio/best[height<=$targetHeight]/best"
         }
@@ -274,7 +277,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (entries.isNotEmpty()) {
             dao.upsertDownloads(entries)
-            dispatchQueueSlots()
+            DownloadQueueManager.triggerQueueProcessing(appContext)
         }
     }
 
@@ -383,6 +386,8 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                 val effectiveFormatExpr = chosenFormat?.formatExpression?.takeIf { it.isNotBlank() }
                     ?: if (wantAudioOnly) {
                         if (preferDubbedArabic) "bestaudio[language^=ar]/bestaudio/best" else "bestaudio/best"
+                    } else if (targetHeight <= 1080) {
+                        "bestvideo[height<=$targetHeight][vcodec^=avc1]+$fallbackAudioExpr/bestvideo[height<=$targetHeight][ext=mp4]+$fallbackAudioExpr/bestvideo[height<=$targetHeight]+bestaudio/best[height<=$targetHeight]/best"
                     } else {
                         "bestvideo[height<=$targetHeight][ext=mp4]+$fallbackAudioExpr/bestvideo[height<=$targetHeight]+bestaudio/best[height<=$targetHeight]/best"
                     }
@@ -465,46 +470,8 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dispatchQueueSlots() {
         viewModelScope.launch(Dispatchers.IO) {
-            val snap = prefs.getSnapshot()
-            if (snap.isQueuePaused) return@launch
-
-            val activeCount = dao.countActiveDownloads()
-            val freeSlots = (snap.maxConcurrentDownloads - activeCount).coerceAtLeast(0)
-            if (freeSlots == 0) return@launch
-
-            val initialDelay = if (snap.isScheduledStartEnabled) {
-                computeDelayUntilMillis(snap.scheduledHour, snap.scheduledMinute)
-            } else {
-                0L
-            }
-
-            val queued = dao.getQueuedDownloads().take(freeSlots)
-            queued.forEach { item ->
-                RafidDownloadWorker.enqueueDownload(
-                    context = appContext,
-                    downloadId = item.id,
-                    wifiOnly = snap.wifiOnly,
-                    initialDelayMillis = initialDelay
-                )
-            }
+            DownloadQueueManager.triggerQueueProcessing(appContext)
         }
-    }
-
-    private fun computeDelayUntilMillis(targetHour: Int, targetMinute: Int): Long {
-        val now = Calendar.getInstance()
-        val target = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, targetHour)
-            set(Calendar.MINUTE, targetMinute)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        if (target.timeInMillis <= now.timeInMillis) {
-            // If scheduled time already passed within this day, treat <=12h window as active or schedule next occurrence
-            val diff = now.timeInMillis - target.timeInMillis
-            if (diff <= 6 * 3600_000L) return 0L
-            target.add(Calendar.DAY_OF_MONTH, 1)
-        }
-        return (target.timeInMillis - now.timeInMillis).coerceAtLeast(0L)
     }
 
     // Settings & Controls

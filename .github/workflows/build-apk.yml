@@ -152,8 +152,11 @@ jobs:
           fi
 
           echo "Using build-tools: $BUILD_TOOLS_DIR"
-          "$BUILD_TOOLS_DIR/zipalign" -c 4 "$EXPECTED_APK"
-          "$BUILD_TOOLS_DIR/apksigner" verify --verbose "$EXPECTED_APK"
+          "$BUILD_TOOLS_DIR/zipalign" -c -v 4 "$EXPECTED_APK" >/dev/null
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose --print-certs "$EXPECTED_APK"
+          if [ -x "$BUILD_TOOLS_DIR/aapt2" ]; then
+            "$BUILD_TOOLS_DIR/aapt2" dump badging "$EXPECTED_APK" | grep -E "package:|sdkVersion:|targetSdkVersion:|native-code:" || true
+          fi
           ls -lh "$EXPECTED_APK"
 
       - name: Upload debug APK artifact

@@ -441,6 +441,41 @@ object MediaMergeEngine {
             runCatching { stagingOut.delete() }
         }
 
+        // Fallback last-chance Android MediaMuxer if FFmpeg execution failed on compatible MP4/WebM streams
+        if (desiredOutputFile.parentFile != null) {
+            val fallbackMuxTarget = File(targetDir, ".fallback_mm_${System.nanoTime()}.$cleanExt")
+            val fallbackOk = SerialFFmpegMuxerWorker.muxTracks(
+                primaryMediaFile = primaryMediaFile,
+                secondaryAudioFile = secondaryAudioFile,
+                outputFile = fallbackMuxTarget,
+                audioOnly = audioOnly
+            )
+            if (fallbackOk && fallbackMuxTarget.exists() && fallbackMuxTarget.length() > 0L) {
+                val verified = runCatching {
+                    verifyFinalArtifact(
+                        context = context,
+                        file = fallbackMuxTarget,
+                        requireVideo = !audioOnly,
+                        requireAudio = audioOnly || secondaryAudioFile != null || primaryProbe.hasAudioStream
+                    )
+                }.getOrNull()
+                if (verified != null) {
+                    if (desiredOutputFile.exists()) desiredOutputFile.delete()
+                    if (!fallbackMuxTarget.renameTo(desiredOutputFile)) {
+                        fallbackMuxTarget.copyTo(desiredOutputFile, overwrite = true)
+                        fallbackMuxTarget.delete()
+                    }
+                    return MergeExecutionResult(
+                        outputFile = desiredOutputFile,
+                        finalExtension = cleanExt,
+                        finalMimeType = mimeForExt(cleanExt, audioOnly),
+                        probeReport = verified
+                    )
+                }
+            }
+            runCatching { fallbackMuxTarget.delete() }
+        }
+
         throw DownloadEngineException(
             DownloadError.MergeFailed(
                 "FFmpegExecutionFailed(exit=$lastExit): ${stderrHistory.toString().trim().take(480)}"
@@ -572,9 +607,10 @@ object MediaMergeEngine {
         val vCodec = primary.videoStreams.firstOrNull()?.codecName.orEmpty().lowercase(Locale.ROOT)
         val aCodec = (secondary?.audioStreams?.firstOrNull() ?: primary.audioStreams.firstOrNull())
             ?.codecName.orEmpty().lowercase(Locale.ROOT)
-        val videoOk = vCodec in setOf("h264", "avc", "hevc", "h265")
-        val audioOk = aCodec in setOf("aac", "mp4a") || aCodec.startsWith("mp4a")
-        return videoOk && audioOk
+        val mp4VideoOk = vCodec in setOf("h264", "avc", "hevc", "h265")
+        val mp4AudioOk = aCodec in setOf("aac", "mp4a") || aCodec.startsWith("mp4a")
+        val webmOk = (vCodec in setOf("vp8", "vp9")) && (aCodec in setOf("opus", "vorbis"))
+        return (mp4VideoOk && mp4AudioOk) || webmOk
     }
 
     private data class CommandResult(

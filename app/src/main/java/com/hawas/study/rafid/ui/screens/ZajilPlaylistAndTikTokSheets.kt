@@ -76,13 +76,20 @@ internal enum class ZajilPlaylistQuality(
     val id: String,
     val maxHeight: Int?,
     val isAudioOnly: Boolean,
+    val containerExt: String,
     val labelAr: String,
     val labelEn: String
 ) {
-    Q1080("pl_1080", 1080, false, "الأفضل حتى 1080p", "Best up to 1080p"),
-    Q720("pl_720", 720, false, "الأفضل حتى 720p", "Best up to 720p"),
-    Q480("pl_480", 480, false, "الأفضل حتى 480p", "Best up to 480p"),
-    AUDIO("pl_audio", null, true, "صوت فقط", "Audio only")
+    Q2160("pl_2160", 2160, false, "mp4", "4K • 2160p (الأوضح)", "4K • 2160p (Highest)"),
+    Q1440("pl_1440", 1440, false, "mp4", "2K • 1440p QHD", "2K • 1440p QHD"),
+    Q1080("pl_1080", 1080, false, "mp4", "الأفضل حتى 1080p", "Best up to 1080p"),
+    Q720("pl_720", 720, false, "mp4", "الأفضل حتى 720p", "Best up to 720p"),
+    Q480("pl_480", 480, false, "mp4", "الأفضل حتى 480p", "Best up to 480p"),
+    Q360("pl_360", 360, false, "mp4", "الأفضل حتى 360p", "Best up to 360p"),
+    Q240("pl_240", 240, false, "mp4", "240p (توفير البيانات)", "240p (Data Saver)"),
+    Q144("pl_144", 144, false, "mp4", "144p (أقل استهلاكاً للبيانات)", "144p (Lowest Data)"),
+    AUDIO("pl_audio", null, true, "m4a", "صوت فقط • M4A", "Audio only (M4A)"),
+    AUDIO_MP3("pl_audio_mp3", null, true, "mp3", "صوت فقط • MP3", "Audio only (MP3)")
 }
 
 internal enum class ZajilAudioPreference(
@@ -129,12 +136,19 @@ private fun prepareTikTokDisplayFormats(
             .thenByDescending { it.bitrateKbps ?: 0 }
     )
 
+    val hasUhd = sortedVideos.any { (it.resolutionHeight ?: 0) >= 1440 }
     val labeledVideos = sortedVideos.mapIndexed { index, opt ->
-        val standardLabel = when (index) {
-            0 -> if (isEnglish) "1080p HD (No Watermark — Clearer)" else "1080p HD (بدون علامة مائية — الأوضح)"
-            1 -> if (isEnglish) "720p (No Watermark)" else "720p (بدون علامة مائية)"
-            2 -> "480p"
-            else -> if (isEnglish) "360p (Data Saver)" else "360p (توفير البيانات)"
+        val h = opt.resolutionHeight ?: 0
+        val standardLabel = when {
+            hasUhd && h >= 2160 -> if (isEnglish) "4K / 2160p (Ultra HD — No Watermark)" else "4K / 2160p (الأصلي فائق الدقة — بدون علامة مائية)"
+            hasUhd && h in 1440..2159 -> if (isEnglish) "2K / 1440p QHD (No Watermark)" else "2K / 1440p QHD (بدون علامة مائية)"
+            !hasUhd && index == 0 -> if (isEnglish) "1080p HD (No Watermark — Clearer)" else "1080p HD (بدون علامة مائية — الأوضح)"
+            hasUhd && h in 1000..1439 -> if (isEnglish) "1080p Full HD (No Watermark)" else "1080p Full HD (بدون علامة مائية)"
+            index == 1 || h in 700..999 -> if (isEnglish) "720p (No Watermark)" else "720p (بدون علامة مائية)"
+            index == 2 || h in 480..699 -> "480p"
+            index == 3 || h in 300..479 -> if (isEnglish) "360p (Data Saver)" else "360p (توفير البيانات)"
+            h in 200..299 || index == 4 -> "240p"
+            else -> if (isEnglish) "144p (Lowest Data)" else "144p (أقل استهلاكاً للبيانات)"
         }
         opt.copy(
             label = standardLabel,
@@ -407,8 +421,12 @@ fun ZajilPlaylistDownloadContent(
                     val bundleFormat = MediaFormatOption(
                         id = "${selectedQuality.id}_${selectedAudio.id}",
                         label = if (isEnglish) selectedQuality.labelEn else selectedQuality.labelAr,
-                        containerExt = if (selectedQuality.isAudioOnly) "m4a" else "mp4",
-                        mimeType = if (selectedQuality.isAudioOnly) "audio/mp4" else "video/mp4",
+                        containerExt = selectedQuality.containerExt,
+                        mimeType = when {
+                            selectedQuality.containerExt == "mp3" -> "audio/mpeg"
+                            selectedQuality.isAudioOnly -> "audio/mp4"
+                            else -> "video/mp4"
+                        },
                         resolutionHeight = selectedQuality.maxHeight,
                         bitrateKbps = if (selectedQuality.isAudioOnly) 320 else null,
                         isAudioOnly = selectedQuality.isAudioOnly,
@@ -558,11 +576,17 @@ fun ZajilTikTokDownloadContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
             .padding(bottom = 26.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
         // Header preview row matching Zajil screenshot
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -814,6 +838,7 @@ fun ZajilTikTokDownloadContent(
             checked = saveToStudyFolder,
             onToggle = { saveToStudyFolder = it }
         )
+        }
 
         // Primary CTA button ("تحميل الفيديو" / "تحميل صوت فقط")
         Button(
@@ -983,44 +1008,52 @@ private fun ZajilSelectionModalSheet(
                 modifier = Modifier.padding(bottom = 4.dp)
             )
 
-            options.forEach { option ->
-                val isSelected = option.id == selectedId
-                Surface(
-                    onClick = { onSelect(option.id) },
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (isSelected) palette.heroBlue.copy(alpha = 0.05f) else palette.surface,
-                    border = BorderStroke(
-                        width = if (isSelected) 1.8.dp else 1.dp,
-                        color = if (isSelected) palette.heroBlue else palette.borderSubtle
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("zajil_option_${option.id}")
-                ) {
-                    Row(
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                options.forEach { option ->
+                    val isSelected = option.id == selectedId
+                    Surface(
+                        onClick = { onSelect(option.id) },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isSelected) palette.heroBlue.copy(alpha = 0.05f) else palette.surface,
+                        border = BorderStroke(
+                            width = if (isSelected) 1.8.dp else 1.dp,
+                            color = if (isSelected) palette.heroBlue else palette.borderSubtle
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .defaultMinSize(minHeight = 56.dp)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .testTag("zajil_option_${option.id}")
                     ) {
-                        Text(
-                            text = option.label,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = palette.textPrimary,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        RadioButton(
-                            selected = isSelected,
-                            onClick = null,
-                            colors = RadioButtonDefaults.colors(
-                                selectedColor = palette.heroBlue,
-                                unselectedColor = palette.textSecondary
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 56.dp)
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = option.label,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = palette.textPrimary,
+                                modifier = Modifier.weight(1f)
                             )
-                        )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = palette.heroBlue,
+                                    unselectedColor = palette.textSecondary
+                                )
+                            )
+                        }
                     }
                 }
             }

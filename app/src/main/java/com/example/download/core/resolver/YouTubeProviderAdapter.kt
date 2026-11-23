@@ -444,7 +444,16 @@ class YouTubeProviderAdapter(
                 }
             }.sortedWith(
                 compareByDescending<Triple<JSONObject, String, Int>> { it.third }
-                    .thenByDescending { it.first.optString("mimeType").startsWith("video/mp4") }
+                    .thenByDescending { triple ->
+                        val mime = triple.first.optString("mimeType").lowercase(Locale.ROOT)
+                        when {
+                            triple.third <= 1080 && mime.contains("avc") -> 4
+                            mime.startsWith("video/mp4") && !mime.contains("av01") -> 3
+                            mime.contains("vp9") || mime.contains("vp09") -> 2
+                            mime.contains("av01") -> 1
+                            else -> 0
+                        }
+                    }
                     .thenByDescending { it.first.optInt("bitrate", 0) }
             )
 

@@ -301,8 +301,8 @@ fun PrayerScreen(
                             section = IslamicSubSection.SALAWAT
                         ),
                         IslamicHubTileSpec(
-                            title = "السبحة",
-                            subtitle = "تسبيح بعداد يحفظ وردك",
+                            title = "خدمات التسبيح",
+                            subtitle = "سبحة تفاعلية ٣D • دورة ١٠٠ (صحيح مسلم ٥٩٧)",
                             auraPrimary = Color(0xFF8B5CF6),
                             auraSecondary = Color(0xFFC084FC),
                             testTag = "islamic_card_tasbeeh",

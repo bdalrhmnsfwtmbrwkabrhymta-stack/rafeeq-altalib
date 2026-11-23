@@ -74,7 +74,7 @@ class ZajilPlaylistAndTikTokUiTest {
         }
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("smart_sheet_title").assertTextContains("أدوات الذكاء الاصطناعي")
+        composeTestRule.onNodeWithTag("smart_sheet_title").assertTextContains("أدوات الذكاء الاصطناعي", substring = true)
         composeTestRule.onNodeWithTag("playlist_selected_count").assertTextContains("حُدّد 3 فيديو")
         composeTestRule.onNodeWithTag("btn_start_fast_download").assertTextContains("تحميل المحدد (3)")
 

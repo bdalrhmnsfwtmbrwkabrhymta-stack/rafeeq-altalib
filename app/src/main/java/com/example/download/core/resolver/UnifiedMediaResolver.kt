@@ -135,11 +135,24 @@ class UnifiedMediaResolver(
                     } else {
                         listOf(primarySniffedFormat)
                     }
+                    val tikTokHint = if (matchedAdapter.platform == MediaPlatform.TIKTOK) {
+                        TikTokProviderAdapter.fetchMetadataHint(httpClient, canonicalUrl)
+                    } else {
+                        null
+                    }
+                    val youtubeFallbackThumb = if (matchedAdapter.platform == MediaPlatform.YOUTUBE) {
+                        YouTubeProviderAdapter(httpClient).extractVideoId(canonicalUrl)
+                            ?.let { vid -> "https://i.ytimg.com/vi/$vid/hqdefault.jpg" }
+                    } else {
+                        null
+                    }
                     return@withContext ResolvedMediaResult.SingleMedia(
                         originalUrl = request.rawUrl,
                         canonicalUrl = canonicalUrl,
-                        title = ResolverHttpUtils.deriveTitleFromUrl(canonicalUrl, "وسائط_هوس_الدراسة"),
-                        authorOrSource = matchedAdapter.platform.labelEn,
+                        title = tikTokHint?.title?.takeIf { it.isNotBlank() }
+                            ?: ResolverHttpUtils.deriveTitleFromUrl(canonicalUrl, "فيديو_${matchedAdapter.platform.labelEn}"),
+                        authorOrSource = tikTokHint?.author?.takeIf { it.isNotBlank() }
+                            ?: matchedAdapter.platform.labelEn,
                         sourceDomain = host,
                         platform = matchedAdapter.platform,
                         kind = when {
@@ -147,6 +160,7 @@ class UnifiedMediaResolver(
                             isAudio -> ResolvedMediaKind.AUDIO_ONLY
                             else -> ResolvedMediaKind.SINGLE_VIDEO
                         },
+                        thumbnailUrl = tikTokHint?.thumbnailUrl ?: youtubeFallbackThumb,
                         formats = sniffedFormats,
                         headers = sniffed.headers,
                         cookiesHeader = request.cookiesHeader

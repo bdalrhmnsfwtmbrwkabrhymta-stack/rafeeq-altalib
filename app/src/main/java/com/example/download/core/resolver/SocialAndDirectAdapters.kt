@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.Locale
 
 private fun buildPlatformMediaFromYtDlp(
@@ -417,9 +418,53 @@ class TikTokProviderAdapter(
             h.contains("tiktokcdn")
     }
 
+    companion object {
+        internal data class TikTokMetaHint(
+            val title: String? = null,
+            val author: String? = null,
+            val thumbnailUrl: String? = null
+        )
+
+        internal fun isLoopbackOrNonTikTokUrl(url: String): Boolean {
+            val host = ResolverHttpUtils.normalizeHost(url).lowercase(Locale.ROOT)
+            if (host == "127.0.0.1" || host == "localhost" || host == "10.0.2.2" || host == "::1") {
+                return true
+            }
+            return !host.contains("tiktok")
+        }
+
+        internal fun fetchMetadataHint(
+            httpClient: OkHttpClient,
+            canonicalUrl: String
+        ): TikTokMetaHint? {
+            if (isLoopbackOrNonTikTokUrl(canonicalUrl)) return null
+            val encoded = runCatching { URLEncoder.encode(canonicalUrl, "UTF-8") }.getOrNull() ?: return null
+            val oembedResp = ResolverHttpUtils.fetchTextWithStatus(
+                client = httpClient,
+                url = "https://www.tiktok.com/oembed?url=$encoded",
+                userAgent = ResolverHttpUtils.DESKTOP_UA
+            )
+            if (oembedResp != null && oembedResp.statusCode < 400 && oembedResp.body.trimStart().startsWith("{")) {
+                val obj = runCatching { JSONObject(oembedResp.body) }.getOrNull()
+                if (obj != null) {
+                    val title = obj.optString("title").takeIf { it.isNotBlank() }
+                    val author = obj.optString("author_name").takeIf { it.isNotBlank() }
+                        ?: obj.optString("author_unique_id").takeIf { it.isNotBlank() }?.let { "@$it" }
+                    val thumb = obj.optString("thumbnail_url").takeIf { it.startsWith("http", true) }
+                    if (title != null || author != null || thumb != null) {
+                        return TikTokMetaHint(title = title, author = author, thumbnailUrl = thumb)
+                    }
+                }
+            }
+            return null
+        }
+    }
+
     override suspend fun resolve(canonicalUrl: String, request: ResolveRequest): ResolvedMediaResult {
         val diag = StringBuilder()
         val isExplicitMusicPage = canonicalUrl.contains("/music/", ignoreCase = true)
+        val allowExternalApis = !isLoopbackOrNonTikTokUrl(canonicalUrl)
+        var bestResolvedSoFar: ResolvedMediaResult.SingleMedia? = null
 
         if (ytDlpGateway.isAvailable()) {
             // Leave extraArgs empty so AndroidYtDlpGateway executes its default + multi-hostname fallback cascade cleanly
@@ -452,12 +497,59 @@ class TikTokProviderAdapter(
                     if (verified is ResolvedMediaResult.SingleMedia) {
                         val hasPlayableVideo = verified.formats.any { !it.isAudioOnly }
                         if (hasPlayableVideo || isExplicitMusicPage) {
-                            return verified
+                            bestResolvedSoFar = verified
+                        } else {
+                            diag.appendLine("[yt-dlp-tt] Returned audio-only formats for TikTok video URL; falling back to HTML/sniffer")
                         }
-                        diag.appendLine("[yt-dlp-tt] Returned audio-only formats for TikTok video URL; falling back to HTML/sniffer")
                     }
                 }
             }.onFailure { diag.appendLine("[yt-dlp-tt] ${it.message}") }
+        }
+
+        // Fast return for real yt-dlp result ONLY if thumbnail/title look healthy and multiple qualities exist;
+        // otherwise enrich via tikwm (hd=1) and TikTok oEmbed so covers & HD/LD options never go missing.
+        if (bestResolvedSoFar != null && !allowExternalApis) {
+            return bestResolvedSoFar!!
+        }
+
+        val oembedHint = if (allowExternalApis && (bestResolvedSoFar == null ||
+                bestResolvedSoFar!!.thumbnailUrl.isNullOrBlank() ||
+                isGenericTikTokTitle(bestResolvedSoFar!!.title))
+        ) {
+            fetchMetadataHint(httpClient, canonicalUrl)
+        } else {
+            null
+        }
+
+        if (allowExternalApis && (bestResolvedSoFar == null ||
+                bestResolvedSoFar!!.thumbnailUrl.isNullOrBlank() ||
+                bestResolvedSoFar!!.formats.count { !it.isAudioOnly } < 2 ||
+                isGenericTikTokTitle(bestResolvedSoFar!!.title))
+        ) {
+            val tikWmResult = fetchTikWmMedia(
+                originalUrl = request.rawUrl,
+                canonicalUrl = canonicalUrl,
+                cookiesHeader = request.cookiesHeader,
+                oembedHint = oembedHint,
+                diag = diag
+            )
+            if (tikWmResult is ResolvedMediaResult.SingleMedia) {
+                val verifiedTikWm = filterPlayableFormatsOrFail(tikWmResult, diag)
+                if (verifiedTikWm is ResolvedMediaResult.SingleMedia &&
+                    (verifiedTikWm.formats.any { !it.isAudioOnly } || isExplicitMusicPage)
+                ) {
+                    val existing = bestResolvedSoFar
+                    if (existing == null) {
+                        return verifiedTikWm
+                    }
+                    val merged = mergeTikTokSingleMedia(existing, verifiedTikWm, oembedHint)
+                    return merged
+                }
+            }
+        }
+
+        bestResolvedSoFar?.let { existing ->
+            return enrichWithMetaHint(existing, oembedHint)
         }
 
         val resp = ResolverHttpUtils.fetchTextWithStatus(
@@ -489,12 +581,264 @@ class TikTokProviderAdapter(
                     DownloadError.ExtractionFailed("تيك توك", "TikTok HTML returned audio only without video stream"),
                     diag.toString()
                 )
+            } else if (verified is ResolvedMediaResult.SingleMedia) {
+                enrichWithMetaHint(verified, oembedHint ?: if (allowExternalApis) fetchMetadataHint(httpClient, canonicalUrl) else null)
             } else {
                 verified
             }
         } else {
             parsed
         }
+    }
+
+    private fun isGenericTikTokTitle(title: String?): Boolean {
+        val t = title?.trim().orEmpty()
+        return t.isBlank() ||
+            t.startsWith("TikTok video #", ignoreCase = true) ||
+            t.contains("وسائط_هوس_الدراسة") ||
+            t.equals("فيديو تيك توك", ignoreCase = true)
+    }
+
+    private fun enrichWithMetaHint(
+        media: ResolvedMediaResult.SingleMedia,
+        hint: TikTokMetaHint?
+    ): ResolvedMediaResult.SingleMedia {
+        if (hint == null) return media
+        return media.copy(
+            title = if (isGenericTikTokTitle(media.title) && !hint.title.isNullOrBlank()) hint.title else media.title,
+            authorOrSource = if ((media.authorOrSource.isBlank() || media.authorOrSource.equals("TikTok", true)) && !hint.author.isNullOrBlank()) {
+                hint.author
+            } else {
+                media.authorOrSource
+            },
+            thumbnailUrl = media.thumbnailUrl?.takeIf { it.startsWith("http", true) } ?: hint.thumbnailUrl
+        )
+    }
+
+    private fun mergeTikTokSingleMedia(
+        primary: ResolvedMediaResult.SingleMedia,
+        secondary: ResolvedMediaResult.SingleMedia,
+        hint: TikTokMetaHint?
+    ): ResolvedMediaResult.SingleMedia {
+        val seenUrls = HashSet<String>()
+        val combinedFormats = buildList {
+            for (fmt in (primary.formats + secondary.formats)) {
+                val key = "${fmt.isAudioOnly}_${fmt.containerExt}_${fmt.streamUrl.substringBefore('?')}"
+                if (seenUrls.add(key)) add(fmt)
+            }
+        }.sortedWith(
+            compareBy<ResolvedMediaFormat> { it.isAudioOnly }
+                .thenBy { fmt ->
+                    val h = "${fmt.id} ${fmt.labelEn} ${fmt.streamUrl}".lowercase(Locale.ROOT)
+                    h.contains("wmplay") || (h.contains("watermark") && !h.contains("no watermark"))
+                }
+                .thenByDescending { it.resolutionHeight }
+                .thenByDescending { it.exactBytes.coerceAtLeast(0L) }
+                .thenByDescending { it.bitrateKbps }
+        )
+        val merged = primary.copy(
+            title = if (isGenericTikTokTitle(primary.title) && !isGenericTikTokTitle(secondary.title)) secondary.title else primary.title,
+            authorOrSource = if ((primary.authorOrSource.isBlank() || primary.authorOrSource.equals("TikTok", true)) && secondary.authorOrSource.isNotBlank()) {
+                secondary.authorOrSource
+            } else {
+                primary.authorOrSource
+            },
+            thumbnailUrl = primary.thumbnailUrl?.takeIf { it.startsWith("http", true) }
+                ?: secondary.thumbnailUrl?.takeIf { it.startsWith("http", true) },
+            durationSeconds = if (primary.durationSeconds > 0) primary.durationSeconds else secondary.durationSeconds,
+            formats = combinedFormats
+        )
+        return enrichWithMetaHint(merged, hint)
+    }
+
+    private fun normalizeTikWmUrl(raw: String?): String? {
+        val clean = raw?.trim()?.takeIf { it.isNotBlank() && it != "null" } ?: return null
+        return when {
+            clean.startsWith("http://", true) || clean.startsWith("https://", true) -> clean
+            clean.startsWith("//") -> "https:$clean"
+            clean.startsWith("/") -> "https://www.tikwm.com$clean"
+            else -> null
+        }
+    }
+
+    private fun fetchTikWmMedia(
+        originalUrl: String,
+        canonicalUrl: String,
+        cookiesHeader: String?,
+        oembedHint: TikTokMetaHint?,
+        diag: StringBuilder
+    ): ResolvedMediaResult? {
+        val encoded = runCatching { URLEncoder.encode(canonicalUrl, "UTF-8") }.getOrNull() ?: return null
+        val apiUrl = "https://www.tikwm.com/api/?url=$encoded&hd=1"
+        val resp = ResolverHttpUtils.fetchTextWithStatus(
+            client = httpClient,
+            url = apiUrl,
+            userAgent = ResolverHttpUtils.DESKTOP_UA,
+            extraHeaders = mapOf("Accept" to "application/json, text/plain, */*")
+        ) ?: run {
+            diag.appendLine("[tikwm] Network timeout or null response")
+            return null
+        }
+        if (resp.statusCode >= 400 || !resp.body.trimStart().startsWith("{")) {
+            diag.appendLine("[tikwm] HTTP ${resp.statusCode}")
+            return null
+        }
+        val root = runCatching { JSONObject(resp.body) }.getOrNull() ?: return null
+        if (root.optInt("code", -1) != 0) {
+            diag.appendLine("[tikwm] code=${root.optInt("code")} msg=${root.optString("msg")}")
+            return null
+        }
+        val data = root.optJSONObject("data") ?: return null
+        val headers = mapOf(
+            "Referer" to "https://www.tiktok.com/",
+            "User-Agent" to ResolverHttpUtils.DESKTOP_UA
+        )
+        val rawTitle = data.optString("title").takeIf { it.isNotBlank() }
+            ?: oembedHint?.title
+            ?: "فيديو تيك توك"
+        val authorObj = data.optJSONObject("author")
+        val author = authorObj?.optString("nickname")?.takeIf { it.isNotBlank() }
+            ?: authorObj?.optString("unique_id")?.takeIf { it.isNotBlank() }?.let { "@$it" }
+            ?: oembedHint?.author
+            ?: "TikTok"
+        val thumb = normalizeTikWmUrl(data.optString("origin_cover"))
+            ?: normalizeTikWmUrl(data.optString("cover"))
+            ?: normalizeTikWmUrl(data.optString("ai_dynamic_cover"))
+            ?: oembedHint?.thumbnailUrl
+        val duration = data.optInt("duration", 0).coerceAtLeast(0)
+
+        val formats = mutableListOf<ResolvedMediaFormat>()
+        val seenStreamUrls = HashSet<String>()
+
+        fun addVideoVariant(
+            id: String,
+            streamUrl: String?,
+            height: Int,
+            sizeBytes: Long,
+            labelAr: String,
+            labelEn: String,
+            subLabelAr: String,
+            badgeAr: String,
+            badgeEn: String
+        ) {
+            val normalized = normalizeTikWmUrl(streamUrl) ?: return
+            if (isLikelyAudioOnlyUrl(normalized) || !seenStreamUrls.add(normalized)) return
+            val finalSize = if (sizeBytes > 0L) sizeBytes else ResolverHttpUtils.probeContentLength(httpClient, normalized, headers)
+            formats += ResolvedMediaFormat(
+                id = id,
+                labelAr = labelAr,
+                labelEn = labelEn,
+                subLabelAr = subLabelAr,
+                containerExt = "mp4",
+                mimeType = "video/mp4",
+                resolutionHeight = height,
+                streamUrl = normalized,
+                exactBytes = finalSize,
+                isApproximateBytes = finalSize <= 0L,
+                headers = headers,
+                badgeAr = badgeAr,
+                badgeEn = badgeEn,
+                hasVideo = true,
+                hasAudio = true
+            )
+        }
+
+        addVideoVariant(
+            id = "tt_hdplay",
+            streamUrl = data.optString("hdplay"),
+            height = 1080,
+            sizeBytes = data.optLong("hd_size", -1L),
+            labelAr = "1080p HD (بدون علامة مائية — الأوضح)",
+            labelEn = "1080p HD (No Watermark — Clearer)",
+            subLabelAr = "بدون علامة مائية • النسخة الأصلية الفائقة",
+            badgeAr = "بدون علامة مائية",
+            badgeEn = "No Watermark HD"
+        )
+        addVideoVariant(
+            id = "tt_play",
+            streamUrl = data.optString("play"),
+            height = 720,
+            sizeBytes = data.optLong("size", -1L),
+            labelAr = "720p HD (بدون علامة مائية)",
+            labelEn = "720p HD (No Watermark)",
+            subLabelAr = "بدون علامة مائية • جودة متوازنة",
+            badgeAr = "بدون علامة مائية",
+            badgeEn = "No Watermark"
+        )
+        addVideoVariant(
+            id = "tt_wmplay",
+            streamUrl = data.optString("wmplay"),
+            height = 480,
+            sizeBytes = data.optLong("wm_size", -1L),
+            labelAr = "480p (توفير البيانات)",
+            labelEn = "480p (Data Saver)",
+            subLabelAr = "نسخة سريعة خفيفة الحجم",
+            badgeAr = "توفير البيانات",
+            badgeEn = "Data Saver"
+        )
+
+        val musicUrl = normalizeTikWmUrl(data.optString("music"))
+            ?: normalizeTikWmUrl(data.optJSONObject("music_info")?.optString("play"))
+        val primaryVideoUrl = formats.firstOrNull()?.streamUrl
+        if (!musicUrl.isNullOrBlank() || !primaryVideoUrl.isNullOrBlank()) {
+            val mUrl = musicUrl ?: primaryVideoUrl!!
+            val mSize = ResolverHttpUtils.probeContentLength(httpClient, mUrl, headers)
+            formats += ResolvedMediaFormat(
+                id = "audio_m4a",
+                labelAr = "صوت فقط • M4A عالي النقاء",
+                labelEn = "M4A",
+                subLabelAr = "صوت أصلي سريع بدون فيديو",
+                containerExt = "m4a",
+                mimeType = "audio/mp4",
+                bitrateKbps = 192,
+                streamUrl = primaryVideoUrl ?: mUrl,
+                formatExpression = "bestaudio/best",
+                exactBytes = mSize,
+                isApproximateBytes = mSize <= 0L,
+                isAudioOnly = true,
+                needsMux = true,
+                headers = headers,
+                badgeAr = "صوت أصلي",
+                badgeEn = "M4A Audio",
+                hasVideo = false,
+                hasAudio = true
+            )
+            formats += ResolvedMediaFormat(
+                id = "tt_audio",
+                labelAr = "صوت الفيديو فقط • MP3",
+                labelEn = "MP3 Audio",
+                subLabelAr = "صوت نقي متوافق مع جميع المشغلات",
+                containerExt = "mp3",
+                mimeType = "audio/mpeg",
+                bitrateKbps = 320,
+                streamUrl = mUrl,
+                exactBytes = mSize,
+                isApproximateBytes = mSize <= 0L,
+                isAudioOnly = true,
+                needsMux = !mUrl.contains(".mp3", true),
+                headers = headers,
+                badgeAr = "صوت فقط",
+                badgeEn = "MP3 Audio",
+                hasVideo = false,
+                hasAudio = true
+            )
+        }
+
+        if (formats.isEmpty()) return null
+        return ResolvedMediaResult.SingleMedia(
+            originalUrl = originalUrl,
+            canonicalUrl = canonicalUrl,
+            title = rawTitle,
+            authorOrSource = author,
+            sourceDomain = ResolverHttpUtils.normalizeHost(canonicalUrl),
+            platform = MediaPlatform.TIKTOK,
+            kind = ResolvedMediaKind.SINGLE_VIDEO,
+            thumbnailUrl = thumb,
+            durationSeconds = duration,
+            formats = formats,
+            headers = headers,
+            cookiesHeader = cookiesHeader
+        )
     }
 
     private fun isLikelyAudioOnlyUrl(url: String?): Boolean {
@@ -643,7 +987,10 @@ class TikTokProviderAdapter(
             val videoObj = itemStruct.optJSONObject("video")
             if (videoObj != null) {
                 duration = videoObj.optInt("duration", 0)
-                thumb = videoObj.optString("cover").takeIf { it.isNotBlank() } ?: thumb
+                thumb = videoObj.optString("originCover").takeIf { it.isNotBlank() }
+                    ?: videoObj.optString("cover").takeIf { it.isNotBlank() }
+                    ?: videoObj.optString("dynamicCover").takeIf { it.isNotBlank() }
+                    ?: thumb
 
                 val vidW = videoObj.optInt("width", 0)
                 val vidH = videoObj.optInt("height", 0)
