@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -127,6 +128,18 @@ jobs:
           fi
 
           echo "Verified debug APK: $EXPECTED_APK"
+
+      - name: Cleanup old workflow artifacts
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh api "repos/${{ github.repository }}/actions/artifacts" --paginate -q '.artifacts[].id' | while read -r id; do
+            if [ -n "$id" ]; then
+              gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" || true
+            fi
+          done
 
       - name: Upload debug APK artifact
         id: upload_artifact
