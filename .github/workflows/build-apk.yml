@@ -60,6 +60,12 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
+      - name: Cache persistent debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ./debug.keystore
+          key: hawas-permanent-debug-keystore-v1
+
       - name: Create temporary debug keystore
         shell: bash
         run: |
@@ -128,6 +134,31 @@ jobs:
           fi
 
           echo "Verified debug APK: $EXPECTED_APK"
+
+      - name: Verify APK alignment and signature (zipalign & apksigner)
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_APK="app/build/outputs/apk/debug/app-debug.apk"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK_ROOT" ] || [ ! -d "$SDK_ROOT/build-tools" ]; then
+            echo "ERROR: Android SDK build-tools directory not found (ANDROID_HOME/ANDROID_SDK_ROOT='$SDK_ROOT')." >&2
+            exit 1
+          fi
+
+          BUILD_TOOLS_DIR="$(find "$SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)"
+          if [ -z "$BUILD_TOOLS_DIR" ] || [ ! -x "$BUILD_TOOLS_DIR/apksigner" ] || [ ! -x "$BUILD_TOOLS_DIR/zipalign" ]; then
+            echo "ERROR: apksigner or zipalign not found inside '$BUILD_TOOLS_DIR'." >&2
+            exit 1
+          fi
+
+          echo "Using build-tools: $BUILD_TOOLS_DIR"
+          "$BUILD_TOOLS_DIR/zipalign" -c -v 4 "$EXPECTED_APK" >/dev/null
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose --print-certs "$EXPECTED_APK"
+          if [ -x "$BUILD_TOOLS_DIR/aapt2" ]; then
+            "$BUILD_TOOLS_DIR/aapt2" dump badging "$EXPECTED_APK" | grep -E "package:|sdkVersion:|targetSdkVersion:|native-code:" || true
+          fi
+          ls -lh "$EXPECTED_APK"
 
       - name: Cleanup old workflow artifacts
         continue-on-error: true

@@ -196,11 +196,6 @@
             android:foregroundServiceType="mediaPlayback" />
 
         <service
-            android:name=".domain.prayer.AdhanPrayerService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
-
-        <service
             android:name=".domain.prayer.AzkarAudioService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
