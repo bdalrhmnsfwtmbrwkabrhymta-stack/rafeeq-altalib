@@ -114,7 +114,13 @@ data class UserSettings(
     val dailyWakeUpHour: Int = 5,
     val dailyWakeUpMinute: Int = 30,
     val dailyDeadlineHour: Int = 23,
-    val dailyDeadlineMinute: Int = 59
+    val dailyDeadlineMinute: Int = 59,
+
+    // Fahim Developer & Voice Preferences
+    val piperTtsUrl: String = "",
+    val coquiTtsUrl: String = "",
+    val voiceTtsApiKey: String = "",
+    val fahimDialect: String = "EGYPTIAN"
 ) {
     val lastReadSurahName: String get() = quranBookmarkSurahName
     val lastReadAyahNumber: Int get() = quranBookmarkAyah
@@ -217,6 +223,10 @@ class UserPreferencesRepository(private val context: Context) {
         val KEY_IS_TELEGRAM_LINKED = booleanPreferencesKey("is_telegram_linked")
         val KEY_TELEGRAM_CHAT_ID = longPreferencesKey("telegram_chat_id")
         val KEY_GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+        val KEY_PIPER_TTS_URL = stringPreferencesKey("piper_tts_url")
+        val KEY_COQUI_TTS_URL = stringPreferencesKey("coqui_tts_url")
+        val KEY_VOICE_TTS_API_KEY = stringPreferencesKey("voice_tts_api_key")
+        val KEY_FAHIM_DIALECT = stringPreferencesKey("fahim_dialect")
     }
 
     val userSettingsFlow: Flow<UserSettings> = context.dataStore.data
@@ -319,13 +329,37 @@ class UserPreferencesRepository(private val context: Context) {
                 dailyWaterCups = prefs[KEY_DAILY_WATER_CUPS] ?: 0,
                 fridaySurahKahfRead = prefs[KEY_FRIDAY_SURAH_KAHF] ?: false,
                 fridaySurahJumuahRead = prefs[KEY_FRIDAY_SURAH_JUMUAH] ?: false,
-                geminiApiKey = prefs[KEY_GEMINI_API_KEY] ?: ""
+                geminiApiKey = prefs[KEY_GEMINI_API_KEY] ?: "",
+                piperTtsUrl = prefs[KEY_PIPER_TTS_URL] ?: "",
+                coquiTtsUrl = prefs[KEY_COQUI_TTS_URL] ?: "",
+                voiceTtsApiKey = prefs[KEY_VOICE_TTS_API_KEY] ?: "",
+                fahimDialect = prefs[KEY_FAHIM_DIALECT] ?: "EGYPTIAN"
             )
         }
 
     suspend fun updateGeminiApiKey(apiKey: String) {
         context.dataStore.edit { prefs ->
             prefs[KEY_GEMINI_API_KEY] = apiKey.trim()
+        }
+    }
+
+    suspend fun updateDeveloperFahimSettings(
+        geminiKey: String,
+        piperUrl: String,
+        coquiUrl: String,
+        voiceKey: String
+    ) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_GEMINI_API_KEY] = geminiKey.trim()
+            prefs[KEY_PIPER_TTS_URL] = piperUrl.trim()
+            prefs[KEY_COQUI_TTS_URL] = coquiUrl.trim()
+            prefs[KEY_VOICE_TTS_API_KEY] = voiceKey.trim()
+        }
+    }
+
+    suspend fun updateFahimDialect(dialectName: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_FAHIM_DIALECT] = dialectName
         }
     }
 

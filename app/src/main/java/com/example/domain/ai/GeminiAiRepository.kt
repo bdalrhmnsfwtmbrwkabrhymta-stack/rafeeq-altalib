@@ -346,6 +346,20 @@ class GeminiAiRepository {
         chatHistory: List<Pair<Boolean, String>> = emptyList()
     ): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = if (customApiKey.isNotBlank()) customApiKey else BuildConfig.GEMINI_API_KEY
+        val hasGeminiKey = apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY"
+        val hasImageOrAudio = !imageBytesBase64.isNullOrEmpty() || !audioBytesBase64.isNullOrEmpty()
+
+        // Prefer hidden DeepSeek engine automatically when configured for text & study tasks (or when Gemini key is missing)
+        if ((!hasImageOrAudio && FahimAiConfig.isDeepSeekConfigured()) || (!hasGeminiKey && FahimAiConfig.isDeepSeekConfigured())) {
+            val deepSeekRes = FahimAiService(this@GeminiAiRepository).callDeepSeekRawText(
+                userPrompt = prompt,
+                systemInstruction = systemInstruction,
+                historyPairs = chatHistory
+            )
+            if (deepSeekRes.isSuccess) {
+                return@withContext deepSeekRes
+            }
+        }
 
         // Adjust effective model based on feature requirements
         // For vision / image STEM analysis or high-thinking tasks, gemini-3.1-pro-preview provides top-tier reasoning and vision accuracy.
@@ -362,9 +376,8 @@ class GeminiAiRepository {
             else -> "gemini-3.5-flash"
         }
 
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            val fallback = "⚠️ **ملاحظة حول مفتاح Gemini API**:\nلم يتم تعيين مفتاح API مفعل تلقائياً. يمكنك إضافة مفتاح Gemini API الخاص بك بسهولة وسرية من زر **«🔑 المفتاح»** بوجة الشات ليتم توجيه الأسئلة مباشرة لنماذج Gemini الذكية عبر الإنترنت.\n\n---\n" + generateOfflineAcademicResponse(prompt)
-            return@withContext Result.success(fallback)
+        if (!hasGeminiKey) {
+            return@withContext Result.success(generateOfflineAcademicResponse(prompt))
         }
 
         try {
@@ -2081,7 +2094,7 @@ class GeminiAiRepository {
 
     private fun generateOfflineAcademicResponse(prompt: String): String {
         val q = prompt.trim()
-        val footerNote = "\n\n---\n💡 *ملاحظة:* تم إجابة هذا السؤال بواسطة المساعد الدراسي المحلي. يمكنك إضافة مفتاح Gemini API الخاص بك من زر «🔑 المفتاح» في أعلى الشاشة لتفعيل نماذج Gemini 3.5 المباشرة."
+        val footerNote = "\n\n---\n💡 *نصيحة فهيم:* يمكنك استخدام الخرائط الذهنية وجداول المذاكرة الملونة لتنظيم دروسك وإضافتها لقسم مهامي بضغطة واحدة."
 
         return when {
             q.contains("خطة") || q.contains("جدول") || q.contains("ذاكر") ->

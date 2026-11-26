@@ -163,7 +163,7 @@ data class RafidExcludedDomainEntity(
 data class RafidConfigState(
     val darkModeOverride: Boolean? = null,
     val languageMode: RafidLanguageMode = RafidLanguageMode.ARABIC,
-    val maxConcurrentDownloads: Int = 3,
+    val maxConcurrentDownloads: Int = 2,
     val wifiOnly: Boolean = false,
     val isScheduledStartEnabled: Boolean = false,
     val scheduledHour: Int = 23,

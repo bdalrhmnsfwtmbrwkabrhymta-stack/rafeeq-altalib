@@ -286,4 +286,85 @@ class AdhanUpgradeTest {
             .performScrollTo()
             .assertIsDisplayed()
     }
+
+    @Test
+    fun exactMinuteAlignmentAndCleanAdhanHeaderMatchUserSpec() {
+        val sampleExactMs = 1_700_000_040_321L
+        assertEquals(
+            "alignToExactMinute must preserve exact milliseconds without shifting",
+            sampleExactMs,
+            com.example.data.prayer.PrayerTimeCalculator.alignToExactMinute(sampleExactMs)
+        )
+
+        val fixedDate = java.util.Date(1_732_536_000_000L)
+        val rawAdhanTimes = com.example.data.prayer.PrayerTimeCalculator.getPrayerTimes(
+            latitude = 30.0444,
+            longitude = 31.2357,
+            date = fixedDate,
+            method = com.batoulapps.adhan.CalculationMethod.EGYPTIAN,
+            madhab = com.batoulapps.adhan.Madhab.SHAFI
+        )!!
+        val calcResult = com.example.data.prayer.PrayerTimeCalculator.calculatePrayerTimes(
+            latitude = 30.0444,
+            longitude = 31.2357,
+            date = fixedDate,
+            methodName = "EGYPTIAN",
+            isEnglish = false
+        )
+        assertEquals(com.example.data.prayer.PrayerTimeCalculator.stripSubSecondJitter(rawAdhanTimes.fajr!!.time), calcResult.fajr.timestampMillis)
+        assertEquals(com.example.data.prayer.PrayerTimeCalculator.stripSubSecondJitter(rawAdhanTimes.sunrise!!.time), calcResult.sunrise.timestampMillis)
+        assertEquals(com.example.data.prayer.PrayerTimeCalculator.stripSubSecondJitter(rawAdhanTimes.dhuhr!!.time), calcResult.dhuhr.timestampMillis)
+        assertEquals(com.example.data.prayer.PrayerTimeCalculator.stripSubSecondJitter(rawAdhanTimes.asr!!.time), calcResult.asr.timestampMillis)
+        assertEquals(com.example.data.prayer.PrayerTimeCalculator.stripSubSecondJitter(rawAdhanTimes.maghrib!!.time), calcResult.maghrib.timestampMillis)
+        assertEquals(com.example.data.prayer.PrayerTimeCalculator.stripSubSecondJitter(rawAdhanTimes.isha!!.time), calcResult.isha.timestampMillis)
+
+        val dailySchedule = com.example.domain.prayer.AdhanPrayerService.calculateDailySchedule(
+            latitude = 30.0444,
+            longitude = 31.2357,
+            date = fixedDate,
+            methodName = "EGYPTIAN",
+            isEnglish = false
+        )
+        assertEquals(calcResult.fajr.timestampMillis, dailySchedule.fajr.timestampMs)
+        assertEquals(calcResult.sunrise.timestampMillis, dailySchedule.sunrise.timestampMs)
+        assertEquals(calcResult.dhuhr.timestampMillis, dailySchedule.dhuhr.timestampMs)
+        assertEquals(calcResult.asr.timestampMillis, dailySchedule.asr.timestampMs)
+        assertEquals(calcResult.maghrib.timestampMillis, dailySchedule.maghrib.timestampMs)
+        assertEquals(calcResult.isha.timestampMillis, dailySchedule.isha.timestampMs)
+
+        // Verify Adhkar trigger does not skip upcoming events by an artificial 15s buffer
+        val fajrPlus5Min = calcResult.fajr.timestampMillis + 5 * 60 * 1000L
+        assertEquals(
+            fajrPlus5Min,
+            AdhkarAutoTriggerManager.computeNextMorningTriggerMs(
+                todayResult = calcResult,
+                tomorrowResult = calcResult,
+                nowMs = fajrPlus5Min - 1_000L
+            )
+        )
+
+        composeTestRule.setContent {
+            RafiqTheme {
+                RealisticAnimatedAdhanScreen(
+                    prayerName = "العصر",
+                    cityName = "عزب بسنتاواي",
+                    muezzinVoice = "الأذان المصري الأصيل (MBC وإذاعة القرآن)",
+                    formattedClockTime = "02:38",
+                    formattedAmPm = "م",
+                    onOpenQibla = {},
+                    onOpenNearbyMosques = {},
+                    onOpenMorningAdhkar = {},
+                    onStopAdhan = {}
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("حان الآن موعد", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("أذان العصر", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText(
+            "«اللهم ربَّ هذه الدعوة التامة، والصلاة القائمة،\nآتِ محمدًا الوسيلة والفضيلة،\nوابعثه مقامًا محمودًا الذي وعدته»",
+            useUnmergedTree = true
+        ).assertIsDisplayed()
+    }
 }

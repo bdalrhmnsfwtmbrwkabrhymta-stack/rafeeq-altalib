@@ -10,7 +10,10 @@ import com.example.data.audio.AppAudioManager
 import com.example.data.audio.AzanAudioPlayer
 import com.example.data.notification.AzanNotificationHelper
 import com.example.ui.prayer.AthkarPopupActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * High-reliability BroadcastReceiver for exact alarms:
@@ -72,7 +75,8 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                         cityName = cityName,
                         muezzinVoice = muezzinVoice,
                         rawResId = soundResId,
-                        playAudio = isFullAudio
+                        playAudio = isFullAudio,
+                        scheduledTimeMs = scheduledTimeMs
                     )
 
                     // Direct Activity launch paired with setFullScreenIntent guarantees instant popup across OEMs
@@ -87,6 +91,9 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                             putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
                             putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
                             putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_AUTO_PLAY, false)
+                            if (scheduledTimeMs > 0L) {
+                                putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_SCHEDULED_TIME_MS, scheduledTimeMs)
+                            }
                         }
                         context.startActivity(directAdhanIntent)
                     } catch (e: Exception) {
@@ -211,8 +218,21 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                     } catch (e: Exception) {
                         Log.w(TAG, "Could not start foreground service from watchdog", e)
                     }
-                    PrayerAlarmScheduler.rescheduleAll(context)
-                    AzkarScheduler.rescheduleAzkar(context)
+                    val pendingResult = goAsync()
+                    val appCtx = context.applicationContext
+                    val heldWakeLock = wakeLock
+                    wakeLock = null
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            PrayerAlarmScheduler.rescheduleAllSuspending(appCtx)
+                            AzkarScheduler.rescheduleAzkar(appCtx)
+                        } finally {
+                            try {
+                                if (heldWakeLock?.isHeld == true) heldWakeLock.release()
+                            } catch (_: Exception) {}
+                            pendingResult.finish()
+                        }
+                    }
                 }
 
                 com.example.domain.notification.NotificationReliabilityManager.ACTION_TEST_ALARM -> {
@@ -223,12 +243,30 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
 
                 Intent.ACTION_BOOT_COMPLETED,
                 Intent.ACTION_MY_PACKAGE_REPLACED,
+                Intent.ACTION_TIME_CHANGED,
+                Intent.ACTION_TIMEZONE_CHANGED,
+                "android.intent.action.TIME_SET",
                 "android.intent.action.QUICKBOOT_POWERON",
                 "com.htc.intent.action.QUICKBOOT_POWERON" -> {
-                    // Reschedule all alarms and start persistent notification service
-                    PrayerAlarmScheduler.rescheduleAll(context)
-                    AzkarScheduler.rescheduleAzkar(context)
-                    PrayerForegroundService.start(context)
+                    // Reschedule all alarms reliably via goAsync and start persistent service on clock/timezone/boot events
+                    try {
+                        PrayerForegroundService.start(context)
+                    } catch (_: Exception) {}
+                    val pendingResult = goAsync()
+                    val appCtx = context.applicationContext
+                    val heldWakeLock = wakeLock
+                    wakeLock = null
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            PrayerAlarmScheduler.rescheduleAllSuspending(appCtx)
+                            AzkarScheduler.rescheduleAzkar(appCtx)
+                        } finally {
+                            try {
+                                if (heldWakeLock?.isHeld == true) heldWakeLock.release()
+                            } catch (_: Exception) {}
+                            pendingResult.finish()
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {

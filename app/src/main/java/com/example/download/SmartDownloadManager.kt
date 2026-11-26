@@ -38,12 +38,17 @@ import com.example.download.engine.StorageHelper
 import com.example.download.engine.YtDlpRunner
 import com.example.download.extract.LinkExtractor
 import com.example.download.service.DownloadForegroundService
+import com.example.download.service.DownloadNotificationManager
 import com.example.download.service.NetworkAutoResumeMonitor
+import com.example.download.core.resolver.ResolverHttpUtils
+import com.hawas.study.rafid.worker.SerialFFmpegMuxerWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,12 +57,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 sealed class EnqueueOutcome {
     data class Enqueued(val downloadId: String) : EnqueueOutcome()
@@ -77,6 +85,13 @@ class SmartDownloadManager private constructor(
     private val networkMonitor = NetworkAutoResumeMonitor(appContext)
 
     private val resolverClient = OkHttpClient.Builder()
+        .dispatcher(
+            Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = 24
+            }
+        )
+        .connectionPool(ConnectionPool(24, 5, TimeUnit.MINUTES))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -118,6 +133,7 @@ class SmartDownloadManager private constructor(
     private val pausedByUserIds = ConcurrentHashMap.newKeySet<String>()
     private val pausedByNetworkIds = ConcurrentHashMap.newKeySet<String>()
     private val canceledByUserIds = ConcurrentHashMap.newKeySet<String>()
+    private val preExtractingIds = ConcurrentHashMap.newKeySet<String>()
 
     private val _liveStatsFlow = MutableStateFlow<Map<String, LiveProgressSnapshot>>(emptyMap())
     val liveStatsFlow: StateFlow<Map<String, LiveProgressSnapshot>> = _liveStatsFlow.asStateFlow()
@@ -552,6 +568,7 @@ class SmartDownloadManager private constructor(
 
     private fun scheduleNextQueued() {
         scope.launch {
+            var toPreExtract: List<DownloadEntity> = emptyList()
             schedulerMutex.withLock {
                 val settings = settingsRepo.getSettings()
                 if (shouldWaitForWifiOrNetwork()) {
@@ -562,20 +579,86 @@ class SmartDownloadManager private constructor(
                     return@withLock
                 }
 
+                val allQueued = dao.getQueuedDownloads()
                 val currentRunning = activeJobs.count { it.value.isActive }
                 val freeSlots = (settings.maxConcurrent - currentRunning).coerceAtLeast(0)
-                if (freeSlots <= 0) return@withLock
-
-                val queuedList = dao.getQueuedDownloads().take(freeSlots)
-                for (item in queuedList) {
-                    if (activeJobs[item.id]?.isActive == true) continue
-                    val job = scope.launch {
-                        runDownloadTask(item.id)
+                if (freeSlots > 0) {
+                    val queuedList = allQueued.take(freeSlots)
+                    for (item in queuedList) {
+                        if (activeJobs[item.id]?.isActive == true) continue
+                        val job = scope.launch {
+                            runDownloadTask(item.id)
+                        }
+                        activeJobs[item.id] = job
                     }
-                    activeJobs[item.id] = job
+                }
+                toPreExtract = allQueued
+                    .drop(freeSlots)
+                    .filter {
+                        it.resolvedUrl == it.originalUrl &&
+                            !ResolverHttpUtils.isManifestUrl(it.originalUrl) &&
+                            !preExtractingIds.contains(it.id)
+                    }
+                    .take(2)
+            }
+            toPreExtract.forEach { candidate ->
+                if (preExtractingIds.add(candidate.id)) {
+                    scope.launch {
+                        try {
+                            preExtractSmartQueuedItem(candidate)
+                        } finally {
+                            preExtractingIds.remove(candidate.id)
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private suspend fun preExtractSmartQueuedItem(entity: DownloadEntity) {
+        val current = dao.getDownloadById(entity.id) ?: return
+        if (current.status != DownloadStatus.QUEUED || current.resolvedUrl != current.originalUrl) return
+        val extracted = extractLink(current.originalUrl, checkPlaylist = false)
+        if (extracted !is ExtractionResult.SingleVideo) return
+
+        val targetMaxHeight = Regex("""(\d{3,4})p""").find(current.qualityId)
+            ?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val chosen = if (current.isAudioOnly) {
+            extracted.qualities.firstOrNull { it.isAudioOnly && it.ext.equals(current.fileName.substringAfterLast('.', "m4a"), true) }
+                ?: extracted.qualities.firstOrNull { it.isAudioOnly }
+        } else {
+            val videoCandidates = extracted.qualities.filter { !it.isAudioOnly }
+            if (targetMaxHeight != null) {
+                val withinCap = videoCandidates.filter { it.resolutionHeight in 1..targetMaxHeight }
+                val bestHeight = withinCap.maxOfOrNull { it.resolutionHeight }
+                if (bestHeight != null) {
+                    withinCap.filter { it.resolutionHeight == bestHeight }
+                        .let { atBest ->
+                            atBest.firstOrNull { it.hasAudio && it.ext.equals("mp4", true) }
+                                ?: atBest.firstOrNull { it.ext.equals("mp4", true) }
+                                ?: atBest.firstOrNull()
+                        }
+                } else {
+                    videoCandidates.minByOrNull { if (it.resolutionHeight > 0) it.resolutionHeight else Int.MAX_VALUE }
+                }
+            } else {
+                videoCandidates.firstOrNull()
+            }
+        } ?: return
+
+        if (chosen.directUrl.isBlank()) return
+        val mergedHeaders = extracted.headers + chosen.headers
+        dao.updatePreExtractedStreamsIfQueued(
+            id = current.id,
+            resolvedUrl = chosen.directUrl,
+            audioUrl = if (current.isAudioOnly) null else chosen.audioUrl,
+            totalBytes = chosen.estimatedBytes,
+            headersJson = encodeHeaders(mergedHeaders),
+            formatId = chosen.formatId ?: current.formatId,
+            qualityLabel = chosen.labelAr,
+            isHlsOrDash = chosen.isHlsOrDash,
+            needsMux = chosen.needsMux || !chosen.audioUrl.isNullOrBlank()
+        )
     }
 
     private suspend fun runDownloadTask(id: String) {
@@ -594,12 +677,17 @@ class SmartDownloadManager private constructor(
 
             val useSegmentedHttp = !entity.isHlsOrDash && !entity.needsMux &&
                 entity.resolvedUrl.startsWith("http", true)
+            val useParallelMuxHttp = !entity.isHlsOrDash && entity.needsMux &&
+                !entity.isAudioOnly &&
+                entity.resolvedUrl.startsWith("http", true) &&
+                !entity.audioUrl.isNullOrBlank() &&
+                entity.audioUrl.startsWith("http", true)
 
             val activeDownloadPhase = if (entity.isAudioOnly) "DOWNLOADING_AUDIO" else "DOWNLOADING_VIDEO"
             dao.updateStatus(
                 id = id,
                 status = DownloadStatus.DOWNLOADING,
-                threads = if (useSegmentedHttp) settings.chunkCount else 8,
+                threads = if (useSegmentedHttp || useParallelMuxHttp) settings.chunkCount else 8,
                 engineState = activeDownloadPhase,
                 errorCode = null
             )
@@ -623,6 +711,105 @@ class SmartDownloadManager private constructor(
                         _liveStatsFlow.update { it + (id to snap) }
                     }
                 )
+            } else if (useParallelMuxHttp) {
+                val headers = decodeHeaders(entity.headersJson)
+                val audioTempFile = File(File(entity.tempPartPath).parentFile, "${id}_audio.m4a.part")
+                val muxOutFile = File(File(entity.tempPartPath).parentFile, "${id}_muxed.${entity.fileName.substringAfterLast('.', "mp4")}")
+                val vDone = AtomicLong(0L)
+                val vTotal = AtomicLong(maxOf(0L, entity.totalBytes))
+                val vSpeed = AtomicLong(0L)
+                val aDone = AtomicLong(0L)
+                val aTotal = AtomicLong(0L)
+                val aSpeed = AtomicLong(0L)
+                val lastDbSave = AtomicLong(0L)
+
+                fun publishCombined() {
+                    val done = vDone.get() + aDone.get()
+                    val total = (vTotal.get() + aTotal.get()).coerceAtLeast(done)
+                    val speed = vSpeed.get() + aSpeed.get()
+                    val eta = if (speed > 0L && total > done) (total - done) / speed else -1L
+                    _liveStatsFlow.update { it + (id to LiveProgressSnapshot(speed, eta, settings.chunkCount)) }
+                    val now = System.currentTimeMillis()
+                    val prev = lastDbSave.get()
+                    if (now - prev >= 900L && lastDbSave.compareAndSet(prev, now)) {
+                        scope.launch { dao.updateProgress(id, done, total, settings.chunkCount) }
+                    }
+                }
+
+                val parallelResult = runCatching {
+                    val (vidFile, audFile) = coroutineScope {
+                        val vJob = async(Dispatchers.IO) {
+                            chunkDownloader.downloadSideTrack(
+                                downloadId = "${id}_v",
+                                url = entity.resolvedUrl,
+                                targetFile = File(entity.tempPartPath),
+                                expectedMimeType = entity.mimeType,
+                                headers = headers,
+                                requestedChunks = settings.chunkCount,
+                                speedLimitKBps = settings.speedLimitKBps,
+                                onRefreshDirectUrl = { refreshDirectDownloadUrl(entity) },
+                                onProgress = { done, total, snap ->
+                                    vDone.set(done)
+                                    if (total > 0L) vTotal.set(total)
+                                    vSpeed.set(snap.speedBytesPerSec)
+                                    publishCombined()
+                                }
+                            )
+                        }
+                        val aJob = async(Dispatchers.IO) {
+                            chunkDownloader.downloadSideTrack(
+                                downloadId = "${id}_a",
+                                url = entity.audioUrl!!,
+                                targetFile = audioTempFile,
+                                expectedMimeType = "audio/mp4",
+                                headers = headers,
+                                requestedChunks = settings.chunkCount,
+                                speedLimitKBps = settings.speedLimitKBps,
+                                onRefreshDirectUrl = { null },
+                                onProgress = { done, total, snap ->
+                                    aDone.set(done)
+                                    if (total > 0L) aTotal.set(total)
+                                    aSpeed.set(snap.speedBytesPerSec)
+                                    publishCombined()
+                                }
+                            )
+                        }
+                        vJob.await() to aJob.await()
+                    }
+                    dao.updateStatus(id, DownloadStatus.MERGING, threads = 1, engineState = EngineDownloadState.MERGING.name)
+                    val merged = SerialFFmpegMuxerWorker.runSerializedMux(
+                        context = appContext,
+                        primaryMediaFile = vidFile,
+                        secondaryAudioFile = audFile,
+                        desiredOutputFile = muxOutFile,
+                        desiredExtension = entity.fileName.substringAfterLast('.', "mp4"),
+                        audioOnly = false
+                    )
+                    runCatching { audFile.delete() }
+                    runCatching { vidFile.delete() }
+                    merged.outputFile
+                }
+
+                parallelResult.getOrElse {
+                    var lastDbSaveYt = 0L
+                    ytDlpRunner.executeDownload(
+                        entity = entity,
+                        speedLimitKBps = settings.speedLimitKBps,
+                        onMerging = {
+                            dao.updateStatus(id, DownloadStatus.MERGING, threads = 1, engineState = EngineDownloadState.MERGING.name)
+                        },
+                        onProgress = { done, total, snap ->
+                            _liveStatsFlow.update { it + (id to snap) }
+                            val now = System.currentTimeMillis()
+                            if (now - lastDbSaveYt >= 900L) {
+                                lastDbSaveYt = now
+                                scope.launch {
+                                    dao.updateProgress(id, done, total, snap.activeThreads)
+                                }
+                            }
+                        }
+                    )
+                }
             } else {
                 var lastDbSave = 0L
                 ytDlpRunner.executeDownload(
@@ -709,6 +896,17 @@ class SmartDownloadManager private constructor(
                         displayPath = displayPath
                     )
                     clearLiveStat(id)
+                    DownloadNotificationManager.notifyDownloadCompleted(
+                        context = appContext,
+                        downloadId = id,
+                        source = DownloadNotificationManager.SOURCE_SMART,
+                        videoTitle = entity.title,
+                        totalBytes = finalLength,
+                        mimeType = finalMime,
+                        savedUriString = uriStr,
+                        displayPath = displayPath,
+                        thumbnailUrl = entity.thumbnailUrl
+                    )
                 },
                 onFailure = { err ->
                     val mapped = DownloadErrorMapper.fromThrowable(err, entity.platform)

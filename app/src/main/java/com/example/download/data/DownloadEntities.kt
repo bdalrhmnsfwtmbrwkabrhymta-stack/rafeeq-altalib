@@ -145,9 +145,9 @@ data class LiveProgressSnapshot(
 )
 
 data class DownloadSettings(
-    val chunkCount: Int = 12,
+    val chunkCount: Int = 8,
     val wifiOnly: Boolean = false,
-    val maxConcurrent: Int = 3,
+    val maxConcurrent: Int = 2,
     val speedLimitKBps: Int = 0,
     val lastSelectedQualityId: String = "1080p"
 )

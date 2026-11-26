@@ -22,12 +22,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.data.preferences.UserSettings
 import com.example.domain.notification.NotificationReliabilityManager
 import com.example.ui.MainViewModel
+import com.example.ui.dialogs.RestrictedOverlayGuideDialog
 import com.example.ui.dialogs.UniversalNotificationPermissionDialog
 import java.text.SimpleDateFormat
 import java.util.*
@@ -39,6 +43,7 @@ fun SettingsScreen(
     onNavigate: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val userSettings by viewModel.userSettings.collectAsState()
     val isEnglish = userSettings.appLanguage == "en"
 
@@ -53,6 +58,7 @@ fun SettingsScreen(
     // Reliability Status State
     var notificationPermissionGranted by remember { mutableStateOf(false) }
     var exactAlarmGranted by remember { mutableStateOf(false) }
+    var fullScreenIntentGranted by remember { mutableStateOf(true) }
     var overlayGranted by remember { mutableStateOf(false) }
     var batteryOptimizationIgnored by remember { mutableStateOf(false) }
     var dndGranted by remember { mutableStateOf(false) }
@@ -63,6 +69,7 @@ fun SettingsScreen(
     fun refreshDiagnostics() {
         notificationPermissionGranted = NotificationReliabilityManager.isNotificationPermissionGranted(context)
         exactAlarmGranted = NotificationReliabilityManager.canScheduleExactAlarms(context)
+        fullScreenIntentGranted = NotificationReliabilityManager.canUseFullScreenIntent(context)
         overlayGranted = NotificationReliabilityManager.canDrawOverlays(context)
         batteryOptimizationIgnored = NotificationReliabilityManager.isIgnoringBatteryOptimizations(context)
         dndGranted = NotificationReliabilityManager.isNotificationPolicyAccessGranted(context)
@@ -72,6 +79,18 @@ fun SettingsScreen(
 
     LaunchedEffect(Unit) {
         refreshDiagnostics()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshDiagnostics()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -168,6 +187,7 @@ fun SettingsScreen(
                             context = context,
                             isEnglish = isEnglish,
                             exactAlarmGranted = exactAlarmGranted,
+                            fullScreenIntentGranted = fullScreenIntentGranted,
                             overlayGranted = overlayGranted,
                             notificationPermissionGranted = notificationPermissionGranted,
                             batteryOptimizationIgnored = batteryOptimizationIgnored,
@@ -666,6 +686,7 @@ fun NotificationProtectionTabSection(
     context: android.content.Context,
     isEnglish: Boolean,
     exactAlarmGranted: Boolean,
+    fullScreenIntentGranted: Boolean = true,
     overlayGranted: Boolean,
     notificationPermissionGranted: Boolean,
     batteryOptimizationIgnored: Boolean,
@@ -677,6 +698,8 @@ fun NotificationProtectionTabSection(
     onRequestNotification: () -> Unit,
     onNavigate: (String) -> Unit = {}
 ) {
+    var showRestrictedOverlayGuide by remember { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         // Hero Action Card: Smart Alarm & Protection Dialog
         Card(
@@ -784,10 +807,24 @@ fun NotificationProtectionTabSection(
                     onClickFix = { NotificationReliabilityManager.openExactAlarmSettings(context) }
                 )
 
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    PermissionStatusRow(
+                        title = "عرض شاشة الأذان على شاشة القفل (Full-Screen)",
+                        isOk = fullScreenIntentGranted,
+                        onClickFix = { NotificationReliabilityManager.openFullScreenIntentSettings(context) }
+                    )
+                }
+
                 PermissionStatusRow(
-                    title = "الظهور فوق التطبيقات وشاشة القفل (Overlay)",
+                    title = "الظهور فوق التطبيقات (اختياري لقفل التركيز)",
                     isOk = overlayGranted,
-                    onClickFix = { NotificationReliabilityManager.openOverlaySettings(context) }
+                    onClickFix = {
+                        if (NotificationReliabilityManager.isOverlayRestrictedOnAndroid13Plus(context)) {
+                            showRestrictedOverlayGuide = true
+                        } else {
+                            NotificationReliabilityManager.openOverlaySettings(context)
+                        }
+                    }
                 )
 
                 PermissionStatusRow(
@@ -809,6 +846,16 @@ fun NotificationProtectionTabSection(
                 )
             }
         }
+    }
+
+    if (showRestrictedOverlayGuide) {
+        RestrictedOverlayGuideDialog(
+            context = context,
+            onDismiss = {
+                showRestrictedOverlayGuide = false
+                onRefresh()
+            }
+        )
     }
 }
 

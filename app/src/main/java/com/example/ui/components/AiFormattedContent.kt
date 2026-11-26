@@ -29,14 +29,18 @@ import androidx.compose.ui.unit.sp
 fun AiFormattedContent(
     text: String,
     isUser: Boolean,
-    onCopyMathBlock: (String) -> Unit = {}
+    onCopyMathBlock: (String) -> Unit = {},
+    bodyFontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
+    bodyLineHeight: androidx.compose.ui.unit.TextUnit = 22.sp,
+    bodyColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    headerColor: Color = MaterialTheme.colorScheme.primary
 ) {
     if (isUser) {
         Text(
             text = text,
-            fontSize = 14.sp,
+            fontSize = bodyFontSize,
             color = Color.White,
-            lineHeight = 20.sp
+            lineHeight = bodyLineHeight
         )
         return
     }
@@ -59,17 +63,17 @@ fun AiFormattedContent(
                     Text(
                         text = block.title,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        lineHeight = 22.sp
+                        fontSize = (bodyFontSize.value + 1.5f).sp,
+                        color = headerColor,
+                        lineHeight = bodyLineHeight
                     )
                 }
                 is ContentBlock.StandardText -> {
                     Text(
                         text = block.content,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 22.sp
+                        fontSize = bodyFontSize,
+                        color = bodyColor,
+                        lineHeight = bodyLineHeight
                     )
                 }
             }

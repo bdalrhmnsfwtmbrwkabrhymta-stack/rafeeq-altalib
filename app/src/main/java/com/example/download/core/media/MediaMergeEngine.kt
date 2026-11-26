@@ -333,7 +333,7 @@ object MediaMergeEngine {
         val canTryMediaMuxer = !audioOnly &&
             secondaryAudioFile != null &&
             cleanExt != "mp3" &&
-            isAndroidMediaMuxerFriendly(primaryProbe, secondaryProbe)
+            isAndroidMediaMuxerFriendly(primaryProbe, secondaryProbe, cleanExt)
         if (canTryMediaMuxer) {
             val stagingFile = File(targetDir, ".staging_mm_${System.nanoTime()}.$cleanExt")
             val mmOk = SerialFFmpegMuxerWorker.muxTracks(primaryMediaFile, secondaryAudioFile, stagingFile, audioOnly = false)
@@ -603,14 +603,23 @@ object MediaMergeEngine {
         }
     }
 
-    private fun isAndroidMediaMuxerFriendly(primary: MediaProbeReport, secondary: MediaProbeReport?): Boolean {
+    private fun isAndroidMediaMuxerFriendly(
+        primary: MediaProbeReport,
+        secondary: MediaProbeReport?,
+        cleanExt: String
+    ): Boolean {
         val vCodec = primary.videoStreams.firstOrNull()?.codecName.orEmpty().lowercase(Locale.ROOT)
         val aCodec = (secondary?.audioStreams?.firstOrNull() ?: primary.audioStreams.firstOrNull())
             ?.codecName.orEmpty().lowercase(Locale.ROOT)
-        val mp4VideoOk = vCodec in setOf("h264", "avc", "hevc", "h265")
+        val mp4VideoOk = vCodec in setOf("h264", "avc", "avc1", "hevc", "h265", "hvc1", "hev1")
         val mp4AudioOk = aCodec in setOf("aac", "mp4a") || aCodec.startsWith("mp4a")
-        val webmOk = (vCodec in setOf("vp8", "vp9")) && (aCodec in setOf("opus", "vorbis"))
-        return (mp4VideoOk && mp4AudioOk) || webmOk
+        val webmVideoOk = vCodec in setOf("vp8", "vp9")
+        val webmAudioOk = aCodec in setOf("opus", "vorbis")
+        return when (cleanExt.lowercase(Locale.ROOT)) {
+            "mp4" -> mp4VideoOk && mp4AudioOk
+            "webm" -> webmVideoOk && webmAudioOk
+            else -> false
+        }
     }
 
     private data class CommandResult(

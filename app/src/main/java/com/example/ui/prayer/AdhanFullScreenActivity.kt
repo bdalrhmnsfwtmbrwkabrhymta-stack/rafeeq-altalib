@@ -82,6 +82,13 @@ class AdhanFullScreenActivity : ComponentActivity() {
         val cityName = intent.getStringExtra(EXTRA_CITY_NAME) ?: "القاهرة"
         val muezzinVoice = intent.getStringExtra(EXTRA_MUEZZIN) ?: "الأذان المصري الأصيل (MBC وإذاعة القرآن)"
         val autoPlay = intent.getBooleanExtra(EXTRA_AUTO_PLAY, true)
+        val formattedScheduledClock = if (scheduledTimeMs > 0L) {
+            java.text.SimpleDateFormat("hh:mm", java.util.Locale.US).format(java.util.Date(scheduledTimeMs))
+        } else null
+        val formattedScheduledAmPm = if (scheduledTimeMs > 0L) {
+            val h = java.text.SimpleDateFormat("a", java.util.Locale.US).format(java.util.Date(scheduledTimeMs))
+            if (h.equals("AM", ignoreCase = true)) "ص" else "م"
+        } else null
 
         azanPlayer = AzanAudioPlayer(this)
         if (autoPlay && !AdhanPlaybackService.isPlayingAdhan) {
@@ -115,6 +122,8 @@ class AdhanFullScreenActivity : ComponentActivity() {
                             prayerName = prayerName,
                             cityName = cityName,
                             muezzinVoice = muezzinVoice,
+                            formattedClockTime = formattedScheduledClock,
+                            formattedAmPm = formattedScheduledAmPm,
                             onOpenQibla = {
                                 stopAllAdhan()
                                 showQiblaModal = true

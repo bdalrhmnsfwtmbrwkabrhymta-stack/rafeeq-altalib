@@ -23,6 +23,8 @@ object PrayerAlarmScheduler {
     private const val REQ_SALAWAT = 106
     // Note: Azkar alarm request codes (108 & 109) are managed separately and encapsulated in AzkarScheduler
 
+    private val scheduleLock = Any()
+
     fun rescheduleAll(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             rescheduleAllSuspending(context)
@@ -33,62 +35,132 @@ object PrayerAlarmScheduler {
         try {
             val prefsRepo = UserPreferencesRepository(context)
             val settings = prefsRepo.userSettingsFlow.first()
-            
+
             val calcMethod = try {
                 CalculationMethod.valueOf(settings.calculationMethod.uppercase())
             } catch (_: Exception) {
                 CalculationMethod.EGYPTIAN
             }
 
-            val prayerResult = PrayerTimesCalculator.calculatePrayerTimes(
+            val todayDate = java.util.Date()
+            val targetTz = com.example.data.prayer.PrayerTimeCalculator.getTargetTimeZone(
                 latitude = settings.latitude,
                 longitude = settings.longitude,
-                method = calcMethod,
-                isEnglish = settings.appLanguage != "ar",
-                dstMode = settings.dstMode
+                dstMode = settings.dstMode,
+                date = todayDate
             )
-
-            // Calculate tomorrow's exact prayer times for any prayers that have already passed today
-            val tomorrowCal = java.util.Calendar.getInstance().apply {
+            val tomorrowCal = java.util.Calendar.getInstance(targetTz).apply {
+                time = todayDate
                 add(java.util.Calendar.DAY_OF_YEAR, 1)
             }
-            val tomorrowPrayerResult = PrayerTimesCalculator.calculatePrayerTimes(
+
+            // 1. Arm exact alarms IMMEDIATELY (0ms network block) from cached official timings or Adhan calculation
+            val cachedToday = AlAdhanRepository.getCachedDailyTimings(
+                context = context,
+                date = todayDate,
                 latitude = settings.latitude,
                 longitude = settings.longitude,
+                methodName = settings.calculationMethod,
+                madhabName = settings.madhab
+            )
+            val cachedTomorrow = AlAdhanRepository.getCachedDailyTimings(
+                context = context,
                 date = tomorrowCal.time,
-                method = calcMethod,
-                isEnglish = settings.appLanguage != "ar",
-                dstMode = settings.dstMode
+                latitude = settings.latitude,
+                longitude = settings.longitude,
+                methodName = settings.calculationMethod,
+                madhabName = settings.madhab
             )
 
-            schedulePrayerAlarms(
-                context = context,
-                prayerTimesResult = prayerResult,
-                tomorrowPrayerTimesResult = tomorrowPrayerResult,
-                cityName = settings.cityLocation,
-                muezzinVoice = settings.muezzinVoice,
-                isFullAudio = settings.isAdhanFullAudio,
-                isEnabled = settings.isPrayerNotificationEnabled,
-                mutedPrayers = settings.mutedPrayers,
-                isSunriseAlertEnabled = settings.isSunriseAlertEnabled
-            )
+            applySchedule(context, settings, calcMethod, todayDate, tomorrowCal.time, cachedToday, cachedTomorrow)
 
-            AdhkarAutoTriggerManager.scheduleDynamicWindowAlarms(
-                context = context,
-                morningEnabled = settings.isMorningAzkarEnabled,
-                eveningEnabled = settings.isEveningAzkarEnabled,
-                todayResult = prayerResult,
-                tomorrowResult = tomorrowPrayerResult
-            )
-
-            scheduleSalawatReminder(
-                context = context,
-                isSalawatEnabled = settings.isSalawatEnabled,
-                intervalMinutes = settings.salawatIntervalMinutes
-            )
+            // 2. If online official timings aren't cached yet for today or tomorrow, fetch and re-arm if updated
+            if (cachedToday == null || cachedTomorrow == null) {
+                val fetchedToday = cachedToday ?: AlAdhanRepository.getOrFetchDailyTimings(
+                    context = context,
+                    city = settings.cityLocation,
+                    country = settings.countryLocation,
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    methodName = settings.calculationMethod,
+                    madhabName = settings.madhab,
+                    date = todayDate
+                )
+                val fetchedTomorrow = cachedTomorrow ?: AlAdhanRepository.getOrFetchDailyTimings(
+                    context = context,
+                    city = settings.cityLocation,
+                    country = settings.countryLocation,
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    methodName = settings.calculationMethod,
+                    madhabName = settings.madhab,
+                    date = tomorrowCal.time
+                )
+                if ((cachedToday == null && fetchedToday != null) || (cachedTomorrow == null && fetchedTomorrow != null)) {
+                    applySchedule(context, settings, calcMethod, todayDate, tomorrowCal.time, fetchedToday, fetchedTomorrow)
+                }
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun applySchedule(
+        context: Context,
+        settings: UserSettings,
+        calcMethod: CalculationMethod,
+        todayDate: java.util.Date,
+        tomorrowDate: java.util.Date,
+        todayOnline: AlAdhanTimingResult?,
+        tomorrowOnline: AlAdhanTimingResult?
+    ) {
+        val prayerResult = PrayerTimesCalculator.calculatePrayerTimes(
+            latitude = settings.latitude,
+            longitude = settings.longitude,
+            date = todayDate,
+            method = calcMethod,
+            onlineResult = todayOnline,
+            isEnglish = settings.appLanguage != "ar",
+            dstMode = settings.dstMode,
+            madhabName = settings.madhab
+        )
+
+        val tomorrowPrayerResult = PrayerTimesCalculator.calculatePrayerTimes(
+            latitude = settings.latitude,
+            longitude = settings.longitude,
+            date = tomorrowDate,
+            method = calcMethod,
+            onlineResult = tomorrowOnline,
+            isEnglish = settings.appLanguage != "ar",
+            dstMode = settings.dstMode,
+            madhabName = settings.madhab
+        )
+
+        schedulePrayerAlarms(
+            context = context,
+            prayerTimesResult = prayerResult,
+            tomorrowPrayerTimesResult = tomorrowPrayerResult,
+            cityName = settings.cityLocation,
+            muezzinVoice = settings.muezzinVoice,
+            isFullAudio = settings.isAdhanFullAudio,
+            isEnabled = settings.isPrayerNotificationEnabled,
+            mutedPrayers = settings.mutedPrayers,
+            isSunriseAlertEnabled = settings.isSunriseAlertEnabled
+        )
+
+        AdhkarAutoTriggerManager.scheduleDynamicWindowAlarms(
+            context = context,
+            morningEnabled = settings.isMorningAzkarEnabled,
+            eveningEnabled = settings.isEveningAzkarEnabled,
+            todayResult = prayerResult,
+            tomorrowResult = tomorrowPrayerResult
+        )
+
+        scheduleSalawatReminder(
+            context = context,
+            isSalawatEnabled = settings.isSalawatEnabled,
+            intervalMinutes = settings.salawatIntervalMinutes
+        )
     }
 
     fun scheduleAzkarAlarms(
@@ -131,80 +203,80 @@ object PrayerAlarmScheduler {
         mutedPrayers: Set<String>,
         isSunriseAlertEnabled: Boolean = false
     ) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        synchronized(scheduleLock) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        // Cancel previous pending alarms to avoid duplicates
-        cancelAllAlarms(context, alarmManager)
+            // Cancel previous pending alarms to avoid duplicates
+            cancelAllAlarms(context, alarmManager)
 
-        if (!isEnabled) return
+            if (!isEnabled) return
 
-        val now = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
 
-        val prayers = listOf(
-            Triple("fajr", REQ_FAJR, prayerTimesResult.fajr),
-            Triple("sunrise", REQ_SUNRISE, prayerTimesResult.sunrise),
-            Triple("dhuhr", REQ_DHUHR, prayerTimesResult.dhuhr),
-            Triple("asr", REQ_ASR, prayerTimesResult.asr),
-            Triple("maghrib", REQ_MAGHRIB, prayerTimesResult.maghrib),
-            Triple("isha", REQ_ISHA, prayerTimesResult.isha)
-        )
-
-        val tomorrowPrayersMap = mapOf(
-            "fajr" to (tomorrowPrayerTimesResult?.fajr?.timestampMillis ?: (prayerTimesResult.fajr.timestampMillis + 86400000L)),
-            "sunrise" to (tomorrowPrayerTimesResult?.sunrise?.timestampMillis ?: (prayerTimesResult.sunrise.timestampMillis + 86400000L)),
-            "dhuhr" to (tomorrowPrayerTimesResult?.dhuhr?.timestampMillis ?: (prayerTimesResult.dhuhr.timestampMillis + 86400000L)),
-            "asr" to (tomorrowPrayerTimesResult?.asr?.timestampMillis ?: (prayerTimesResult.asr.timestampMillis + 86400000L)),
-            "maghrib" to (tomorrowPrayerTimesResult?.maghrib?.timestampMillis ?: (prayerTimesResult.maghrib.timestampMillis + 86400000L)),
-            "isha" to (tomorrowPrayerTimesResult?.isha?.timestampMillis ?: (prayerTimesResult.isha.timestampMillis + 86400000L))
-        )
-
-        for ((prayerId, reqCode, prayerTimeData) in prayers) {
-            if (!shouldSchedulePrayer(prayerId, mutedPrayers, isSunriseAlertEnabled)) continue
-
-            val todayMs = prayerTimeData.timestampMillis
-            val tomorrowMs = tomorrowPrayersMap[prayerId] ?: (todayMs + 86400000L)
-
-            // If today's prayer is still in the future by at least 15 seconds, use it.
-            // Otherwise, schedule for tomorrow's exact prayer time!
-            var targetMs = if (todayMs > now + 15_000L) todayMs else tomorrowMs
-
-            // Safety invariant: targetMs MUST always be strictly in the future.
-            // Passing any time <= now to AlarmManager triggers it immediately!
-            while (targetMs <= now + 15_000L) {
-                targetMs += 86400000L
-            }
-
-            val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
-                action = PrayerAlarmReceiver.ACTION_PRAYER_ALARM
-                putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, prayerTimeData.nameArabic)
-                putExtra(PrayerAlarmReceiver.EXTRA_CITY_NAME, cityName)
-                putExtra(PrayerAlarmReceiver.EXTRA_MUEZZIN, muezzinVoice)
-                putExtra(PrayerAlarmReceiver.EXTRA_IS_FULL_AUDIO, isFullAudio)
-                putExtra(PrayerAlarmReceiver.EXTRA_SCHEDULED_TIME_MS, targetMs)
-            }
-
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                reqCode,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            val prayers = listOf(
+                Triple("fajr", REQ_FAJR, prayerTimesResult.fajr),
+                Triple("sunrise", REQ_SUNRISE, prayerTimesResult.sunrise),
+                Triple("dhuhr", REQ_DHUHR, prayerTimesResult.dhuhr),
+                Triple("asr", REQ_ASR, prayerTimesResult.asr),
+                Triple("maghrib", REQ_MAGHRIB, prayerTimesResult.maghrib),
+                Triple("isha", REQ_ISHA, prayerTimesResult.isha)
             )
 
-            val showIntent = Intent(context, com.example.ui.prayer.AdhanFullScreenActivity::class.java).apply {
-                putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_PRAYER_NAME, prayerTimeData.nameArabic)
-                putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
-                putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
-                putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_AUTO_PLAY, isFullAudio)
-                putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_SCHEDULED_TIME_MS, targetMs)
-            }
-            val showPendingIntent = PendingIntent.getActivity(
-                context,
-                reqCode + 500,
-                showIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            val tomorrowPrayersMap = mapOf(
+                "fajr" to (tomorrowPrayerTimesResult?.fajr?.timestampMillis ?: (prayerTimesResult.fajr.timestampMillis + 86400000L)),
+                "sunrise" to (tomorrowPrayerTimesResult?.sunrise?.timestampMillis ?: (prayerTimesResult.sunrise.timestampMillis + 86400000L)),
+                "dhuhr" to (tomorrowPrayerTimesResult?.dhuhr?.timestampMillis ?: (prayerTimesResult.dhuhr.timestampMillis + 86400000L)),
+                "asr" to (tomorrowPrayerTimesResult?.asr?.timestampMillis ?: (prayerTimesResult.asr.timestampMillis + 86400000L)),
+                "maghrib" to (tomorrowPrayerTimesResult?.maghrib?.timestampMillis ?: (prayerTimesResult.maghrib.timestampMillis + 86400000L)),
+                "isha" to (tomorrowPrayerTimesResult?.isha?.timestampMillis ?: (prayerTimesResult.isha.timestampMillis + 86400000L))
             )
 
-            scheduleExactAlarmSafely(alarmManager, targetMs, pendingIntent, showPendingIntent)
+            for ((prayerId, reqCode, prayerTimeData) in prayers) {
+                if (!shouldSchedulePrayer(prayerId, mutedPrayers, isSunriseAlertEnabled)) continue
+
+                val todayMs = prayerTimeData.timestampMillis
+                val tomorrowMs = tomorrowPrayersMap[prayerId] ?: (todayMs + 86400000L)
+
+                // Fire at the exact millisecond of today's calculated prayer if strictly in the future; otherwise tomorrow's exact prayer time.
+                var targetMs = if (todayMs > now) todayMs else tomorrowMs
+
+                // Safety invariant: targetMs MUST always be strictly in the future.
+                while (targetMs <= now) {
+                    targetMs += 86400000L
+                }
+
+                val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+                    action = PrayerAlarmReceiver.ACTION_PRAYER_ALARM
+                    putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, prayerTimeData.nameArabic)
+                    putExtra(PrayerAlarmReceiver.EXTRA_CITY_NAME, cityName)
+                    putExtra(PrayerAlarmReceiver.EXTRA_MUEZZIN, muezzinVoice)
+                    putExtra(PrayerAlarmReceiver.EXTRA_IS_FULL_AUDIO, isFullAudio)
+                    putExtra(PrayerAlarmReceiver.EXTRA_SCHEDULED_TIME_MS, targetMs)
+                }
+
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    reqCode,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                val showIntent = Intent(context, com.example.ui.prayer.AdhanFullScreenActivity::class.java).apply {
+                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_PRAYER_NAME, prayerTimeData.nameArabic)
+                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
+                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
+                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_AUTO_PLAY, isFullAudio)
+                    putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_SCHEDULED_TIME_MS, targetMs)
+                }
+                val showPendingIntent = PendingIntent.getActivity(
+                    context,
+                    reqCode + 500,
+                    showIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                scheduleExactAlarmSafely(alarmManager, targetMs, pendingIntent, showPendingIntent)
+            }
         }
     }
 

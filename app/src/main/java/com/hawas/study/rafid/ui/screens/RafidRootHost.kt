@@ -1,9 +1,15 @@
 package com.hawas.study.rafid.ui.screens
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +78,8 @@ import com.hawas.study.rafid.ui.theme.RafidTheme
 fun RafidRootHost(
     initialSharedUrl: String? = null,
     onConsumeSharedUrl: () -> Unit = {},
+    initialTab: RafidScreenTab? = null,
+    onConsumeInitialTab: () -> Unit = {},
     onNavigateBackToApp: () -> Unit,
     rafidViewModel: RafidViewModel = viewModel()
 ) {
@@ -92,6 +100,29 @@ fun RafidRootHost(
     var showHomeSearchBar by remember { mutableStateOf(false) }
     var homeSearchQuery by remember { mutableStateOf("") }
     var selectedInfoItem by remember { mutableStateOf<RafidDownloadEntity?>(null) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    fun ensureNotificationPermissionOnDownloadStart() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    LaunchedEffect(initialTab) {
+        if (initialTab != null) {
+            currentTab = initialTab
+            onConsumeInitialTab()
+        }
+    }
 
     // Trigger immediate extraction if opened via external Android Share ("مشاركة")
     LaunchedEffect(initialSharedUrl) {
@@ -293,6 +324,7 @@ fun RafidRootHost(
                     currentTab = RafidScreenTab.BROWSER
                 },
                 onStartDownload = { metadata, format, saveToStudyFolder ->
+                    ensureNotificationPermissionOnDownloadStart()
                     rafidViewModel.enqueueDownload(metadata, format, saveToStudyFolder)
                     if (metadata.isPlaylist && metadata.playlistItems.isNotEmpty()) {
                         val count = metadata.playlistItems.size

@@ -55,7 +55,7 @@ class RafidPreferencesRepository(private val context: Context) {
             RafidConfigState(
                 darkModeOverride = darkOverride,
                 languageMode = langMode,
-                maxConcurrentDownloads = (prefs[KEY_MAX_CONCURRENT] ?: 3).coerceIn(1, 7),
+                maxConcurrentDownloads = (prefs[KEY_MAX_CONCURRENT] ?: 2).coerceIn(1, 7),
                 wifiOnly = prefs[KEY_WIFI_ONLY] ?: false,
                 isScheduledStartEnabled = prefs[KEY_SCHEDULE_ENABLED] ?: false,
                 scheduledHour = prefs[KEY_SCHEDULE_HOUR] ?: 23,

@@ -80,6 +80,7 @@ class MainActivity : FragmentActivity() {
     private var pendingIntent by mutableStateOf<Intent?>(null)
     private var pendingDirectRoute by mutableStateOf<String?>(null)
     private var pendingSharedRafidUrl by mutableStateOf<String?>(null)
+    private var pendingRafidInitialTab by mutableStateOf<com.hawas.study.rafid.models.RafidScreenTab?>(null)
     private var pendingSmartDownloadUrl by mutableStateOf<String?>(null)
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -92,6 +93,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         pendingIntent = intent
         pendingDirectRoute = resolveDirectRouteFromIntent(intent)
+        pendingRafidInitialTab = resolveRafidInitialTabFromIntent(intent)
         pendingSharedRafidUrl = intent?.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
         pendingSmartDownloadUrl = intent?.getStringExtra(com.example.download.ui.DownloadShareReceiverActivity.EXTRA_SMART_DOWNLOAD_URL)
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
@@ -119,6 +121,9 @@ class MainActivity : FragmentActivity() {
                     val directRoute = resolveDirectRouteFromIntent(intentToProcess)
                     if (!directRoute.isNullOrBlank()) {
                         pendingDirectRoute = directRoute
+                    }
+                    resolveRafidInitialTabFromIntent(intentToProcess)?.let { rafidTab ->
+                        pendingRafidInitialTab = rafidTab
                     }
                     intentToProcess.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
                         ?.takeIf { it.isNotBlank() }
@@ -158,6 +163,8 @@ class MainActivity : FragmentActivity() {
                             onDirectRouteConsumed = { pendingDirectRoute = null },
                             initialRafidUrl = pendingSharedRafidUrl,
                             onRafidUrlConsumed = { pendingSharedRafidUrl = null },
+                            initialRafidTab = pendingRafidInitialTab,
+                            onRafidTabConsumed = { pendingRafidInitialTab = null },
                             initialSmartDownloadUrl = pendingSmartDownloadUrl,
                             onSmartDownloadUrlConsumed = { pendingSmartDownloadUrl = null }
                         )
@@ -245,6 +252,9 @@ class MainActivity : FragmentActivity() {
         pendingIntent = intent
         resolveDirectRouteFromIntent(intent)?.let { directRoute ->
             pendingDirectRoute = directRoute
+        }
+        resolveRafidInitialTabFromIntent(intent)?.let { rafidTab ->
+            pendingRafidInitialTab = rafidTab
         }
         intent.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
             ?.takeIf { it.isNotBlank() }
@@ -375,6 +385,13 @@ private fun resolveDirectRouteFromIntent(intent: Intent?): String? {
     return intent.getStringExtra("NAVIGATE_TO")?.takeIf { it.isNotBlank() }
 }
 
+private fun resolveRafidInitialTabFromIntent(intent: Intent?): com.hawas.study.rafid.models.RafidScreenTab? {
+    val tabName = intent?.getStringExtra(com.example.download.service.DownloadNotificationManager.EXTRA_RAFID_INITIAL_TAB)
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    return runCatching { com.hawas.study.rafid.models.RafidScreenTab.valueOf(tabName) }.getOrNull()
+}
+
 @Composable
 fun MainAppContent(
     mainViewModel: MainViewModel,
@@ -383,6 +400,8 @@ fun MainAppContent(
     onDirectRouteConsumed: () -> Unit = {},
     initialRafidUrl: String? = null,
     onRafidUrlConsumed: () -> Unit = {},
+    initialRafidTab: com.hawas.study.rafid.models.RafidScreenTab? = null,
+    onRafidTabConsumed: () -> Unit = {},
     initialSmartDownloadUrl: String? = null,
     onSmartDownloadUrlConsumed: () -> Unit = {}
 ) {
@@ -676,6 +695,8 @@ fun MainAppContent(
                                 "rafid" -> com.hawas.study.rafid.ui.screens.RafidRootHost(
                                     initialSharedUrl = initialRafidUrl,
                                     onConsumeSharedUrl = onRafidUrlConsumed,
+                                    initialTab = initialRafidTab,
+                                    onConsumeInitialTab = onRafidTabConsumed,
                                     onNavigateBackToApp = { currentRoute = "home" }
                                 )
                                 "smart_download" -> com.example.download.ui.DownloadCenterScreen(
@@ -763,6 +784,11 @@ fun MainAppContent(
                                     }
                                 )
                                 "ai" -> AiScreen(viewModel = mainViewModel, onNavigate = { currentRoute = it })
+                                "fahim_whiteboard" -> com.example.ui.screens.ai.FahimSmartWhiteboardScreen(
+                                    viewModel = mainViewModel,
+                                    onNavigateBack = { currentRoute = "ai" },
+                                    onSwitchToChat = { currentRoute = "ai" }
+                                )
                                 "copy" -> BestCopyScreen(viewModel = mainViewModel)
                                 "dictionary" -> DictionaryScreen(viewModel = mainViewModel)
                                 "numbers" -> NumbersScreen(viewModel = mainViewModel)

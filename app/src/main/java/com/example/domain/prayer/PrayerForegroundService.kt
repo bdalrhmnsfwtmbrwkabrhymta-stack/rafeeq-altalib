@@ -86,6 +86,14 @@ class PrayerForegroundService : Service() {
                 val settings = prefsRepo.userSettingsFlow.first()
                 val isEnglish = settings.appLanguage == "en"
 
+                val cachedOnline = AlAdhanRepository.getCachedDailyTimings(
+                    context = applicationContext,
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    methodName = settings.calculationMethod,
+                    madhabName = settings.madhab
+                )
+
                 val schedule = AdhanPrayerService.calculateDailySchedule(
                     latitude = settings.latitude,
                     longitude = settings.longitude,
@@ -94,7 +102,8 @@ class PrayerForegroundService : Service() {
                     methodName = settings.calculationMethod,
                     madhabName = settings.madhab,
                     dstMode = settings.dstMode,
-                    isEnglish = isEnglish
+                    isEnglish = isEnglish,
+                    onlineResult = cachedOnline
                 )
 
                 val nextPrayerName = if (isEnglish) schedule.nextPrayer.nameEnglish else schedule.nextPrayer.nameArabic

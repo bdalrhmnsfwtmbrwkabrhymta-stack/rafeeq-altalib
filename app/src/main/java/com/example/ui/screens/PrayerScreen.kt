@@ -112,6 +112,7 @@ fun PrayerScreen(
     val context = LocalContext.current
     val userSettings by viewModel.userSettings.collectAsState()
     val isDetectingLocation by viewModel.isDetectingLocation.collectAsState()
+    val onlinePrayerTimings by viewModel.onlinePrayerTimings.collectAsState()
     val isEnglish = userSettings.appLanguage == "en"
     val dailyAdhanSchedule = remember(
         userSettings.latitude,
@@ -119,17 +120,29 @@ fun PrayerScreen(
         userSettings.cityLocation,
         userSettings.countryLocation,
         userSettings.calculationMethod,
+        userSettings.madhab,
         userSettings.dstMode,
+        onlinePrayerTimings,
         isEnglish
     ) {
+        val resolvedOnline = onlinePrayerTimings
+            ?: com.example.domain.prayer.AlAdhanRepository.getCachedDailyTimings(
+                context = context,
+                latitude = userSettings.latitude,
+                longitude = userSettings.longitude,
+                methodName = userSettings.calculationMethod,
+                madhabName = userSettings.madhab
+            )
         com.example.domain.prayer.AdhanPrayerService.calculateDailySchedule(
             latitude = userSettings.latitude,
             longitude = userSettings.longitude,
             cityName = userSettings.cityLocation.ifBlank { "القاهرة" },
             countryName = userSettings.countryLocation.ifBlank { "مصر" },
             methodName = userSettings.calculationMethod,
+            madhabName = userSettings.madhab,
             dstMode = userSettings.dstMode,
-            isEnglish = isEnglish
+            isEnglish = isEnglish,
+            onlineResult = resolvedOnline
         )
     }
 

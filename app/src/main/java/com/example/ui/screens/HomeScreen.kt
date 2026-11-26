@@ -118,6 +118,7 @@ fun HomeScreen(
 
     var showAccentPickerBar by remember { mutableStateOf(false) }
     var showExamDialog by remember { mutableStateOf(false) }
+    var showQuickFahimCommandDialog by remember { mutableStateOf(false) }
 
     // Live clock ticker for Prayer countdown
     var currentTimeMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -450,7 +451,7 @@ fun HomeScreen(
             ) {
                 val quickAskBar: @Composable () -> Unit = {
                     Surface(
-                        onClick = { onNavigate("ai") },
+                        onClick = { showQuickFahimCommandDialog = true },
                         shape = RoundedCornerShape(50),
                         color = cardSurface,
                         shadowElevation = 6.dp,
@@ -495,7 +496,8 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
-                                    .background(zajilHeroBlue),
+                                    .background(zajilHeroBlue)
+                                    .clickable { onNavigate("ai") },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1318,6 +1320,102 @@ fun HomeScreen(
                     onNavigate("schedule")
                 },
                 onDismiss = { showExamDialog = false }
+            )
+        }
+
+        if (showQuickFahimCommandDialog) {
+            var quickQuery by remember { mutableStateOf("") }
+
+            fun dispatchHomeCommand(raw: String) {
+                val q = raw.trim()
+                showQuickFahimCommandDialog = false
+                if (q.isBlank()) {
+                    onNavigate("ai")
+                    return
+                }
+                when {
+                    q.contains("سبورة") || q.contains("ارسم") || q.contains("مساحة") || q.contains("فيثاغور") || q.contains("مثلث") -> {
+                        viewModel.requestOpenWhiteboardWithPrompt(q)
+                        onNavigate("fahim_whiteboard")
+                    }
+                    q.contains("مؤقت") || q.contains("بومودورو") -> onNavigate("pomodoro")
+                    q.contains("قاموس") -> onNavigate("dictionary")
+                    q.contains("مواريث") -> onNavigate("inheritance")
+                    q.contains("تسبيح") || q.contains("أذكار") -> onNavigate("azkar")
+                    q.contains("ملفات") || q.contains("pdf", ignoreCase = true) || q.contains("سكنر") -> onNavigate("documents")
+                    q.contains("إعراب") || q.contains("اعراب") -> onNavigate("arabic_irab")
+                    q.contains("مهامي") && !q.contains("جدول") -> onNavigate("tasks")
+                    else -> {
+                        viewModel.sendFahimMessage(q) { count ->
+                            Toast.makeText(context, "تمت إضافة $count حصص لقسم مهامي ✓", Toast.LENGTH_SHORT).show()
+                        }
+                        onNavigate("ai")
+                    }
+                }
+            }
+
+            AlertDialog(
+                onDismissRequest = { showQuickFahimCommandDialog = false },
+                containerColor = cardSurface,
+                title = {
+                    Text(
+                        text = "اسأل فهيم أو افتح أي أداة فوراً",
+                        fontFamily = ReadexProFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        color = textMain
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = quickQuery,
+                            onValueChange = { quickQuery = it },
+                            placeholder = { Text("مثال: اشرح لي على السبورة / عندي امتحان بكرة") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("home_quick_fahim_input"),
+                            shape = RoundedCornerShape(14.dp),
+                            singleLine = true
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            SuggestionChip(
+                                onClick = { dispatchHomeCommand("اشرح لي على السبورة مساحة الجزء المظلل") },
+                                label = { Text("سبورة فهيم 🎨", fontSize = 12.sp) }
+                            )
+                            SuggestionChip(
+                                onClick = { dispatchHomeCommand("عندي امتحان بكرة، ظبط لي الجدول واعمل خريطة ذهنية") },
+                                label = { Text("جدول امتحان الغد 📅", fontSize = 12.sp) }
+                            )
+                            SuggestionChip(
+                                onClick = { dispatchHomeCommand("مؤقت المذاكرة") },
+                                label = { Text("مؤقت ⏱️", fontSize = 12.sp) }
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { dispatchHomeCommand(quickQuery) },
+                        colors = ButtonDefaults.buttonColors(containerColor = zajilHeroBlue),
+                        modifier = Modifier.testTag("home_quick_fahim_go")
+                    ) {
+                        Text("انطلق", fontFamily = ReadexProFontFamily, color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showQuickFahimCommandDialog = false
+                        onNavigate("ai")
+                    }) {
+                        Text("فتح فهيم", fontFamily = ReadexProFontFamily)
+                    }
+                }
             )
         }
     }

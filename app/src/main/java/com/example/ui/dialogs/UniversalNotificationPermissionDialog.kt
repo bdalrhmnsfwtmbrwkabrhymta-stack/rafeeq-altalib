@@ -112,13 +112,18 @@ fun UniversalNotificationPermissionDialog(
     }
 
     var isExactAlarmsGranted by remember { mutableStateOf(checkExactAlarms()) }
+    var isFullScreenIntentGranted by remember {
+        mutableStateOf(NotificationReliabilityManager.canUseFullScreenIntent(context))
+    }
     var isOverlayGranted by remember { mutableStateOf(checkOverlay()) }
     var isPostNotificationsGranted by remember { mutableStateOf(checkPostNotifications()) }
     var isBatteryIgnored by remember { mutableStateOf(checkBatteryOptimization()) }
     var isDndGranted by remember { mutableStateOf(checkDndAccess()) }
+    var showRestrictedOverlayGuide by remember { mutableStateOf(false) }
 
     fun refreshAllStates() {
         isExactAlarmsGranted = checkExactAlarms()
+        isFullScreenIntentGranted = NotificationReliabilityManager.canUseFullScreenIntent(context)
         isOverlayGranted = checkOverlay()
         isPostNotificationsGranted = checkPostNotifications()
         isBatteryIgnored = checkBatteryOptimization()
@@ -147,12 +152,19 @@ fun UniversalNotificationPermissionDialog(
         }
     }
 
-    val isAllFullyConfigured = isExactAlarmsGranted && isPostNotificationsGranted && isBatteryIgnored && isDndGranted
+    val isAllFullyConfigured = isExactAlarmsGranted &&
+            isFullScreenIntentGranted &&
+            isPostNotificationsGranted &&
+            isBatteryIgnored &&
+            isDndGranted
 
     fun grantNextMissingPermission() {
         when {
             !isExactAlarmsGranted -> {
                 NotificationReliabilityManager.openExactAlarmSettings(context)
+            }
+            !isFullScreenIntentGranted -> {
+                NotificationReliabilityManager.openFullScreenIntentSettings(context)
             }
             !isPostNotificationsGranted -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -257,15 +269,37 @@ fun UniversalNotificationPermissionDialog(
                         )
                     }
 
-                    // Item 2: System Alert Window / Overlay (Optional — uses Android 13+ Restricted Guide)
+                    // Item 2: Full-Screen Intent (Android 14+ lockscreen Adhan without Restricted Settings)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        item {
+                            PermissionItemCard(
+                                title = "عرض شاشة الأذان على شاشة القفل (Full-Screen)",
+                                subtitle = "يسمح بفتح شاشة الأذان الكاملة تلقائياً دون الحاجة لإذن الظهور المقيد",
+                                icon = Icons.Default.Fullscreen,
+                                isGranted = isFullScreenIntentGranted,
+                                onClick = {
+                                    NotificationReliabilityManager.openFullScreenIntentSettings(context)
+                                }
+                            )
+                        }
+                    }
+
+                    // Item 3: System Alert Window / Overlay (Optional — uses Android 13+ Restricted Guide)
                     item {
                         PermissionItemCard(
-                            title = "إذن نافذة تنبيه النظام (اختياري لوضع قفل التركيز)",
-                            subtitle = "الظهور أمام التطبيقات الأخرى وعرض شاشة التنبيه الكاملة",
+                            title = "الظهور فوق التطبيقات الأخرى (اختياري لقفل التركيز)",
+                            subtitle = if (NotificationReliabilityManager.isOverlayRestrictedOnAndroid13Plus(context))
+                                "يتطلب خطوتين لفك «إعداد مقيد» على أندرويد 13+ (اضغط للشرح)"
+                            else
+                                "مفيد لقفل شاشة المذاكرة الصارم فوق التطبيقات",
                             icon = Icons.Default.Layers,
                             isGranted = isOverlayGranted,
                             onClick = {
-                                NotificationReliabilityManager.openOverlaySettings(context)
+                                if (NotificationReliabilityManager.isOverlayRestrictedOnAndroid13Plus(context)) {
+                                    showRestrictedOverlayGuide = true
+                                } else {
+                                    NotificationReliabilityManager.openOverlaySettings(context)
+                                }
                             }
                         )
                     }
@@ -364,6 +398,86 @@ fun UniversalNotificationPermissionDialog(
             }
         }
     }
+
+    if (showRestrictedOverlayGuide) {
+        RestrictedOverlayGuideDialog(
+            context = context,
+            onDismiss = {
+                showRestrictedOverlayGuide = false
+                refreshAllStates()
+            }
+        )
+    }
+}
+
+@Composable
+fun RestrictedOverlayGuideDialog(
+    context: Context,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.AdminPanelSettings,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        title = {
+            Text(
+                text = "فك قيد «إظهار فوق التطبيقات الأخرى»",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "يُقيد أندرويد 13+ هذا الإذن مؤقتاً للتطبيقات المثبتة خارج المتجر (APK). ملحوظة: شاشة الأذان تعمل بدونه عبر إذن الشاشة الكاملة.",
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+                Text(
+                    text = "لتفعيله لقفل التركيز:\n" +
+                        "١. اضغط «فتح معلومات التطبيق» بالأسفل ← اضغط الثلاث نقاط (⋮) بأعلى اليسار/اليمين ← اختر «السماح بالإعدادات المقيدة».\n" +
+                        "٢. ارجع واضغط «فتح إذن الظهور مباشرة» وفعّل المفتاح.",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 20.sp
+                )
+            }
+        },
+        confirmButton = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = { NotificationReliabilityManager.openAppSettings(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("١. فتح معلومات التطبيق (لفك القيد ⋮)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = { NotificationReliabilityManager.openOverlaySettings(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("٢. فتح إذن الظهور مباشرة", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text("إغلاق")
+                }
+            }
+        }
+    )
 }
 
 @Composable

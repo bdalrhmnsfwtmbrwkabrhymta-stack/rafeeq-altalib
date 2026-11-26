@@ -51,7 +51,16 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      isMinifyEnabled = false
+      isShrinkResources = false
+      proguardFiles(
+        getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro",
+        "proguard-debug.pro"
+      )
+      signingConfig = signingConfigs.getByName("debugConfig")
+    }
   }
   compileOptions {
     isCoreLibraryDesugaringEnabled = true
@@ -102,6 +111,10 @@ android {
         "META-INF/INDEX.LIST",
         "META-INF/io.netty.versions.properties",
         "**/*.proto",
+        "org/bouncycastle/pqc/**/*.properties",
+        "org/bouncycastle/x509/*_de.properties",
+        "DebugProbesKt.bin",
+        "META-INF/com.android.tools/**",
         ".git/**",
         "**/.git/**"
       )

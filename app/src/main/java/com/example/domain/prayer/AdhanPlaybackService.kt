@@ -28,8 +28,6 @@ class AdhanPlaybackService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private val fadeHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var fadeRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -61,10 +59,11 @@ class AdhanPlaybackService : Service() {
         val muezzinVoice = intent?.getStringExtra(EXTRA_MUEZZIN) ?: "الأذان المصري الأصيل (MBC وإذاعة القرآن)"
         val rawResId = intent?.getIntExtra(EXTRA_RAW_RES_ID, R.raw.adhan_egypt_mbc_hq) ?: R.raw.adhan_egypt_mbc_hq
         val shouldPlayAudio = intent?.getBooleanExtra(EXTRA_SHOULD_PLAY_AUDIO, true) ?: true
+        val scheduledTimeMs = intent?.getLongExtra(EXTRA_SCHEDULED_TIME_MS, 0L) ?: 0L
 
         createChannel()
 
-        val notification = buildForegroundNotification(prayerName, cityName, muezzinVoice)
+        val notification = buildForegroundNotification(prayerName, cityName, muezzinVoice, scheduledTimeMs)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -91,6 +90,9 @@ class AdhanPlaybackService : Service() {
                 putExtra(AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
                 putExtra(AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
                 putExtra(AdhanFullScreenActivity.EXTRA_AUTO_PLAY, false)
+                if (scheduledTimeMs > 0L) {
+                    putExtra(AdhanFullScreenActivity.EXTRA_SCHEDULED_TIME_MS, scheduledTimeMs)
+                }
             }
             startActivity(directIntent)
         } catch (e: Exception) {
@@ -128,7 +130,7 @@ class AdhanPlaybackService : Service() {
                 }
 
                 prepare()
-                setVolume(0.06f, 0.06f)
+                setVolume(1.0f, 1.0f)
                 setOnCompletionListener {
                     stopPlayback()
                     stopSelf()
@@ -141,7 +143,6 @@ class AdhanPlaybackService : Service() {
                 }
                 start()
             }
-            startSmoothFadeIn()
             isPlayingAdhan = true
         } catch (e: Exception) {
             Log.e(TAG, "Error starting Adhan audio playback", e)
@@ -153,7 +154,8 @@ class AdhanPlaybackService : Service() {
     private fun buildForegroundNotification(
         prayerName: String,
         cityName: String,
-        muezzinVoice: String
+        muezzinVoice: String,
+        scheduledTimeMs: Long = 0L
     ): Notification {
         // Fullscreen Activity Intent (opens directly over lockscreen)
         val fullScreenIntent = Intent(this, AdhanFullScreenActivity::class.java).apply {
@@ -164,6 +166,9 @@ class AdhanPlaybackService : Service() {
             putExtra(AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
             putExtra(AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
             putExtra(AdhanFullScreenActivity.EXTRA_AUTO_PLAY, false) // already playing in this service
+            if (scheduledTimeMs > 0L) {
+                putExtra(AdhanFullScreenActivity.EXTRA_SCHEDULED_TIME_MS, scheduledTimeMs)
+            }
         }
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
@@ -229,33 +234,8 @@ class AdhanPlaybackService : Service() {
         }
     }
 
-    private fun startSmoothFadeIn() {
-        fadeRunnable?.let { fadeHandler.removeCallbacks(it) }
-        var step = 1
-        val totalSteps = 18
-        val runnable = object : Runnable {
-            override fun run() {
-                val player = mediaPlayer ?: return
-                val vol = (step.toFloat() / totalSteps.toFloat()).coerceIn(0.06f, 1.0f)
-                try {
-                    player.setVolume(vol, vol)
-                } catch (_: Exception) {
-                    return
-                }
-                if (step < totalSteps) {
-                    step++
-                    fadeHandler.postDelayed(this, 100L)
-                }
-            }
-        }
-        fadeRunnable = runnable
-        fadeHandler.postDelayed(runnable, 100L)
-    }
-
     private fun stopPlayback() {
         isPlayingAdhan = false
-        fadeRunnable?.let { fadeHandler.removeCallbacks(it) }
-        fadeRunnable = null
         try {
             mediaPlayer?.let { player ->
                 try {
@@ -302,6 +282,7 @@ class AdhanPlaybackService : Service() {
         const val EXTRA_MUEZZIN = "extra_muezzin"
         const val EXTRA_RAW_RES_ID = "extra_raw_res_id"
         const val EXTRA_SHOULD_PLAY_AUDIO = "extra_should_play_audio"
+        const val EXTRA_SCHEDULED_TIME_MS = "extra_scheduled_time_ms"
 
         @Volatile
         var isPlayingAdhan: Boolean = false
@@ -312,7 +293,8 @@ class AdhanPlaybackService : Service() {
             cityName: String,
             muezzinVoice: String,
             rawResId: Int,
-            playAudio: Boolean = true
+            playAudio: Boolean = true,
+            scheduledTimeMs: Long = 0L
         ) {
             try {
                 val intent = Intent(context, AdhanPlaybackService::class.java).apply {
@@ -322,6 +304,9 @@ class AdhanPlaybackService : Service() {
                     putExtra(EXTRA_MUEZZIN, muezzinVoice)
                     putExtra(EXTRA_RAW_RES_ID, rawResId)
                     putExtra(EXTRA_SHOULD_PLAY_AUDIO, playAudio)
+                    if (scheduledTimeMs > 0L) {
+                        putExtra(EXTRA_SCHEDULED_TIME_MS, scheduledTimeMs)
+                    }
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)

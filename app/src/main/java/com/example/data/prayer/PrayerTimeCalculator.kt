@@ -128,9 +128,10 @@ object PrayerTimeCalculator {
         if (month > Calendar.APRIL && month < Calendar.OCTOBER) return true
 
         if (month == Calendar.APRIL) {
-            // آخر جمعة في أبريل
+            // آخر جمعة في أبريل عند منتصف الليل 00:00:00.000
             val testCal = Calendar.getInstance(TimeZone.getTimeZone("Africa/Cairo"))
             testCal.set(year, Calendar.APRIL, 30, 0, 0, 0)
+            testCal.set(Calendar.MILLISECOND, 0)
             while (testCal.get(Calendar.DAY_OF_WEEK) != Calendar.FRIDAY) {
                 testCal.add(Calendar.DAY_OF_MONTH, -1)
             }
@@ -138,9 +139,10 @@ object PrayerTimeCalculator {
         }
 
         if (month == Calendar.OCTOBER) {
-            // آخر خميس في أكتوبر (ينتهي التوقيت الصيفي عند منتصف ليل الخميس/الجمعة)
+            // آخر خميس في أكتوبر (ينتهي التوقيت الصيفي عند منتصف ليل الخميس/الجمعة 23:59:59.999)
             val testCal = Calendar.getInstance(TimeZone.getTimeZone("Africa/Cairo"))
             testCal.set(year, Calendar.OCTOBER, 31, 23, 59, 59)
+            testCal.set(Calendar.MILLISECOND, 999)
             while (testCal.get(Calendar.DAY_OF_WEEK) != Calendar.THURSDAY) {
                 testCal.add(Calendar.DAY_OF_MONTH, -1)
             }
@@ -244,6 +246,21 @@ object PrayerTimeCalculator {
     }
 
     /**
+     * Returns the exact calculated millisecond timestamp without rounding or artificial shift.
+     */
+    fun alignToExactMinute(timeMs: Long): Long = timeMs
+
+    /**
+     * batoulapps adhan 1.2.1 computes integer seconds but leaves Calendar.MILLISECOND uninitialized
+     * (leaking 0..999ms from System.currentTimeMillis()). Strip that random sub-second leak.
+     */
+    fun stripSubSecondJitter(timeMs: Long): Long = (timeMs / 1000L) * 1000L
+
+    fun mapMadhab(madhabName: String): Madhab {
+        return if (madhabName.equals("HANAFI", ignoreCase = true)) Madhab.HANAFI else Madhab.SHAFI
+    }
+
+    /**
      * الحساب الكامل لمنظومة المواقيت والتنبيهات والعد التنازلي بالدقيقة والثانية
      */
     fun calculatePrayerTimes(
@@ -251,6 +268,7 @@ object PrayerTimeCalculator {
         longitude: Double = 31.2357,
         date: Date = Date(),
         methodName: String = "EGYPTIAN",
+        madhabName: String = "SHAFI",
         onlineResult: AlAdhanTimingResult? = null,
         isEnglish: Boolean = false,
         dstMode: String = "AUTO"
@@ -292,22 +310,29 @@ object PrayerTimeCalculator {
             }
         } else {
             val adhanMethod = mapCalculationMethod(methodName)
+            val adhanMadhab = mapMadhab(madhabName)
             val adhanTimes = getPrayerTimes(
                 latitude = latitude,
                 longitude = longitude,
                 date = date,
-                method = adhanMethod
+                method = adhanMethod,
+                madhab = adhanMadhab,
+                targetTimeZone = targetTimeZone
             )
 
             if (adhanTimes != null) {
-                fajrMs = adhanTimes.fajr?.time ?: date.time
-                sunriseMs = adhanTimes.sunrise?.time ?: date.time
-                dhuhrMs = adhanTimes.dhuhr?.time ?: date.time
-                asrMs = adhanTimes.asr?.time ?: date.time
-                maghribMs = adhanTimes.maghrib?.time ?: date.time
-                ishaMs = adhanTimes.isha?.time ?: date.time
+                fajrMs = stripSubSecondJitter(adhanTimes.fajr?.time ?: date.time)
+                sunriseMs = stripSubSecondJitter(adhanTimes.sunrise?.time ?: date.time)
+                dhuhrMs = stripSubSecondJitter(adhanTimes.dhuhr?.time ?: date.time)
+                asrMs = stripSubSecondJitter(adhanTimes.asr?.time ?: date.time)
+                maghribMs = stripSubSecondJitter(adhanTimes.maghrib?.time ?: date.time)
+                ishaMs = stripSubSecondJitter(adhanTimes.isha?.time ?: date.time)
             } else {
-                val cal = Calendar.getInstance().apply { time = date }
+                val cal = Calendar.getInstance(targetTimeZone).apply {
+                    time = date
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
                 cal.set(Calendar.HOUR_OF_DAY, 4); cal.set(Calendar.MINUTE, 30); fajrMs = cal.timeInMillis
                 cal.set(Calendar.HOUR_OF_DAY, 6); cal.set(Calendar.MINUTE, 0); sunriseMs = cal.timeInMillis
                 cal.set(Calendar.HOUR_OF_DAY, 12); cal.set(Calendar.MINUTE, 15); dhuhrMs = cal.timeInMillis
@@ -364,9 +389,10 @@ object PrayerTimeCalculator {
                 longitude = longitude,
                 date = tomorrowCal.time,
                 method = mapCalculationMethod(methodName),
+                madhab = mapMadhab(madhabName),
                 targetTimeZone = targetTimeZone
             )
-            nextMs = tomorrowTimes?.fajr?.time ?: (fajrMs + 86400000L)
+            nextMs = tomorrowTimes?.fajr?.time?.let { stripSubSecondJitter(it) } ?: (fajrMs + 86400000L)
             timeDiff = (nextMs - nowMs).coerceAtLeast(0L)
         }
 
@@ -408,40 +434,49 @@ object PrayerTimeCalculator {
         isArabic: Boolean = true,
         dstMode: String = "AUTO"
     ): CalculatedPrayerTimes {
+        val targetTz = getTargetTimeZone(latitude, longitude, dstMode, date)
         val prayerTimes = getPrayerTimes(
             latitude = latitude,
             longitude = longitude,
             date = date,
             method = CalculationMethod.EGYPTIAN,
-            madhab = madhab
+            madhab = madhab,
+            targetTimeZone = targetTz
         )
 
         val locale = if (isArabic) Locale("ar") else Locale.ENGLISH
-        val formatter = SimpleDateFormat("hh:mm a", locale)
+        val formatter = SimpleDateFormat("hh:mm a", locale).apply {
+            timeZone = targetTz
+        }
 
         val isSummer = when (dstMode.uppercase()) {
             "SUMMER" -> true
             "WINTER" -> false
             else -> isEgyptDaylightSavingTime(date)
         }
-        val offsetHours = if (isSummer) 3 else 2
-        formatter.timeZone = TimeZone.getTimeZone("GMT+0$offsetHours:00")
 
-        val fajrStr = prayerTimes?.fajr?.let { formatter.format(it) } ?: "--:--"
-        val sunriseStr = prayerTimes?.sunrise?.let { formatter.format(it) } ?: "--:--"
-        val dhuhrStr = prayerTimes?.dhuhr?.let { formatter.format(it) } ?: "--:--"
-        val asrStr = prayerTimes?.asr?.let { formatter.format(it) } ?: "--:--"
-        val maghribStr = prayerTimes?.maghrib?.let { formatter.format(it) } ?: "--:--"
-        val ishaStr = prayerTimes?.isha?.let { formatter.format(it) } ?: "--:--"
+        val fajrDateClean = prayerTimes?.fajr?.let { Date(stripSubSecondJitter(it.time)) }
+        val sunriseDateClean = prayerTimes?.sunrise?.let { Date(stripSubSecondJitter(it.time)) }
+        val dhuhrDateClean = prayerTimes?.dhuhr?.let { Date(stripSubSecondJitter(it.time)) }
+        val asrDateClean = prayerTimes?.asr?.let { Date(stripSubSecondJitter(it.time)) }
+        val maghribDateClean = prayerTimes?.maghrib?.let { Date(stripSubSecondJitter(it.time)) }
+        val ishaDateClean = prayerTimes?.isha?.let { Date(stripSubSecondJitter(it.time)) }
+
+        val fajrStr = fajrDateClean?.let { formatter.format(it) } ?: "--:--"
+        val sunriseStr = sunriseDateClean?.let { formatter.format(it) } ?: "--:--"
+        val dhuhrStr = dhuhrDateClean?.let { formatter.format(it) } ?: "--:--"
+        val asrStr = asrDateClean?.let { formatter.format(it) } ?: "--:--"
+        val maghribStr = maghribDateClean?.let { formatter.format(it) } ?: "--:--"
+        val ishaStr = ishaDateClean?.let { formatter.format(it) } ?: "--:--"
 
         val now = System.currentTimeMillis()
         val prayersList = listOf(
-            Pair("الفجر", prayerTimes?.fajr?.time ?: 0L),
-            Pair("الشروق", prayerTimes?.sunrise?.time ?: 0L),
-            Pair("الظهر", prayerTimes?.dhuhr?.time ?: 0L),
-            Pair("العصر", prayerTimes?.asr?.time ?: 0L),
-            Pair("المغرب", prayerTimes?.maghrib?.time ?: 0L),
-            Pair("العشاء", prayerTimes?.isha?.time ?: 0L)
+            Pair("الفجر", fajrDateClean?.time ?: 0L),
+            Pair("الشروق", sunriseDateClean?.time ?: 0L),
+            Pair("الظهر", dhuhrDateClean?.time ?: 0L),
+            Pair("العصر", asrDateClean?.time ?: 0L),
+            Pair("المغرب", maghribDateClean?.time ?: 0L),
+            Pair("العشاء", ishaDateClean?.time ?: 0L)
         )
 
         var nextName = "الفجر"
@@ -465,12 +500,12 @@ object PrayerTimeCalculator {
             asr = asrStr,
             maghrib = maghribStr,
             isha = ishaStr,
-            fajrDate = prayerTimes?.fajr,
-            sunriseDate = prayerTimes?.sunrise,
-            dhuhrDate = prayerTimes?.dhuhr,
-            asrDate = prayerTimes?.asr,
-            maghribDate = prayerTimes?.maghrib,
-            ishaDate = prayerTimes?.isha,
+            fajrDate = fajrDateClean,
+            sunriseDate = sunriseDateClean,
+            dhuhrDate = dhuhrDateClean,
+            asrDate = asrDateClean,
+            maghribDate = maghribDateClean,
+            ishaDate = ishaDateClean,
             nextPrayerName = nextName,
             timeRemainingString = remainingStr,
             isSummerTimeActive = isSummer

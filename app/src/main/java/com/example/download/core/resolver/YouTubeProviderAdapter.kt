@@ -438,7 +438,7 @@ class YouTubeProviderAdapter(
                     val mime = f.optString("mimeType")
                     if (!mime.startsWith("video/")) continue
                     val streamUrl = f.optString("_resolvedUrl").ifBlank { resolveDirectStreamUrl(f) ?: continue }
-                    val height = f.optInt("height", 0)
+                    val height = computeEffectiveHeight(f)
                     if (height <= 0) continue
                     add(Triple(f, streamUrl, height))
                 }
@@ -454,6 +454,7 @@ class YouTubeProviderAdapter(
                             else -> 0
                         }
                     }
+                    .thenByDescending { it.first.optInt("fps", 0) }
                     .thenByDescending { it.first.optInt("bitrate", 0) }
             )
 
@@ -542,7 +543,13 @@ class YouTubeProviderAdapter(
             val mime = f.optString("mimeType")
             if (!mime.startsWith("video/")) continue
             val streamUrl = resolveDirectStreamUrl(f) ?: continue
-            val height = f.optInt("height", 360)
+            val height = computeEffectiveHeight(f)
+            if (height <= 0) continue
+            val muxFps = f.optInt("fps", 0)
+            val existingAdaptive = optionsList.firstOrNull { it.id == "${height}p" }
+            if (existingAdaptive != null && existingAdaptive.fps >= 48 && muxFps < 48) {
+                continue
+            }
             val size = f.optString("contentLength").toLongOrNull() ?: -1L
             optionsList.removeAll { it.id == "${height}p" }
             optionsList += ResolvedMediaFormat(
@@ -564,7 +571,7 @@ class YouTubeProviderAdapter(
                 badgeAr = badgeArForHeight(height),
                 badgeEn = badgeEnForHeight(height),
                 width = f.optInt("width", 0),
-                fps = f.optInt("fps", 0),
+                fps = muxFps,
                 languageLabel = "الأصلي",
                 hasVideo = true,
                 hasAudio = true
@@ -585,7 +592,7 @@ class YouTubeProviderAdapter(
                 subLabelAr = "بث مجزأ + دمج تلقائي",
                 containerExt = "mp4",
                 mimeType = "video/mp4",
-                resolutionHeight = 1080,
+                resolutionHeight = 0,
                 streamUrl = hlsManifest,
                 isHls = true,
                 needsMux = true
@@ -872,16 +879,27 @@ class YouTubeProviderAdapter(
         }
     }
 
+    private fun computeEffectiveHeight(f: JSONObject): Int {
+        val w = f.optInt("width", 0)
+        val h = f.optInt("height", 0)
+        if (w > 0 && h > 0) return minOf(w, h)
+        if (h > 0) return h
+        val qLabel = f.optString("qualityLabel")
+        val parsed = Regex("""(\d{3,4})p""").find(qLabel)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+        return if (parsed > 0) parsed else 0
+    }
+
     private fun qualityLabelAr(h: Int): String = when (h) {
         2160 -> "2160p • 4K فائقة الدقة"
         1440 -> "1440p • 2K QHD"
         1080 -> "1080p • Full HD"
         720 -> "720p • HD"
+        540 -> "540p • متوسطة"
         480 -> "480p • متوسطة"
         360 -> "360p • اقتصادية"
         240 -> "240p • منخفضة"
         144 -> "144p • أقل بيانات"
-        else -> "${h}p"
+        else -> if (h > 0) "${h}p" else "الجودة المتاحة"
     }
 
     private fun badgeArForHeight(h: Int): String? = when {

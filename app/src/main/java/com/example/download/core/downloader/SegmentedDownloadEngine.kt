@@ -8,6 +8,8 @@ import com.example.download.core.model.HttpProbeInfo
 import com.example.download.data.LiveProgressSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -15,6 +17,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -245,7 +250,7 @@ class SegmentedDownloadEngine(
             RandomAccessFile(partFile, "rw").use { raf ->
                 raf.setLength(totalBytes)
             }
-            val initialChunks = buildSegmentChunks(totalBytes, workerCount, probe.etag)
+            val initialChunks = buildDynamicRangeSegments(totalBytes, workerCount, probe.etag)
             chunkStore.saveChunks(spec.downloadId, initialChunks)
             chunkStore.updateServerMetadata(spec.downloadId, probe.finalUrl, probe.etag, probe.lastModified)
             initialChunks.map {
@@ -344,7 +349,7 @@ class SegmentedDownloadEngine(
 
             try {
                 val workerJobs = List(workerConcurrency) {
-                    launch(Dispatchers.IO) {
+                    async(Dispatchers.IO) {
                         while (isActive && !spec.isPausedOrCanceled()) {
                             val chunk: MutableChunk = queueMutex.withLock {
                                 if (pendingQueue.isNotEmpty()) {
@@ -380,6 +385,8 @@ class SegmentedDownloadEngine(
                                     chunk = chunk,
                                     partFile = partFile,
                                     expectedMimeType = spec.expectedMimeType,
+                                    totalFileBytes = totalBytes,
+                                    totalSegmentCount = chunks.size,
                                     urlProvider = { activeUrl },
                                     headersProvider = { activeHeaders },
                                     expectedEtag = probe.etag,
@@ -395,7 +402,7 @@ class SegmentedDownloadEngine(
                         }
                     }
                 }
-                workerJobs.forEach { it.join() }
+                workerJobs.awaitAll()
             } finally {
                 monitorJob.cancel()
                 runCatching { flushChunksToStore() }
@@ -421,6 +428,8 @@ class SegmentedDownloadEngine(
         chunk: MutableChunk,
         partFile: File,
         expectedMimeType: String,
+        totalFileBytes: Long,
+        totalSegmentCount: Int,
         urlProvider: () -> String,
         headersProvider: () -> Map<String, String>,
         expectedEtag: String?,
@@ -443,14 +452,22 @@ class SegmentedDownloadEngine(
             }
 
             try {
+                val baseUrl = urlProvider()
+                val useGoogleVideoRangeParam = isGoogleVideoUrl(baseUrl)
+                val effectiveUrl = if (useGoogleVideoRangeParam) {
+                    buildGoogleVideoRangeUrl(baseUrl, currentStart, targetEnd)
+                } else {
+                    baseUrl
+                }
                 val rangeHeader = "bytes=$currentStart-$targetEnd"
-                val reqBuilder = Request.Builder()
-                    .url(urlProvider())
-                    .header("Range", rangeHeader)
-                val ifRangeValue = expectedEtag?.takeIf { it.isNotBlank() }
-                    ?: expectedLastModified?.takeIf { it.isNotBlank() }
-                if (ifRangeValue != null) {
-                    reqBuilder.header("If-Range", ifRangeValue)
+                val reqBuilder = Request.Builder().url(effectiveUrl)
+                if (!useGoogleVideoRangeParam) {
+                    reqBuilder.header("Range", rangeHeader)
+                    val ifRangeValue = expectedEtag?.takeIf { it.isNotBlank() }
+                        ?: expectedLastModified?.takeIf { it.isNotBlank() }
+                    if (ifRangeValue != null) {
+                        reqBuilder.header("If-Range", ifRangeValue)
+                    }
                 }
                 headersProvider().forEach { (k, v) ->
                     if (!k.equals("Range", true) && !k.equals("Accept-Encoding", true)) {
@@ -469,10 +486,18 @@ class SegmentedDownloadEngine(
                         throw DownloadEngineException(DownloadError.ExpiredMediaURL(code))
                     }
 
+                    val expectedSliceBytes = targetEnd - currentStart + 1L
+                    val respContentLen = response.header("Content-Length")?.toLongOrNull() ?: -1L
+                    val isValidGoogleVideoSlice200 = code == 200 &&
+                        useGoogleVideoRangeParam &&
+                        expectedSliceBytes > 0L &&
+                        respContentLen == expectedSliceBytes &&
+                        (totalSegmentCount == 1 || totalFileBytes <= 0L || respContentLen < totalFileBytes)
+
                     // CRITICAL ANTI-CORRUPTION CHECK:
-                    // Ranged chunk requests MUST receive 206 Partial Content.
-                    // If server returns 200 OK (e.g. If-Range rejected or Range ignored), do NOT write byte 0 at currentStart!
-                    if (code == 200) {
+                    // Ranged chunk requests MUST receive 206 Partial Content (or exact-length CDN slice 200 for googlevideo &range=).
+                    // If server returns 200 OK full payload (e.g. If-Range rejected or Range ignored), do NOT write byte 0 at currentStart!
+                    if (code == 200 && !isValidGoogleVideoSlice200) {
                         val newEtag = response.header("ETag")
                         val newLastMod = response.header("Last-Modified")
                         val changed = (!expectedEtag.isNullOrBlank() && !newEtag.isNullOrBlank() && expectedEtag != newEtag) ||
@@ -487,12 +512,12 @@ class SegmentedDownloadEngine(
                         )
                     }
 
-                    if (code != 206) {
-                        throw DownloadEngineException(DownloadErrorMapper.fromHttpStatus(code, urlProvider()))
+                    if (code != 206 && !isValidGoogleVideoSlice200) {
+                        throw DownloadEngineException(DownloadErrorMapper.fromHttpStatus(code, effectiveUrl))
                     }
 
                     val contentRange = response.header("Content-Range")
-                    if (contentRange.isNullOrBlank() && currentStart > 0L) {
+                    if (code == 206 && contentRange.isNullOrBlank() && currentStart > 0L) {
                         throw IOException("HTTP 206 missing Content-Range header for non-zero offset $currentStart")
                     }
                     if (!contentRange.isNullOrBlank()) {
@@ -739,15 +764,18 @@ class SegmentedDownloadEngine(
     }
 
     fun probeServer(url: String, headers: Map<String, String> = emptyMap()): HttpProbeInfo {
+        val isGoogleVideo = isGoogleVideoUrl(url)
+        val clenFromQuery = url.toHttpUrlOrNull()?.queryParameter("clen")?.toLongOrNull() ?: -1L
         var headProbe: HttpProbeInfo? = null
         runCatching {
             val headReq = Request.Builder().url(url).head()
             headers.forEach { (k, v) -> headReq.header(k, v) }
             httpClient.newCall(headReq.build()).execute().use { resp ->
                 val contentType = resp.header("Content-Type").orEmpty().lowercase(Locale.ROOT)
-                val len = resp.header("Content-Length")?.toLongOrNull() ?: -1L
+                val headerLen = resp.header("Content-Length")?.toLongOrNull() ?: -1L
+                val len = if (headerLen > 0L) headerLen else clenFromQuery
                 val acceptRanges = resp.header("Accept-Ranges")?.lowercase(Locale.ROOT)
-                val supportsRange = acceptRanges == "bytes" && len > 0L
+                val supportsRange = (acceptRanges == "bytes" || isGoogleVideo) && len > 0L
                 val etag = resp.header("ETag")
                 val lastMod = resp.header("Last-Modified")
                 val finalUrl = resp.request.url.toString()
@@ -760,7 +788,7 @@ class SegmentedDownloadEngine(
                     statusCode = resp.code,
                     contentLength = len,
                     contentType = contentType,
-                    acceptRanges = acceptRanges,
+                    acceptRanges = acceptRanges ?: if (supportsRange && isGoogleVideo) "bytes" else null,
                     supportsRange = supportsRange,
                     etag = etag,
                     lastModified = lastMod,
@@ -775,10 +803,13 @@ class SegmentedDownloadEngine(
         }
 
         return runCatching {
+            val probeUrl = if (isGoogleVideo) buildGoogleVideoRangeUrl(url, 0L, 0L) else url
             val rangeReq = Request.Builder()
-                .url(url)
+                .url(probeUrl)
                 .get()
-                .header("Range", "bytes=0-0")
+            if (!isGoogleVideo) {
+                rangeReq.header("Range", "bytes=0-0")
+            }
             headers.forEach { (k, v) ->
                 if (!k.equals("Range", true)) rangeReq.header(k, v)
             }
@@ -792,7 +823,14 @@ class SegmentedDownloadEngine(
                 val lowerPath = finalUrl.lowercase(Locale.ROOT).substringBefore('?').substringBefore('#')
                 val isHtml = contentType.contains("text/html") || contentType.contains("application/xhtml+xml")
                 val is206 = resp.code == 206 && totalFromRange != null && totalFromRange > 0L
-                val totalLen = if (is206) totalFromRange!! else (resp.header("Content-Length")?.toLongOrNull() ?: -1L)
+                val isGoogleVideoRangeOk = isGoogleVideo && resp.isSuccessful && clenFromQuery > 0L &&
+                    (resp.header("Content-Length")?.toLongOrNull() == 1L || resp.code == 206)
+                val totalLen = when {
+                    is206 -> totalFromRange!!
+                    isGoogleVideoRangeOk -> clenFromQuery
+                    else -> resp.header("Content-Length")?.toLongOrNull() ?: clenFromQuery
+                }
+                val canRange = is206 || isGoogleVideoRangeOk
 
                 HttpProbeInfo(
                     requestedUrl = url,
@@ -800,8 +838,8 @@ class SegmentedDownloadEngine(
                     statusCode = resp.code,
                     contentLength = totalLen,
                     contentType = contentType,
-                    acceptRanges = resp.header("Accept-Ranges") ?: if (is206) "bytes" else null,
-                    supportsRange = is206,
+                    acceptRanges = resp.header("Accept-Ranges") ?: if (canRange) "bytes" else null,
+                    supportsRange = canRange,
                     etag = etag,
                     lastModified = lastMod,
                     isHls = lowerPath.endsWith(".m3u8") || contentType.contains("mpegurl"),
@@ -856,14 +894,85 @@ class SegmentedDownloadEngine(
 
     companion object {
         private const val MIN_CHUNK_BYTES = 1024L * 1024L
+        private const val BURST_2MB = 2L * 1024L * 1024L
+        private const val BURST_3MB = 3L * 1024L * 1024L
+        private const val BURST_4MB = 4L * 1024L * 1024L
 
-        fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
-            .protocols(listOf(Protocol.HTTP_1_1))
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .build()
+        fun defaultHttpClient(): OkHttpClient {
+            val dispatcher = Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = 24
+            }
+            return OkHttpClient.Builder()
+                .dispatcher(dispatcher)
+                .connectionPool(ConnectionPool(24, 5, TimeUnit.MINUTES))
+                .protocols(listOf(Protocol.HTTP_1_1))
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(25, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+        }
+
+        fun isGoogleVideoUrl(url: String): Boolean {
+            val host = url.toHttpUrlOrNull()?.host?.lowercase(Locale.ROOT)
+                ?: return url.contains("googlevideo.com", ignoreCase = true)
+            return host == "googlevideo.com" || host.endsWith(".googlevideo.com")
+        }
+
+        fun buildGoogleVideoRangeUrl(url: String, startByte: Long, endByte: Long): String {
+            val parsed = url.toHttpUrlOrNull()
+            if (parsed != null) {
+                return parsed.newBuilder()
+                    .removeAllQueryParameters("range")
+                    .addQueryParameter("range", "$startByte-$endByte")
+                    .build()
+                    .toString()
+            }
+            val cleaned = url.replace(Regex("""([?&])range=[^&]*&?"""), "$1").trimEnd('&', '?')
+            val sep = if (cleaned.contains('?')) '&' else '?'
+            return "$cleaned${sep}range=$startByte-$endByte"
+        }
+
+        fun computeDynamicBurstSizeBytes(totalBytes: Long): Long = when {
+            totalBytes <= 64L * 1024L * 1024L -> BURST_2MB
+            totalBytes <= 192L * 1024L * 1024L -> BURST_3MB
+            else -> BURST_4MB
+        }
+
+        /**
+         * Splits large downloads into 2MB-4MB dynamic Range bursts so 8 parallel workers
+         * pull non-throttled slices continuously; falls back to worker-split segments on smaller files.
+         */
+        fun buildDynamicRangeSegments(
+            totalBytes: Long,
+            workerCount: Int,
+            etag: String?
+        ): List<SegmentChunk> {
+            if (totalBytes <= 0L) {
+                return listOf(SegmentChunk(0, 0L, -1L, 0L, false, etag))
+            }
+            val burstSize = computeDynamicBurstSizeBytes(totalBytes)
+            if (totalBytes < 2L * burstSize) {
+                return buildSegmentChunks(totalBytes, workerCount.coerceAtLeast(1), etag)
+            }
+            val chunks = mutableListOf<SegmentChunk>()
+            var offset = 0L
+            var idx = 0
+            while (offset < totalBytes) {
+                val end = min(offset + burstSize - 1L, totalBytes - 1L)
+                chunks += SegmentChunk(
+                    index = idx++,
+                    startByte = offset,
+                    endByte = end,
+                    downloadedBytes = 0L,
+                    completed = false,
+                    etag = etag
+                )
+                offset = end + 1L
+            }
+            return chunks
+        }
 
         /**
          * Conservative adaptive chunk computation:

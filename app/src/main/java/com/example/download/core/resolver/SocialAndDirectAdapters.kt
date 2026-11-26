@@ -689,6 +689,16 @@ class TikTokProviderAdapter(
             return null
         }
         val data = root.optJSONObject("data") ?: return null
+        return parseTikWmDataJson(originalUrl, canonicalUrl, data, cookiesHeader, oembedHint)
+    }
+
+    internal fun parseTikWmDataJson(
+        originalUrl: String,
+        canonicalUrl: String,
+        data: JSONObject,
+        cookiesHeader: String? = null,
+        oembedHint: TikTokMetaHint? = null
+    ): ResolvedMediaResult? {
         val headers = mapOf(
             "Referer" to "https://www.tiktok.com/",
             "User-Agent" to ResolverHttpUtils.DESKTOP_UA
@@ -709,21 +719,27 @@ class TikTokProviderAdapter(
 
         val formats = mutableListOf<ResolvedMediaFormat>()
         val seenStreamUrls = HashSet<String>()
+        val seenQualityTiers = HashSet<String>()
 
         fun addVideoVariant(
             id: String,
             streamUrl: String?,
             height: Int,
+            width: Int = 0,
+            bitrateKbps: Int = 0,
             sizeBytes: Long,
             labelAr: String,
             labelEn: String,
             subLabelAr: String,
             badgeAr: String,
-            badgeEn: String
+            badgeEn: String,
+            isWatermarked: Boolean = false
         ) {
             val normalized = normalizeTikWmUrl(streamUrl) ?: return
             if (isLikelyAudioOnlyUrl(normalized) || !seenStreamUrls.add(normalized)) return
             val finalSize = if (sizeBytes > 0L) sizeBytes else ResolverHttpUtils.probeContentLength(httpClient, normalized, headers)
+            val tierKey = "${height}_${bitrateKbps}_${isWatermarked}"
+            if (height > 0 && !seenQualityTiers.add(tierKey)) return
             formats += ResolvedMediaFormat(
                 id = id,
                 labelAr = labelAr,
@@ -732,6 +748,8 @@ class TikTokProviderAdapter(
                 containerExt = "mp4",
                 mimeType = "video/mp4",
                 resolutionHeight = height,
+                width = width,
+                bitrateKbps = bitrateKbps,
                 streamUrl = normalized,
                 exactBytes = finalSize,
                 isApproximateBytes = finalSize <= 0L,
@@ -743,38 +761,118 @@ class TikTokProviderAdapter(
             )
         }
 
+        // 1. Parse real bitrate streams array (`bit_rate` / `bitrateInfo`) when provided by TikWM/TikTok API
+        val bitRateArr = data.optJSONArray("bit_rate")
+            ?: data.optJSONArray("bitrateInfo")
+            ?: data.optJSONObject("video")?.optJSONArray("bitrateInfo")
+            ?: JSONArray()
+        var highestBitRateEffH = 0
+        for (i in 0 until bitRateArr.length()) {
+            val bObj = bitRateArr.optJSONObject(i) ?: continue
+            val playAddrObj = bObj.optJSONObject("play_addr") ?: bObj.optJSONObject("PlayAddr") ?: continue
+            val urlList = playAddrObj.optJSONArray("url_list") ?: playAddrObj.optJSONArray("UrlList") ?: continue
+            var chosenUrl: String? = null
+            for (j in 0 until urlList.length()) {
+                val cand = normalizeTikWmUrl(urlList.optString(j)) ?: continue
+                if (!isLikelyAudioOnlyUrl(cand)) {
+                    chosenUrl = cand
+                    break
+                }
+            }
+            if (chosenUrl == null) continue
+            val w = playAddrObj.optInt("width", 0).takeIf { it > 0 } ?: playAddrObj.optInt("Width", 0)
+            val h = playAddrObj.optInt("height", 0).takeIf { it > 0 } ?: playAddrObj.optInt("Height", 0)
+            val gearName = bObj.optString("gear_name").ifBlank { bObj.optString("GearName") }
+            val gearHeight = Regex("""_(\d{3,4})_""").find(gearName)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+            val effH = when {
+                w > 0 && h > 0 -> minOf(w, h)
+                h > 0 -> h
+                gearHeight > 0 -> gearHeight
+                else -> 0
+            }
+            if (effH > highestBitRateEffH) highestBitRateEffH = effH
+            val bps = bObj.optInt("bit_rate", 0).takeIf { it > 0 } ?: bObj.optInt("Bitrate", 0)
+            val kbps = (bps / 1000).coerceAtLeast(0)
+            val dataSize = playAddrObj.optLong("data_size", -1L).takeIf { it > 0L }
+                ?: playAddrObj.optLong("DataSize", -1L)
+            val labelAr = if (effH > 0) {
+                "${qualityLabelForHeight(effH)} (بدون علامة مائية)"
+            } else if (kbps > 0) {
+                "جودة فعلية • ${kbps} Kbps (بدون علامة مائية)"
+            } else {
+                "جودة متاحة (بدون علامة مائية)"
+            }
+            val labelEn = if (effH > 0) "${effH}p (No Watermark)" else if (kbps > 0) "${kbps} Kbps (No Watermark)" else "MP4 (No Watermark)"
+            addVideoVariant(
+                id = "tt_br_$i",
+                streamUrl = chosenUrl,
+                height = effH,
+                width = w,
+                bitrateKbps = kbps,
+                sizeBytes = dataSize,
+                labelAr = labelAr,
+                labelEn = labelEn,
+                subLabelAr = "بدون علامة مائية • MP4",
+                badgeAr = "بدون علامة مائية",
+                badgeEn = "No Watermark",
+                isWatermarked = false
+            )
+        }
+
+        // 2. Determine real declared video resolution from payload without faking 1080/720/480
+        val dataW = data.optInt("width", 0).takeIf { it > 0 }
+            ?: data.optJSONObject("video")?.optInt("width", 0) ?: 0
+        val dataH = data.optInt("height", 0).takeIf { it > 0 }
+            ?: data.optJSONObject("video")?.optInt("height", 0) ?: 0
+        val declaredEffH = when {
+            dataW > 0 && dataH > 0 -> minOf(dataW, dataH)
+            dataH > 0 -> dataH
+            else -> 0
+        }
+        val hdRealHeight = maxOf(highestBitRateEffH, declaredEffH)
+        val hdSize = data.optLong("hd_size", -1L)
+        val playSize = data.optLong("size", -1L)
+        val playMatchedHeight = formats.firstOrNull { !it.isAudioOnly && playSize > 0L && it.exactBytes == playSize }?.resolutionHeight
+            ?: if (declaredEffH > 0 && (hdRealHeight == declaredEffH || hdSize <= 0L)) declaredEffH else 0
+
         addVideoVariant(
             id = "tt_hdplay",
             streamUrl = data.optString("hdplay"),
-            height = 1080,
-            sizeBytes = data.optLong("hd_size", -1L),
-            labelAr = "1080p HD (بدون علامة مائية — الأوضح)",
-            labelEn = "1080p HD (No Watermark — Clearer)",
+            height = hdRealHeight,
+            width = dataW,
+            sizeBytes = hdSize,
+            labelAr = if (hdRealHeight > 0) "${hdRealHeight}p HD (بدون علامة مائية — الأوضح)" else "جودة HD الأصلية (بدون علامة مائية)",
+            labelEn = if (hdRealHeight > 0) "${hdRealHeight}p HD (No Watermark)" else "HD Original (No Watermark)",
             subLabelAr = "بدون علامة مائية • النسخة الأصلية الفائقة",
             badgeAr = "بدون علامة مائية",
-            badgeEn = "No Watermark HD"
+            badgeEn = "No Watermark HD",
+            isWatermarked = false
         )
         addVideoVariant(
             id = "tt_play",
             streamUrl = data.optString("play"),
-            height = 720,
-            sizeBytes = data.optLong("size", -1L),
-            labelAr = "720p HD (بدون علامة مائية)",
-            labelEn = "720p HD (No Watermark)",
+            height = playMatchedHeight,
+            width = dataW,
+            sizeBytes = playSize,
+            labelAr = if (playMatchedHeight > 0) "${playMatchedHeight}p (بدون علامة مائية)" else "جودة قياسية (بدون علامة مائية)",
+            labelEn = if (playMatchedHeight > 0) "${playMatchedHeight}p (No Watermark)" else "Standard (No Watermark)",
             subLabelAr = "بدون علامة مائية • جودة متوازنة",
             badgeAr = "بدون علامة مائية",
-            badgeEn = "No Watermark"
+            badgeEn = "No Watermark",
+            isWatermarked = false
         )
         addVideoVariant(
             id = "tt_wmplay",
             streamUrl = data.optString("wmplay"),
-            height = 480,
+            height = declaredEffH,
+            width = dataW,
             sizeBytes = data.optLong("wm_size", -1L),
-            labelAr = "480p (توفير البيانات)",
-            labelEn = "480p (Data Saver)",
+            labelAr = if (declaredEffH > 0) "${declaredEffH}p (توفير البيانات)" else "نسخة سريعة (مع علامة مائية)",
+            labelEn = if (declaredEffH > 0) "${declaredEffH}p (Data Saver)" else "Quick (Data Saver)",
             subLabelAr = "نسخة سريعة خفيفة الحجم",
             badgeAr = "توفير البيانات",
-            badgeEn = "Data Saver"
+            badgeEn = "Data Saver",
+            isWatermarked = true
         )
 
         val musicUrl = normalizeTikWmUrl(data.optString("music"))
@@ -998,10 +1096,11 @@ class TikTokProviderAdapter(
 
                 val bitrateInfo = videoObj.optJSONArray("bitrateInfo") ?: JSONArray()
                 val seenUrls = hashSetOf<String>()
+                val seenTierKeys = hashSetOf<String>()
                 for (i in 0 until bitrateInfo.length()) {
                     val bObj = bitrateInfo.optJSONObject(i) ?: continue
-                    val playAddrObj = bObj.optJSONObject("PlayAddr")
-                    val urlList = playAddrObj?.optJSONArray("UrlList") ?: continue
+                    val playAddrObj = bObj.optJSONObject("PlayAddr") ?: bObj.optJSONObject("play_addr")
+                    val urlList = playAddrObj?.optJSONArray("UrlList") ?: playAddrObj?.optJSONArray("url_list") ?: continue
                     var chosenStreamUrl: String? = null
                     for (j in 0 until urlList.length()) {
                         val cand = urlList.optString(j).takeIf { it.startsWith("http", true) } ?: continue
@@ -1012,14 +1111,17 @@ class TikTokProviderAdapter(
                     }
                     val streamUrl = chosenStreamUrl ?: continue
                     if (!seenUrls.add(streamUrl)) continue
-                    val pW = playAddrObj.optInt("Width", 0)
-                    val pH = playAddrObj.optInt("Height", 0)
+                    val pW = playAddrObj.optInt("Width", 0).takeIf { it > 0 } ?: playAddrObj.optInt("width", 0)
+                    val pH = playAddrObj.optInt("Height", 0).takeIf { it > 0 } ?: playAddrObj.optInt("height", 0)
                     val height = when {
                         pW > 0 && pH > 0 -> minOf(pW, pH)
                         pH > 0 -> pH
                         else -> baseEffH
                     }
-                    val dataSize = playAddrObj.optLong("DataSize", -1L)
+                    val kbps = (bObj.optInt("Bitrate", 0).takeIf { it > 0 } ?: bObj.optInt("bit_rate", 0)) / 1000
+                    if (height > 0 && !seenTierKeys.add("${height}_$kbps")) continue
+                    val dataSize = playAddrObj.optLong("DataSize", -1L).takeIf { it > 0L }
+                        ?: playAddrObj.optLong("data_size", -1L)
                     formats += ResolvedMediaFormat(
                         id = "tt_br_$i",
                         labelAr = qualityLabelForHeight(height),
@@ -1029,7 +1131,7 @@ class TikTokProviderAdapter(
                         mimeType = "video/mp4",
                         resolutionHeight = height,
                         width = pW,
-                        bitrateKbps = bObj.optInt("Bitrate", 0) / 1000,
+                        bitrateKbps = kbps,
                         streamUrl = streamUrl,
                         exactBytes = dataSize,
                         isApproximateBytes = dataSize <= 0L,
@@ -1042,7 +1144,9 @@ class TikTokProviderAdapter(
                 }
 
                 val playAddr = videoObj.optString("playAddr").ifBlank { videoObj.optString("downloadAddr") }
-                if (playAddr.startsWith("http", true) && !isLikelyAudioOnlyUrl(playAddr) && seenUrls.add(playAddr)) {
+                if (playAddr.startsWith("http", true) && !isLikelyAudioOnlyUrl(playAddr) && seenUrls.add(playAddr) &&
+                    (baseEffH == 0 || formats.none { it.resolutionHeight == baseEffH })
+                ) {
                     val size = ResolverHttpUtils.probeContentLength(httpClient, playAddr, headers)
                     formats += ResolvedMediaFormat(
                         id = "tt_hd_nowm",
@@ -1354,17 +1458,25 @@ class XTwitterProviderAdapter(
                 if (!url.startsWith("http", true)) continue
                 if (cType.contains("mp4")) {
                     val bitrate = v.optInt("bitrate", 0)
+                    val dimMatch = Regex("""/(\d{3,4})x(\d{3,4})/""").find(url)
+                    val parsedEffHeight = if (dimMatch != null) {
+                        val uw = dimMatch.groupValues[1].toIntOrNull() ?: 0
+                        val uh = dimMatch.groupValues[2].toIntOrNull() ?: 0
+                        if (uw > 0 && uh > 0) minOf(uw, uh) else 0
+                    } else 0
                     val estHeight = when {
+                        parsedEffHeight > 0 -> parsedEffHeight
                         bitrate >= 2_000_000 -> 1080
                         bitrate >= 800_000 -> 720
                         bitrate >= 400_000 -> 480
-                        else -> 360
+                        bitrate > 0 -> 360
+                        else -> 0
                     }
                     val size = ResolverHttpUtils.probeContentLength(httpClient, url)
                     formats += ResolvedMediaFormat(
                         id = "x_mp4_${variantIndex++}",
                         labelAr = qualityLabelForHeight(estHeight),
-                        labelEn = "${estHeight}p",
+                        labelEn = if (estHeight > 0) "${estHeight}p" else "MP4",
                         subLabelAr = "MP4 مباشر • X",
                         containerExt = "mp4",
                         mimeType = "video/mp4",
@@ -1382,7 +1494,7 @@ class XTwitterProviderAdapter(
                         subLabelAr = "دمج HLS تلقائي",
                         containerExt = "mp4",
                         mimeType = "video/mp4",
-                        resolutionHeight = 720,
+                        resolutionHeight = 0,
                         streamUrl = url,
                         isHls = true,
                         needsMux = true
@@ -1507,16 +1619,18 @@ class PinterestProviderAdapter(
         val formats = mutableListOf<ResolvedMediaFormat>()
         videoUrls.filter { it.startsWith("http", true) }.forEachIndexed { idx, vUrl ->
             val isHls = ResolverHttpUtils.isManifestUrl(vUrl)
+            val parsedHeight = Regex("""/(\d{3,4})p/""").find(vUrl)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
             val height = when {
+                parsedHeight > 0 -> parsedHeight
                 vUrl.contains("1080") -> 1080
                 vUrl.contains("720") -> 720
-                else -> if (idx == 0) 1080 else 720
+                else -> 0
             }
             val size = if (!isHls) ResolverHttpUtils.probeContentLength(httpClient, vUrl) else -1L
             formats += ResolvedMediaFormat(
                 id = "pin_v_$idx",
                 labelAr = qualityLabelForHeight(height),
-                labelEn = "${height}p",
+                labelEn = if (height > 0) "${height}p" else "MP4",
                 subLabelAr = if (isHls) "بث بنترست (HLS)" else "فيديو بنترست مباشر • MP4",
                 containerExt = "mp4",
                 mimeType = "video/mp4",
@@ -1662,7 +1776,7 @@ class DirectAndStreamAdapter(
                         subLabelAr = "معالجة ودمج تلقائي",
                         containerExt = "mp4",
                         mimeType = "video/mp4",
-                        resolutionHeight = 1080,
+                        resolutionHeight = 0,
                         streamUrl = canonicalUrl,
                         isHls = !isDash,
                         isDash = isDash,
@@ -1819,7 +1933,7 @@ class DirectAndStreamAdapter(
                     subLabelAr = "تحميل متجزئ سريع",
                     containerExt = ext,
                     mimeType = effectiveMime,
-                    resolutionHeight = if (isAudio || isPdf || isImage) 0 else 1080,
+                    resolutionHeight = 0,
                     streamUrl = canonicalUrl,
                     exactBytes = contentLen,
                     isApproximateBytes = contentLen <= 0L,

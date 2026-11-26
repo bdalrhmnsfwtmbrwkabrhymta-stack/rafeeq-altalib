@@ -1,13 +1,10 @@
 package com.hawas.study.rafid.worker
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
-import androidx.core.app.NotificationCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -31,6 +28,8 @@ import com.example.download.core.model.EngineDownloadState
 import com.example.download.core.resolver.AndroidWebViewSniffGateway
 import com.example.download.core.resolver.AndroidYtDlpGateway
 import com.example.download.core.resolver.ResolverHttpUtils
+import com.example.download.service.DownloadForegroundService
+import com.example.download.service.DownloadNotificationManager
 import com.hawas.study.rafid.data.RafidDao
 import com.hawas.study.rafid.data.RafidDatabase
 import com.hawas.study.rafid.data.RafidPreferencesRepository
@@ -46,14 +45,21 @@ import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class RafidDownloadWorker(
     appContext: Context,
@@ -62,7 +68,6 @@ class RafidDownloadWorker(
 
     companion object {
         const val KEY_DOWNLOAD_ID = "download_id"
-        private const val CHANNEL_ID = "rafid_downloads_channel"
 
         fun uniqueWorkName(downloadId: String): String = "rafid_dl_$downloadId"
 
@@ -102,31 +107,39 @@ class RafidDownloadWorker(
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
-        val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "تنزيلات التطبيق",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            nm.createNotificationChannel(channel)
-        }
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("هوس الدراسة")
-            .setContentText("جاري التحميل...")
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .build()
-        val notifId = 8400 + (id.hashCode() and 0x0FFF)
+        val downloadId = inputData.getString(KEY_DOWNLOAD_ID).orEmpty()
+        val notification = DownloadNotificationManager.buildActiveProgressNotification(
+            context = applicationContext,
+            downloadId = downloadId,
+            source = DownloadNotificationManager.SOURCE_RAFID,
+            videoTitle = "مدير التحميل الذكي",
+            downloadedBytes = 0L,
+            totalBytes = 0L,
+            speedBytesPerSec = 0L,
+            etaSeconds = 0L,
+            isPaused = false,
+            hasActive = true,
+            statusOverrideText = "جارٍ التحميل في الخلفية..."
+        )
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(notifId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            ForegroundInfo(
+                DownloadNotificationManager.ACTIVE_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
         } else {
-            ForegroundInfo(notifId, notification)
+            ForegroundInfo(DownloadNotificationManager.ACTIVE_NOTIFICATION_ID, notification)
         }
     }
 
     private val client = OkHttpClient.Builder()
+        .dispatcher(
+            Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = 24
+            }
+        )
+        .connectionPool(ConnectionPool(24, 5, TimeUnit.MINUTES))
         .protocols(listOf(Protocol.HTTP_1_1))
         .followRedirects(true)
         .followSslRedirects(true)
@@ -152,6 +165,8 @@ class RafidDownloadWorker(
             dao.updateEngineState(downloadId, "QUEUED")
             return@withContext Result.retry()
         }
+
+        DownloadForegroundService.startOrRefresh(applicationContext)
 
         val tempDir = File(applicationContext.cacheDir, "rafid_tmp/$downloadId").apply { mkdirs() }
         val primaryTemp = File(tempDir, "primary.${record.containerExt.ifBlank { "mp4" }}")
@@ -184,11 +199,18 @@ class RafidDownloadWorker(
             }
         }
 
-        suspend fun refreshStreamsFromSource(): Pair<String, Map<String, String>>? {
+        val streamRefreshMutex = Mutex()
+        var lastStreamRefreshAtMs = 0L
+
+        suspend fun refreshStreamsFromSource(): Pair<String, Map<String, String>>? = streamRefreshMutex.withLock {
+            val now = System.currentTimeMillis()
+            if (resolvedStreamUrl != record.resolvedUrl && now - lastStreamRefreshAtMs < 4000L) {
+                return@withLock resolvedStreamUrl to activeHeaders
+            }
             dao.updateEngineState(downloadId, "RESOLVING")
             val reExtracted = extractor.extract(record.resolvedUrl, activeCookies, record.userAgent, checkCollection = false).getOrNull()
                 ?: extractor.extract(record.originalUrl, activeCookies, record.userAgent, checkCollection = false).getOrNull()
-                ?: return null
+                ?: return@withLock null
 
             val targetMaxHeight = Regex("""(\d{3,4})p""").find(record.qualityLabel)
                 ?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -263,6 +285,7 @@ class RafidDownloadWorker(
             activeHeaders = refreshedHeaders
             resolvedStreamUrl = newVideoUrl
             if (!newAudioUrl.isNullOrBlank()) resolvedAudioUrl = newAudioUrl
+            lastStreamRefreshAtMs = System.currentTimeMillis()
             dao.updateRefreshedStreams(
                 id = downloadId,
                 videoStreamUrl = newVideoUrl,
@@ -270,7 +293,7 @@ class RafidDownloadWorker(
                 headersJson = JSONObject(refreshedHeaders).toString(),
                 cookiesHeader = activeCookies
             )
-            return newVideoUrl to refreshedHeaders
+            return@withLock newVideoUrl to refreshedHeaders
         }
 
         return@withContext try {
@@ -358,6 +381,17 @@ class RafidDownloadWorker(
                     mediaStoreUri = saved.uriString,
                     displayPath = saved.displayPath
                 )
+                DownloadNotificationManager.notifyDownloadCompleted(
+                    context = applicationContext,
+                    downloadId = downloadId,
+                    source = DownloadNotificationManager.SOURCE_RAFID,
+                    videoTitle = record.title,
+                    totalBytes = saved.fileSizeBytes,
+                    mimeType = manifestMime,
+                    savedUriString = saved.uriString,
+                    displayPath = saved.displayPath,
+                    thumbnailUrl = record.thumbnailUrl
+                )
                 runCatching { tempDir.deleteRecursively() }
                 return@withContext Result.success()
             }
@@ -379,73 +413,119 @@ class RafidDownloadWorker(
                 }
             }
 
-            val chunkStore = RafidFileChunkStore(File(tempDir, "chunks.meta"), dao, CoroutineScope(Dispatchers.IO))
+            val hasSeparateAudio = !resolvedAudioUrl.isNullOrBlank()
+            val chunkStore = RafidFileChunkStore(
+                metaFile = File(tempDir, "chunks.meta"),
+                dao = dao,
+                scope = CoroutineScope(Dispatchers.IO),
+                suppressProgressUpdates = hasSeparateAudio
+            )
             val engine = SegmentedDownloadEngine(chunkStore, client)
 
-            val downloadedPrimary = engine.download(
-                DownloadJobSpec(
-                    downloadId = downloadId,
-                    url = resolvedStreamUrl,
-                    headers = activeHeaders,
-                    targetPartFile = primaryTemp,
-                    expectedMimeType = record.mimeType,
-                    requestedChunks = 8,
-                    savedTotalBytes = record.totalBytes,
-                    isPausedOrCanceled = isPausedCheck,
-                    onRefreshExpiredUrl = { refreshStreamsFromSource() },
-                    onProgress = { done, total, snap ->
-                        CoroutineScope(Dispatchers.IO).launch {
-                            dao.updateDownloadProgress(
-                                id = downloadId,
-                                status = RafidDownloadStatus.DOWNLOADING.name,
-                                downloadedBytes = done,
-                                totalBytes = maxOf(0L, total),
-                                speedBytesPerSec = snap.speedBytesPerSec,
-                                etaSeconds = snap.etaSeconds.coerceAtLeast(0L)
-                            )
-                        }
-                    }
-                )
-            )
+            val videoDoneAtomic = AtomicLong(0L)
+            val videoTotalAtomic = AtomicLong(maxOf(0L, record.totalBytes))
+            val videoSpeedAtomic = AtomicLong(0L)
+            val audioDoneAtomic = AtomicLong(0L)
+            val audioTotalAtomic = AtomicLong(0L)
+            val audioSpeedAtomic = AtomicLong(0L)
+            val lastCombinedEmitMs = AtomicLong(0L)
 
-            val secondaryAudioTemp = if (!resolvedAudioUrl.isNullOrBlank()) {
-                currentStage = "DOWNLOADING_AUDIO"
-                dao.updateEngineState(downloadId, "DOWNLOADING_AUDIO")
-                val inferredAudioExt = when {
-                    resolvedAudioUrl!!.contains("mime=audio/webm", ignoreCase = true) ||
-                        resolvedAudioUrl!!.contains("mime=audio%2Fwebm", ignoreCase = true) ||
-                        resolvedAudioUrl!!.contains(".webm", ignoreCase = true) -> "webm"
-                    resolvedAudioUrl!!.contains(".mp3", ignoreCase = true) -> "mp3"
-                    else -> "m4a"
-                }
-                val audioFile = File(tempDir, "audio_track.$inferredAudioExt")
-                val audioStore = RafidFileChunkStore(File(tempDir, "audio_chunks.meta"), dao, CoroutineScope(Dispatchers.IO))
-                val audioEngine = SegmentedDownloadEngine(audioStore, client)
-                audioEngine.download(
-                    DownloadJobSpec(
-                        downloadId = "${downloadId}_audio",
-                        url = resolvedAudioUrl!!,
-                        headers = activeHeaders,
-                        targetPartFile = audioFile,
-                        expectedMimeType = if (inferredAudioExt == "webm") "audio/webm" else "audio/mp4",
-                        requestedChunks = 4,
-                        isPausedOrCanceled = isPausedCheck,
-                        onRefreshExpiredUrl = {
-                            val re = extractor.extract(record.resolvedUrl, activeCookies, record.userAgent, checkCollection = false).getOrNull()
-                            val candAudio = re?.formats?.firstOrNull {
-                                !it.audioUrl.isNullOrBlank() &&
-                                    (record.audioLanguage.isNullOrBlank() || it.languageCode == record.audioLanguage)
-                            }?.audioUrl ?: re?.formats?.firstNotNullOfOrNull { it.audioUrl }
-                            candAudio?.let {
-                                resolvedAudioUrl = it
-                                it to activeHeaders
-                            }
-                        }
+            fun emitCombinedProgress(force: Boolean = false) {
+                val now = System.currentTimeMillis()
+                val prev = lastCombinedEmitMs.get()
+                if (!force && now - prev < 400L) return
+                if (!force && !lastCombinedEmitMs.compareAndSet(prev, now)) return
+
+                val done = videoDoneAtomic.get() + audioDoneAtomic.get()
+                val total = (videoTotalAtomic.get() + audioTotalAtomic.get()).coerceAtLeast(done)
+                val speed = videoSpeedAtomic.get() + audioSpeedAtomic.get()
+                val eta = if (speed > 0L && total > done) (total - done) / speed else 0L
+                CoroutineScope(Dispatchers.IO).launch {
+                    dao.updateDownloadProgress(
+                        id = downloadId,
+                        status = RafidDownloadStatus.DOWNLOADING.name,
+                        downloadedBytes = done,
+                        totalBytes = total,
+                        speedBytesPerSec = speed,
+                        etaSeconds = eta
                     )
-                )
-                audioFile
-            } else {
-                null
+                }
+            }
+
+            val (downloadedPrimary, secondaryAudioTemp) = coroutineScope {
+                val videoJob = async(Dispatchers.IO) {
+                    engine.download(
+                        DownloadJobSpec(
+                            downloadId = downloadId,
+                            url = resolvedStreamUrl,
+                            headers = activeHeaders,
+                            targetPartFile = primaryTemp,
+                            expectedMimeType = record.mimeType,
+                            requestedChunks = 8,
+                            savedTotalBytes = record.totalBytes,
+                            isPausedOrCanceled = isPausedCheck,
+                            onRefreshExpiredUrl = { refreshStreamsFromSource() },
+                            onProgress = { done, total, snap ->
+                                videoDoneAtomic.set(done)
+                                if (total > 0L) videoTotalAtomic.set(total)
+                                videoSpeedAtomic.set(snap.speedBytesPerSec)
+                                emitCombinedProgress()
+                            }
+                        )
+                    )
+                }
+
+                val audioJob = if (hasSeparateAudio) {
+                    async(Dispatchers.IO) {
+                        val audioUrlValue = resolvedAudioUrl!!
+                        val inferredAudioExt = when {
+                            audioUrlValue.contains("mime=audio/webm", ignoreCase = true) ||
+                                audioUrlValue.contains("mime=audio%2Fwebm", ignoreCase = true) ||
+                                audioUrlValue.contains(".webm", ignoreCase = true) -> "webm"
+                            audioUrlValue.contains(".mp3", ignoreCase = true) -> "mp3"
+                            else -> "m4a"
+                        }
+                        val audioFile = File(tempDir, "audio_track.$inferredAudioExt")
+                        val audioStore = RafidFileChunkStore(
+                            metaFile = File(tempDir, "audio_chunks.meta"),
+                            dao = dao,
+                            scope = CoroutineScope(Dispatchers.IO),
+                            suppressProgressUpdates = true
+                        )
+                        val audioEngine = SegmentedDownloadEngine(audioStore, client)
+                        audioEngine.download(
+                            DownloadJobSpec(
+                                downloadId = "${downloadId}_audio",
+                                url = audioUrlValue,
+                                headers = activeHeaders,
+                                targetPartFile = audioFile,
+                                expectedMimeType = if (inferredAudioExt == "webm") "audio/webm" else "audio/mp4",
+                                requestedChunks = 8,
+                                isPausedOrCanceled = isPausedCheck,
+                                onRefreshExpiredUrl = {
+                                    refreshStreamsFromSource()?.let { refreshed ->
+                                        val latestAudio = resolvedAudioUrl
+                                        if (!latestAudio.isNullOrBlank()) latestAudio to refreshed.second else null
+                                    }
+                                },
+                                onProgress = { done, total, snap ->
+                                    audioDoneAtomic.set(done)
+                                    if (total > 0L) audioTotalAtomic.set(total)
+                                    audioSpeedAtomic.set(snap.speedBytesPerSec)
+                                    emitCombinedProgress()
+                                }
+                            )
+                        )
+                        audioFile
+                    }
+                } else {
+                    null
+                }
+
+                val primaryResult = videoJob.await()
+                val audioResult = audioJob?.await()
+                emitCombinedProgress(force = true)
+                primaryResult to audioResult
             }
 
             if (record.isMuxRequired || secondaryAudioTemp != null) {
@@ -528,6 +608,17 @@ class RafidDownloadWorker(
                     mediaStoreUri = saved.uriString,
                     displayPath = saved.displayPath
                 )
+                DownloadNotificationManager.notifyDownloadCompleted(
+                    context = applicationContext,
+                    downloadId = downloadId,
+                    source = DownloadNotificationManager.SOURCE_RAFID,
+                    videoTitle = record.title,
+                    totalBytes = saved.fileSizeBytes,
+                    mimeType = finalMime,
+                    savedUriString = saved.uriString,
+                    displayPath = saved.displayPath,
+                    thumbnailUrl = record.thumbnailUrl
+                )
                 runCatching { tempDir.deleteRecursively() }
             } else {
                 currentStage = "VERIFYING"
@@ -554,6 +645,17 @@ class RafidDownloadWorker(
                     finalSize = saved.fileSizeBytes,
                     mediaStoreUri = saved.uriString,
                     displayPath = saved.displayPath
+                )
+                DownloadNotificationManager.notifyDownloadCompleted(
+                    context = applicationContext,
+                    downloadId = downloadId,
+                    source = DownloadNotificationManager.SOURCE_RAFID,
+                    videoTitle = record.title,
+                    totalBytes = saved.fileSizeBytes,
+                    mimeType = record.mimeType,
+                    savedUriString = saved.uriString,
+                    displayPath = saved.displayPath,
+                    thumbnailUrl = record.thumbnailUrl
                 )
                 runCatching { tempDir.deleteRecursively() }
             }
@@ -762,7 +864,8 @@ class RafidDownloadWorker(
     private class RafidFileChunkStore(
         private val metaFile: File,
         private val dao: RafidDao,
-        private val scope: CoroutineScope
+        private val scope: CoroutineScope,
+        private val suppressProgressUpdates: Boolean = false
     ) : ChunkMetadataStore {
         private val inMem = mutableMapOf<String, List<SegmentChunk>>()
 
@@ -805,7 +908,7 @@ class RafidDownloadWorker(
         }
 
         override suspend fun updateProgress(downloadId: String, downloadedBytes: Long, totalBytes: Long, activeThreads: Int) {
-            if (!downloadId.endsWith("_audio")) {
+            if (!suppressProgressUpdates && !downloadId.endsWith("_audio")) {
                 scope.launch {
                     dao.updateDownloadProgress(downloadId, RafidDownloadStatus.DOWNLOADING.name, downloadedBytes, totalBytes.coerceAtLeast(0L), 0L, 0L)
                 }

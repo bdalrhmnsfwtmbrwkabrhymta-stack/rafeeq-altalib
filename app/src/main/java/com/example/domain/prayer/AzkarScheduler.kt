@@ -43,21 +43,52 @@ object AzkarScheduler {
                 } catch (_: Exception) {
                     CalculationMethod.EGYPTIAN
                 }
+                val todayDate = java.util.Date()
+                val targetTz = com.example.data.prayer.PrayerTimeCalculator.getTargetTimeZone(
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    dstMode = settings.dstMode,
+                    date = todayDate
+                )
+                val todayOnline = AlAdhanRepository.getCachedDailyTimings(
+                    context = appContext,
+                    date = todayDate,
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    methodName = settings.calculationMethod,
+                    madhabName = settings.madhab
+                )
                 val todayResult = PrayerTimesCalculator.calculatePrayerTimes(
                     latitude = settings.latitude,
                     longitude = settings.longitude,
+                    date = todayDate,
                     method = calcMethod,
+                    onlineResult = todayOnline,
                     isEnglish = settings.appLanguage != "ar",
-                    dstMode = settings.dstMode
+                    dstMode = settings.dstMode,
+                    madhabName = settings.madhab
                 )
-                val tomorrowCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+                val tomorrowCal = Calendar.getInstance(targetTz).apply {
+                    time = todayDate
+                    add(Calendar.DAY_OF_YEAR, 1)
+                }
+                val tomorrowOnline = AlAdhanRepository.getCachedDailyTimings(
+                    context = appContext,
+                    date = tomorrowCal.time,
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    methodName = settings.calculationMethod,
+                    madhabName = settings.madhab
+                )
                 val tomorrowResult = PrayerTimesCalculator.calculatePrayerTimes(
                     latitude = settings.latitude,
                     longitude = settings.longitude,
                     date = tomorrowCal.time,
                     method = calcMethod,
+                    onlineResult = tomorrowOnline,
                     isEnglish = settings.appLanguage != "ar",
-                    dstMode = settings.dstMode
+                    dstMode = settings.dstMode,
+                    madhabName = settings.madhab
                 )
                 AdhkarAutoTriggerManager.scheduleDynamicWindowAlarms(
                     context = appContext,

@@ -49,13 +49,15 @@ object PrayerTimesCalculator {
         method: CalculationMethod = CalculationMethod.EGYPTIAN,
         onlineResult: AlAdhanTimingResult? = null,
         isEnglish: Boolean = false,
-        dstMode: String = "AUTO"
+        dstMode: String = "AUTO",
+        madhabName: String = "SHAFI"
     ): PrayerTimesResult {
         return PrayerTimeCalculator.calculatePrayerTimes(
             latitude = latitude,
             longitude = longitude,
             date = date,
             methodName = method.name,
+            madhabName = madhabName,
             onlineResult = onlineResult,
             isEnglish = isEnglish,
             dstMode = dstMode

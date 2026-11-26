@@ -101,3 +101,9 @@
 -keep class androidx.media3.** { *; }
 -dontwarn androidx.media3.**
 
+# ------------------------------------------------------------------------------
+# 8. PDFBox Android (optional JPEG2000 JP2Decoder / JP2Encoder classes)
+# ------------------------------------------------------------------------------
+-dontwarn com.gemalto.jp2.JP2Decoder
+-dontwarn com.gemalto.jp2.JP2Encoder
+-dontwarn com.gemalto.jp2.**

@@ -80,7 +80,8 @@ object AdhkarAutoTriggerManager {
             longitude = settings.longitude,
             method = calcMethod,
             isEnglish = settings.appLanguage != "ar",
-            dstMode = settings.dstMode
+            dstMode = settings.dstMode,
+            madhabName = settings.madhab
         )
         return detectActiveAdhkarWindow(todayResult, nowMs = nowMs)
     }
@@ -112,9 +113,9 @@ object AdhkarAutoTriggerManager {
         nowMs: Long = System.currentTimeMillis()
     ): Long {
         val todayMorningMs = todayResult.fajr.timestampMillis + FIVE_MINUTES_MS
-        if (todayMorningMs > nowMs + 15_000L) return todayMorningMs
+        if (todayMorningMs > nowMs) return todayMorningMs
         var nextMs = tomorrowResult.fajr.timestampMillis + FIVE_MINUTES_MS
-        while (nextMs <= nowMs + 15_000L) {
+        while (nextMs <= nowMs) {
             nextMs += 86_400_000L
         }
         return nextMs
@@ -126,9 +127,9 @@ object AdhkarAutoTriggerManager {
         nowMs: Long = System.currentTimeMillis()
     ): Long {
         val todayEveningMs = todayResult.asr.timestampMillis + FIVE_MINUTES_MS
-        if (todayEveningMs > nowMs + 15_000L) return todayEveningMs
+        if (todayEveningMs > nowMs) return todayEveningMs
         var nextMs = tomorrowResult.asr.timestampMillis + FIVE_MINUTES_MS
-        while (nextMs <= nowMs + 15_000L) {
+        while (nextMs <= nowMs) {
             nextMs += 86_400_000L
         }
         return nextMs

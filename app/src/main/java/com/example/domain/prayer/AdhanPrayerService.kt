@@ -117,7 +117,8 @@ object AdhanPrayerService {
         methodName: String = "EGYPTIAN",
         madhabName: String = "SHAFI",
         dstMode: String = "AUTO",
-        isEnglish: Boolean = false
+        isEnglish: Boolean = false,
+        onlineResult: AlAdhanTimingResult? = null
     ): DailyPrayerSchedule {
         val targetTimeZone = PrayerTimeCalculator.getTargetTimeZone(latitude, longitude, dstMode, date)
         val coordinates = Coordinates(latitude, longitude)
@@ -152,15 +153,17 @@ object AdhanPrayerService {
             timeZone = targetTimeZone
         }
 
-        val fajrDate = prayerTimes.fajr ?: Date()
-        val sunriseDate = prayerTimes.sunrise ?: Date()
-        val dhuhrDate = prayerTimes.dhuhr ?: Date()
-        val asrDate = prayerTimes.asr ?: Date()
-        val maghribDate = prayerTimes.maghrib ?: Date()
-        val ishaDate = prayerTimes.isha ?: Date()
+        val fajrDate = Date(onlineResult?.fajrMs ?: PrayerTimeCalculator.stripSubSecondJitter(prayerTimes.fajr?.time ?: Date().time))
+        val sunriseDate = Date(onlineResult?.sunriseMs ?: PrayerTimeCalculator.stripSubSecondJitter(prayerTimes.sunrise?.time ?: Date().time))
+        val dhuhrDate = Date(onlineResult?.dhuhrMs ?: PrayerTimeCalculator.stripSubSecondJitter(prayerTimes.dhuhr?.time ?: Date().time))
+        val asrDate = Date(onlineResult?.asrMs ?: PrayerTimeCalculator.stripSubSecondJitter(prayerTimes.asr?.time ?: Date().time))
+        val maghribDate = Date(onlineResult?.maghribMs ?: PrayerTimeCalculator.stripSubSecondJitter(prayerTimes.maghrib?.time ?: Date().time))
+        val ishaDate = Date(onlineResult?.ishaMs ?: PrayerTimeCalculator.stripSubSecondJitter(prayerTimes.isha?.time ?: Date().time))
 
-        val tahajjudDate = sunnahTimes.lastThirdOfTheNight ?: Date(fajrDate.time - 90 * 60 * 1000L)
-        val midnightDate = sunnahTimes.middleOfTheNight ?: Date(maghribDate.time + ((fajrDate.time - maghribDate.time) / 2))
+        val tahajjudDate = sunnahTimes.lastThirdOfTheNight?.let { Date(PrayerTimeCalculator.stripSubSecondJitter(it.time)) }
+            ?: Date(fajrDate.time - 90 * 60 * 1000L)
+        val midnightDate = sunnahTimes.middleOfTheNight?.let { Date(PrayerTimeCalculator.stripSubSecondJitter(it.time)) }
+            ?: Date(maghribDate.time + ((fajrDate.time - maghribDate.time) / 2))
 
         val nowMs = System.currentTimeMillis()
 
@@ -281,7 +284,9 @@ object AdhanPrayerService {
             } catch (_: Exception) {
                 null
             }
-            val tomorrowFajrDate = tomorrowTimes?.fajr ?: Date(fajrDate.time + 86400000L)
+            val tomorrowFajrDate = Date(
+                tomorrowTimes?.fajr?.time?.let { PrayerTimeCalculator.stripSubSecondJitter(it) } ?: (fajrDate.time + 86400000L)
+            )
 
             val tomorrowFajrTimeStr = timeFormat.format(tomorrowFajrDate)
             nextPrayerResult = PrayerTimeItem(
@@ -378,7 +383,8 @@ object AdhanPrayerService {
         dstMode: String = "AUTO",
         isEnglish: Boolean = false
     ): DailyPrayerSchedule {
-        val targetTimeZone = PrayerTimeCalculator.getTargetTimeZone(latitude, longitude, dstMode)
+        val referenceDate = Date.from(localDate.atTime(12, 0).atZone(ZoneId.of("UTC")).toInstant())
+        val targetTimeZone = PrayerTimeCalculator.getTargetTimeZone(latitude, longitude, dstMode, referenceDate)
         val date = Date.from(localDate.atStartOfDay(targetTimeZone.toZoneId()).toInstant())
         return calculateDailySchedule(
             latitude = latitude,

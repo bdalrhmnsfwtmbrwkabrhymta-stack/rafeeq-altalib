@@ -27,9 +27,9 @@ class DownloadSettingsRepo(private val context: Context) {
 
     val settingsFlow: Flow<DownloadSettings> = context.smartDownloadDataStore.data.map { prefs ->
         DownloadSettings(
-            chunkCount = (prefs[Keys.CHUNK_COUNT] ?: 12).coerceIn(8, 16),
+            chunkCount = (prefs[Keys.CHUNK_COUNT] ?: 8).coerceIn(8, 16),
             wifiOnly = prefs[Keys.WIFI_ONLY] ?: false,
-            maxConcurrent = (prefs[Keys.MAX_CONCURRENT] ?: 3).coerceIn(1, 5),
+            maxConcurrent = (prefs[Keys.MAX_CONCURRENT] ?: 2).coerceIn(1, 5),
             speedLimitKBps = (prefs[Keys.SPEED_LIMIT_KBPS] ?: 0).coerceAtLeast(0),
             lastSelectedQualityId = prefs[Keys.LAST_QUALITY_ID] ?: "1080p"
         )

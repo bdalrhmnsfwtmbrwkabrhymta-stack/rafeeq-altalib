@@ -9,6 +9,8 @@ import com.example.download.data.DownloadDao
 import com.example.download.data.DownloadEntity
 import com.example.download.data.DownloadStatus
 import com.example.download.data.LiveProgressSnapshot
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import java.io.File
@@ -33,7 +35,13 @@ class ParallelChunkDownloader(
     private val dao: DownloadDao
 ) {
     private val httpClient: OkHttpClient by lazy {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 24
+        }
         OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .connectionPool(ConnectionPool(24, 5, TimeUnit.MINUTES))
             .protocols(listOf(Protocol.HTTP_1_1))
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(25, TimeUnit.SECONDS)
@@ -85,6 +93,34 @@ class ParallelChunkDownloader(
                 savedLastModified = entity.lastModified,
                 savedTotalBytes = entity.totalBytes,
                 failIfFileChangedOnServer = true,
+                onRefreshExpiredUrl = onRefreshDirectUrl,
+                onProgress = onProgress
+            )
+        )
+    }
+
+    suspend fun downloadSideTrack(
+        downloadId: String,
+        url: String,
+        targetFile: File,
+        expectedMimeType: String,
+        headers: Map<String, String>,
+        requestedChunks: Int,
+        speedLimitKBps: Int,
+        onRefreshDirectUrl: suspend () -> Pair<String, Map<String, String>>?,
+        onProgress: (downloadedBytes: Long, totalBytes: Long, snapshot: LiveProgressSnapshot) -> Unit
+    ): File {
+        val engine = SegmentedDownloadEngine(com.example.download.core.downloader.InMemoryChunkMetadataStore(), httpClient)
+        return engine.download(
+            DownloadJobSpec(
+                downloadId = downloadId,
+                url = url,
+                headers = headers,
+                targetPartFile = targetFile,
+                expectedMimeType = expectedMimeType,
+                requestedChunks = requestedChunks,
+                speedLimitKBps = speedLimitKBps,
+                failIfFileChangedOnServer = false,
                 onRefreshExpiredUrl = onRefreshDirectUrl,
                 onProgress = onProgress
             )

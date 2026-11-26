@@ -152,7 +152,15 @@ object StorageHelper {
             }
 
             runCatching { sourceFile.delete() }
-            Result.success(targetUri.toString() to "$relativeFolder/$finalName")
+            val finalDisplay = "$relativeFolder/$finalName"
+            com.example.download.service.DownloadNotificationManager.scanFileIntoGallery(
+                context = context,
+                resolvedFile = null,
+                savedUriString = targetUri.toString(),
+                displayPath = finalDisplay,
+                mimeType = mimeType
+            )
+            Result.success(targetUri.toString() to finalDisplay)
         } catch (t: Throwable) {
             insertedUri?.let { runCatching { resolver.delete(it, null, null) } }
             Result.failure(t)

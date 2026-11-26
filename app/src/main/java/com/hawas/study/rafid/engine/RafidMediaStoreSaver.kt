@@ -81,6 +81,13 @@ object RafidMediaStoreSaver {
                         put(MediaStore.Downloads.IS_PENDING, 0)
                     }
                     resolver.update(insertedUri, readyValues, null, null)
+                    com.example.download.service.DownloadNotificationManager.scanFileIntoGallery(
+                        context = context,
+                        resolvedFile = null,
+                        savedUriString = insertedUri.toString(),
+                        displayPath = displayPath,
+                        mimeType = mimeType
+                    )
                     return SavedMediaResult(
                         uriString = insertedUri.toString(),
                         displayPath = displayPath,
@@ -114,6 +121,13 @@ object RafidMediaStoreSaver {
                 input.copyTo(output, bufferSize = 64 * 1024)
             }
         }
+        com.example.download.service.DownloadNotificationManager.scanFileIntoGallery(
+            context = context,
+            resolvedFile = outFile,
+            savedUriString = null,
+            displayPath = displayPath,
+            mimeType = mimeType
+        )
 
         return SavedMediaResult(
             uriString = Uri.fromFile(outFile).toString(),

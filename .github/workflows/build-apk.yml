@@ -126,7 +126,28 @@ jobs:
             exit 1
           fi
 
-          echo "Verified debug APK: $EXPECTED_APK"
+          APK_SIZE_BYTES=$(stat -c%s "$EXPECTED_APK")
+          APK_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $APK_SIZE_BYTES/1048576}")
+          echo "Verified debug APK: $EXPECTED_APK (${APK_SIZE_MB} MB)"
+
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/build-tools" ]; then
+            BUILD_TOOLS=$(ls -d "$SDK_ROOT/build-tools/"* | sort -V | tail -n 1)
+            if [ -x "$BUILD_TOOLS/zipalign" ]; then
+              "$BUILD_TOOLS/zipalign" -c -v 4 "$EXPECTED_APK" >/dev/null
+              echo "Verified 4-byte zipalign."
+            fi
+            if [ -x "$BUILD_TOOLS/apksigner" ]; then
+              "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$EXPECTED_APK"
+            fi
+            if [ -x "$BUILD_TOOLS/aapt2" ]; then
+              if "$BUILD_TOOLS/aapt2" dump badging "$EXPECTED_APK" | grep -q "testOnly"; then
+                echo "ERROR: APK unexpectedly marked testOnly." >&2
+                exit 1
+              fi
+              echo "Verified APK is not marked testOnly."
+            fi
+          fi
 
       - name: Upload debug APK artifact
         id: upload_artifact

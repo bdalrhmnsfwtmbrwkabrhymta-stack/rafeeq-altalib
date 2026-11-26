@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -143,15 +144,19 @@ fun RealisticAnimatedAdhanScreen(
         }
     }
 
-    val headerPrayerLabel = remember(prayerName, isSunrise, normalizedPrayer) {
+    val cleanPrayerName = remember(prayerName) {
+        prayerName.replace(Regex("[\\u064B-\\u065F\\u0670]"), "").trim()
+    }
+
+    val (headerTitleLine1, headerTitleLine2) = remember(cleanPrayerName, isSunrise, normalizedPrayer) {
         when {
-            isSunrise -> "حَانَ الآنَ وَقْتُ الشُّرُوقِ وَالضُّحَى"
-            normalizedPrayer.contains("فجر") || normalizedPrayer.contains("fajr") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ الفَجْرِ"
-            normalizedPrayer.contains("ظهر") || normalizedPrayer.contains("dhuhr") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ الظُّهْرِ"
-            normalizedPrayer.contains("عصر") || normalizedPrayer.contains("asr") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ العَصْرِ"
-            normalizedPrayer.contains("مغرب") || normalizedPrayer.contains("maghrib") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ المَغْرِبِ"
-            normalizedPrayer.contains("عشاء") || normalizedPrayer.contains("isha") -> "حَانَ الآنَ مَوْعِدُ أَذَانِ العِشَاءِ"
-            else -> "حَانَ الآنَ مَوْعِدُ أَذَانِ $prayerName"
+            isSunrise -> "حان الآن وقت" to "الشروق والضحى"
+            normalizedPrayer.contains("فجر") || normalizedPrayer.contains("fajr") -> "حان الآن موعد" to "أذان الفجر"
+            normalizedPrayer.contains("ظهر") || normalizedPrayer.contains("dhuhr") -> "حان الآن موعد" to "أذان الظهر"
+            normalizedPrayer.contains("عصر") || normalizedPrayer.contains("asr") -> "حان الآن موعد" to "أذان العصر"
+            normalizedPrayer.contains("مغرب") || normalizedPrayer.contains("maghrib") -> "حان الآن موعد" to "أذان المغرب"
+            normalizedPrayer.contains("عشاء") || normalizedPrayer.contains("isha") -> "حان الآن موعد" to "أذان العشاء"
+            else -> "حان الآن موعد" to "أذان $cleanPrayerName"
         }
     }
 
@@ -207,7 +212,8 @@ fun RealisticAnimatedAdhanScreen(
                     clockDisplay = "$currentTimeText $amPmText",
                     cityName = cityName,
                     hijriDate = hijriDateText,
-                    prayerTitle = headerPrayerLabel,
+                    titleLine1 = headerTitleLine1,
+                    titleLine2 = headerTitleLine2,
                     muezzinVoice = if (isSunrise) null else muezzinVoice,
                     isLandscape = isLandscape
                 )
@@ -310,7 +316,8 @@ private fun UnifiedAdhanGlassHeaderCard(
     clockDisplay: String,
     cityName: String,
     hijriDate: String,
-    prayerTitle: String,
+    titleLine1: String,
+    titleLine2: String,
     muezzinVoice: String?,
     isLandscape: Boolean
 ) {
@@ -320,6 +327,8 @@ private fun UnifiedAdhanGlassHeaderCard(
         border = BorderStroke(1.dp, AdhanDarkGlassBorder),
         shadowElevation = 12.dp,
         modifier = Modifier
+            .statusBarsPadding()
+            .padding(top = if (isLandscape) 4.dp else 12.dp)
             .fillMaxWidth()
             .widthIn(max = 540.dp)
             .testTag("adhan_unified_glass_header")
@@ -328,8 +337,7 @@ private fun UnifiedAdhanGlassHeaderCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = if (isLandscape) 12.dp else 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Row 1: Prayer Time (38.sp Bold White) alongside City & Hijri Date
             Row(
@@ -393,20 +401,37 @@ private fun UnifiedAdhanGlassHeaderCard(
                 }
             }
 
-            // Row 2: Prayer Adhan Name in Amiri Bold (Warm Gold #FBBF24)
-            Text(
-                text = prayerTitle,
-                fontFamily = HeaderBrandAmiriFontFamily,
-                fontSize = if (isLandscape) 26.sp else 32.sp,
-                fontWeight = FontWeight.Bold,
-                color = AdhanWarmGold,
-                textAlign = TextAlign.Center,
+            Spacer(modifier = Modifier.height(if (isLandscape) 8.dp else 12.dp))
+
+            // Row 2: Clean 2-Line Golden Prayer Adhan Title (Zero overlapping tashkeel)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("adhan_prayer_title")
-            )
+            ) {
+                Text(
+                    text = titleLine1,
+                    fontFamily = DisplayArabicFontFamily,
+                    fontSize = if (isLandscape) 20.sp else 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFF6C453),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = titleLine2,
+                    fontFamily = DisplayArabicFontFamily,
+                    fontSize = if (isLandscape) 24.sp else 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFFFFD460),
+                    lineHeight = if (isLandscape) 30.sp else 36.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
 
             if (!muezzinVoice.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(if (isLandscape) 10.dp else 14.dp))
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = Color(0x550F172A),
@@ -433,7 +458,7 @@ private fun UnifiedAdhanGlassHeaderCard(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 AdhanAudioWaveVisualizer()
             }
         }
@@ -476,6 +501,7 @@ private fun AdhanAudioWaveVisualizer() {
 
 @Composable
 private fun PostAdhanDuaGlassCard() {
+    val adhanDuaaText = "«اللهم ربَّ هذه الدعوة التامة، والصلاة القائمة،\nآتِ محمدًا الوسيلة والفضيلة،\nوابعثه مقامًا محمودًا الذي وعدته»"
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = AdhanDarkGlassSurface,
@@ -485,23 +511,26 @@ private fun PostAdhanDuaGlassCard() {
             .widthIn(max = 520.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = "دعاء ما بعد الأذان",
                 fontFamily = DisplayArabicFontFamily,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = AdhanWarmGold
             )
             Text(
-                text = "«اللَّهُمَّ رَبَّ هَذِهِ الدَّعْوَةِ التَّامَّةِ وَالصَّلَاةِ الْقَائِمَةِ، آتِ مُحَمَّداً الْوَسِيلَةَ وَالْفَضِيلَةَ، وَابْعَثْهُ مَقَاماً مَحْمُوداً الَّذِي وَعَدْتَهُ»",
-                fontFamily = HeaderBrandAmiriFontFamily,
-                fontSize = 14.sp,
-                lineHeight = 22.sp,
-                color = Color.White.copy(alpha = 0.95f),
+                text = adhanDuaaText,
+                fontFamily = DisplayArabicFontFamily,
+                fontSize = 15.5.sp,
+                lineHeight = 26.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFFF8FAFC),
                 textAlign = TextAlign.Center
             )
         }

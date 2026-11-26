@@ -18,6 +18,8 @@ import com.example.domain.ai.*
 import com.example.domain.firebase.FirebaseAuthRepository
 import com.example.domain.firebase.FirestorePersistenceRepository
 import com.example.domain.gamification.GamificationEngine
+import com.example.domain.prayer.AlAdhanRepository
+import com.example.domain.prayer.AlAdhanTimingResult
 import com.example.domain.prayer.CalculationMethod
 import com.example.domain.prayer.PrayerAlarmScheduler
 import com.example.domain.prayer.PrayerForegroundService
@@ -151,16 +153,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isDetectingLocation: StateFlow<Boolean> = _isDetectingLocation.asStateFlow()
     val isSyncingPrayerTimes = MutableStateFlow(false)
     val qiblaAngle = MutableStateFlow(0f)
+    private val _onlinePrayerTimings = MutableStateFlow<AlAdhanTimingResult?>(null)
+    val onlinePrayerTimings: StateFlow<AlAdhanTimingResult?> = _onlinePrayerTimings.asStateFlow()
 
-    val prayerTimes: StateFlow<PrayerTimesResult?> = userSettings.map { settings ->
+    val prayerTimes: StateFlow<PrayerTimesResult?> = combine(
+        userSettings,
+        _onlinePrayerTimings
+    ) { settings, onlineResult ->
         try {
-            val calcMethod = try { CalculationMethod.valueOf(settings.calculationMethod) } catch (_: Exception) { CalculationMethod.EGYPTIAN }
+            val calcMethod = try {
+                CalculationMethod.valueOf(settings.calculationMethod)
+            } catch (_: Exception) {
+                CalculationMethod.EGYPTIAN
+            }
+            val resolvedOnline = onlineResult ?: AlAdhanRepository.getCachedDailyTimings(
+                context = getApplication(),
+                latitude = settings.latitude,
+                longitude = settings.longitude,
+                methodName = settings.calculationMethod,
+                madhabName = settings.madhab
+            )
             PrayerTimesCalculator.calculatePrayerTimes(
                 latitude = settings.latitude,
                 longitude = settings.longitude,
                 method = calcMethod,
+                onlineResult = resolvedOnline,
                 isEnglish = settings.appLanguage == "en",
-                dstMode = settings.dstMode
+                dstMode = settings.dstMode,
+                madhabName = settings.madhab
             )
         } catch (_: Exception) {
             null
@@ -189,6 +209,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isAiLoading = MutableStateFlow(false)
     val aiErrorMessage = MutableStateFlow<String?>(null)
     val aiTutorResponse = MutableStateFlow<String?>(null)
+
+    // Fahim AI Assistant (Gemini / DeepSeek + Smart Whiteboard + Multi-Dialect TTS + Auto Schedule/Tasks)
+    private val fahimAiService by lazy { com.example.domain.ai.FahimAiService(aiRepository) }
+    private val fahimBoardEngine by lazy { com.example.domain.ai.FahimBoardDrawingEngine() }
+    val fahimVoiceEngine by lazy { com.example.domain.ai.FahimVoiceEngine(getApplication()) }
+    val fahimMessages = MutableStateFlow<List<com.example.domain.ai.FahimChatMessage>>(emptyList())
+    val isFahimLoading = MutableStateFlow(false)
+    val isSuggestedWeeklyTableAdded = MutableStateFlow(false)
+    val whiteboardLesson = MutableStateFlow(
+        fahimBoardEngine.buildLocalWhiteboardLesson(
+            "مساحة الجزء المظلل",
+            com.example.domain.ai.FahimDialect.EGYPTIAN
+        )
+    )
+    val isWhiteboardLoading = MutableStateFlow(false)
+    val pendingWhiteboardPrompt = MutableStateFlow<String?>(null)
 
     // Study Schedule Generator State
     val studentSubjectsInput = MutableStateFlow<List<StudentSubjectInput>>(emptyList())
@@ -250,6 +286,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             checkAndSeedCollections()
             loadQuranData()
         }
+        syncDailyPrayerTimes(forceReschedule = true)
     }
 
     // App Unlock & Security
@@ -1472,6 +1509,162 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         aiChatMessages.value = emptyList()
     }
 
+    fun clearFahimChat() {
+        fahimMessages.value = emptyList()
+    }
+
+    fun sendFahimMessage(
+        prompt: String,
+        imageBytesBase64: String? = null,
+        onTableAutoAdded: (Int) -> Unit = {}
+    ) {
+        val trimmed = prompt.trim()
+        if (trimmed.isBlank() && imageBytesBase64.isNullOrBlank()) return
+
+        viewModelScope.launch {
+            val userDisplay = if (!imageBytesBase64.isNullOrBlank()) {
+                trimmed.ifBlank { "حل وشرح المسألة الموجودة في الصورة" }
+            } else {
+                trimmed
+            }
+            val userMessage = com.example.domain.ai.FahimChatMessage(
+                isUser = true,
+                text = userDisplay,
+                hasAttachedImage = !imageBytesBase64.isNullOrBlank()
+            )
+            fahimMessages.value = fahimMessages.value + userMessage
+            isFahimLoading.value = true
+
+            try {
+                val activeSubjectsSummary = subjects.value.take(6).joinToString("، ") { it.name }
+                val pendingTasksSummary = tasks.value.filter { !it.isCompleted }.take(5).joinToString("، ") { it.title }
+                val studentContext = buildString {
+                    if (activeSubjectsSummary.isNotBlank()) append("المواد المسجلة: $activeSubjectsSummary\n")
+                    if (pendingTasksSummary.isNotBlank()) append("المهام القادمة: $pendingTasksSummary")
+                }.trim()
+
+                var reply = fahimAiService.askFahim(
+                    prompt = trimmed,
+                    history = fahimMessages.value.dropLast(1),
+                    imageBytesBase64 = imageBytesBase64,
+                    studentContextSummary = studentContext,
+                    customGeminiKey = userSettings.value.geminiApiKey
+                )
+
+                val table = reply.studyTable
+                if (table != null && !table.isComparisonOnly && table.rows.isNotEmpty()) {
+                    val insertedCount = persistFahimTableToRoom(table)
+                    if (insertedCount > 0) {
+                        reply = reply.copy(isAddedToSchedule = true)
+                        onTableAutoAdded(insertedCount)
+                    }
+                }
+
+                fahimMessages.value = fahimMessages.value + reply
+                soundManager.playSuccess()
+                awardGamificationXp(10, "محادثة فهيم الذكي")
+            } catch (e: Exception) {
+                val fallbackReply = com.example.domain.ai.FahimChatMessage(
+                    isUser = false,
+                    text = "حصل انقطاع بسيط في الشبكة، جرّب إرسال سؤالك مرة أخرى وسأجهزه لك فوراً."
+                )
+                fahimMessages.value = fahimMessages.value + fallbackReply
+                soundManager.playError()
+            } finally {
+                isFahimLoading.value = false
+            }
+        }
+    }
+
+    fun insertFahimTableToApp(
+        table: com.example.domain.ai.FahimStudyTableData,
+        messageId: String? = null,
+        isSuggestedCard: Boolean = false,
+        onComplete: (Int) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val insertedCount = persistFahimTableToRoom(table)
+            if (isSuggestedCard && insertedCount > 0) {
+                isSuggestedWeeklyTableAdded.value = true
+            }
+            if (!messageId.isNullOrBlank() && insertedCount > 0) {
+                fahimMessages.value = fahimMessages.value.map { msg ->
+                    if (msg.id == messageId) msg.copy(isAddedToSchedule = true) else msg
+                }
+            }
+            if (insertedCount > 0) {
+                soundManager.playSuccess()
+            }
+            onComplete(insertedCount)
+        }
+    }
+
+    internal suspend fun persistFahimTableToRoom(
+        table: com.example.domain.ai.FahimStudyTableData
+    ): Int = withContext(Dispatchers.IO) {
+        if (table.rows.isEmpty()) return@withContext 0
+        val existingPlans = db.scheduleDao().getAllPlans().first()
+        val targetPlanId = existingPlans.firstOrNull { it.isDefault }?.id
+            ?: existingPlans.firstOrNull()?.id
+            ?: db.scheduleDao().insertPlan(
+                SchedulePlanEntity(title = "جدول فهيم الذكي", isDefault = true)
+            )
+
+        val subjectPalette = listOf("#1A6FE3", "#D97706", "#10B981", "#0D9488", "#7C3AED", "#EC4899")
+        val existingSubjects = db.subjectDao().getAllSubjectsList().toMutableList()
+        var insertedCount = 0
+        val nowMillis = System.currentTimeMillis()
+        val tomorrowDueMillis = nowMillis + 24L * 3600_000L
+
+        table.rows.forEachIndexed { idx, row ->
+            val rawLabel = row.taskOrSubject.trim().ifBlank { "مذاكرة مركزة" }
+            val cleanSubjectName = rawLabel.substringBefore(":").take(32).ifBlank { "مذاكرة" }
+            val matchedSubject = existingSubjects.firstOrNull {
+                it.name.equals(cleanSubjectName, ignoreCase = true) ||
+                    cleanSubjectName.contains(it.name, ignoreCase = true)
+            }
+            val subjectId = if (matchedSubject != null) {
+                matchedSubject.id
+            } else {
+                val newSub = SubjectEntity(
+                    name = cleanSubjectName,
+                    colorHex = subjectPalette[idx % subjectPalette.size],
+                    iconName = "Book",
+                    targetWeeklyHours = 6
+                )
+                val newId = db.subjectDao().insertSubject(newSub)
+                existingSubjects.add(newSub.copy(id = newId))
+                newId
+            }
+
+            db.scheduleDao().insertSession(
+                ScheduleSessionEntity(
+                    planId = targetPlanId,
+                    subjectId = subjectId,
+                    dayOfWeek = row.dayOfWeek.coerceIn(1, 7),
+                    startTimeString = row.startTime.ifBlank { "08:00" },
+                    endTimeString = row.endTime.ifBlank { "09:30" },
+                    roomOrLink = "فهيم الذكي",
+                    note = "${row.timeOrDay} • ${row.durationOrDetail}"
+                )
+            )
+
+            db.taskDao().insertTask(
+                TaskEntity(
+                    title = if (rawLabel.contains(row.durationOrDetail)) rawLabel else "$rawLabel (${row.timeOrDay})",
+                    description = "مضاف تلقائياً من ${table.title} • المدة: ${row.durationOrDetail}",
+                    subjectId = subjectId,
+                    dueDateMillis = tomorrowDueMillis,
+                    priority = "HIGH",
+                    tag = "جدول فهيم",
+                    isCompleted = false
+                )
+            )
+            insertedCount++
+        }
+        insertedCount
+    }
+
     fun clearAiTutorResponse() {
         aiTutorResponse.value = null
     }
@@ -1838,6 +2031,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Prayer & Azkar Settings Methods
+    fun syncDailyPrayerTimes(forceReschedule: Boolean = true) {
+        viewModelScope.launch(Dispatchers.IO) {
+            isSyncingPrayerTimes.value = true
+            try {
+                val settings = userSettings.value
+                val appCtx = getApplication<Application>()
+                val todayDate = java.util.Date()
+                val todayResult = AlAdhanRepository.getOrFetchDailyTimings(
+                    context = appCtx,
+                    city = settings.cityLocation,
+                    country = settings.countryLocation,
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    methodName = settings.calculationMethod,
+                    madhabName = settings.madhab,
+                    date = todayDate
+                )
+                if (todayResult != null) {
+                    _onlinePrayerTimings.value = todayResult
+                }
+                val tomorrowCal = java.util.Calendar.getInstance().apply {
+                    add(java.util.Calendar.DAY_OF_YEAR, 1)
+                }
+                AlAdhanRepository.getOrFetchDailyTimings(
+                    context = appCtx,
+                    city = settings.cityLocation,
+                    country = settings.countryLocation,
+                    latitude = settings.latitude,
+                    longitude = settings.longitude,
+                    methodName = settings.calculationMethod,
+                    madhabName = settings.madhab,
+                    date = tomorrowCal.time
+                )
+                if (forceReschedule) {
+                    PrayerAlarmScheduler.rescheduleAllSuspending(appCtx)
+                }
+            } catch (_: Exception) {
+            } finally {
+                isSyncingPrayerTimes.value = false
+            }
+        }
+    }
+
     fun detectAndApplyGpsLocation(context: Context, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         viewModelScope.launch {
             _isDetectingLocation.value = true
@@ -1852,6 +2088,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     lng = loc.longitude,
                     method = userSettings.value.calculationMethod
                 )
+                syncDailyPrayerTimes(forceReschedule = true)
                 onResult(true, "${loc.cityName}، ${loc.countryName}")
             } else {
                 onResult(false, res.exceptionOrNull()?.localizedMessage ?: "فشل تحديد الموقع تلقائياً")
@@ -1871,7 +2108,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (method != null) {
                 updatePrayerCalculationMethod(method)
             }
-            PrayerAlarmScheduler.rescheduleAll(getApplication())
+            syncDailyPrayerTimes(forceReschedule = true)
         }
     }
 
@@ -1882,7 +2119,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             prefsRepo.updatePrayerCalculationMethod(methodName)
-            PrayerAlarmScheduler.rescheduleAll(getApplication())
+            syncDailyPrayerTimes(forceReschedule = true)
         }
     }
 
@@ -2341,5 +2578,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             db.scheduleDao().deleteExam(exam)
         }
+    }
+
+    fun requestOpenWhiteboardWithPrompt(prompt: String) {
+        pendingWhiteboardPrompt.value = prompt.trim()
+    }
+
+    fun loadWhiteboardLesson(
+        prompt: String,
+        dialect: com.example.domain.ai.FahimDialect = com.example.domain.ai.FahimDialect.fromName(userSettings.value.fahimDialect),
+        autoSpeak: Boolean = true
+    ) {
+        viewModelScope.launch {
+            isWhiteboardLoading.value = true
+            val lesson = fahimBoardEngine.generateWhiteboardLesson(
+                prompt = prompt,
+                dialect = dialect,
+                customGeminiKey = userSettings.value.geminiApiKey
+            )
+            whiteboardLesson.value = lesson
+            isWhiteboardLoading.value = false
+            if (autoSpeak) {
+                val settings = userSettings.value
+                fahimVoiceEngine.speakLessonSteps(
+                    steps = lesson.steps,
+                    dialect = dialect,
+                    piperUrl = settings.piperTtsUrl,
+                    coquiUrl = settings.coquiTtsUrl,
+                    voiceApiKey = settings.voiceTtsApiKey
+                )
+            }
+        }
+    }
+
+    fun consumePendingWhiteboardPrompt() {
+        val p = pendingWhiteboardPrompt.value ?: return
+        pendingWhiteboardPrompt.value = null
+        loadWhiteboardLesson(p, autoSpeak = true)
+    }
+
+    fun updateFahimDialect(dialect: com.example.domain.ai.FahimDialect) {
+        viewModelScope.launch {
+            prefsRepo.updateFahimDialect(dialect.name)
+            val currentLesson = whiteboardLesson.value
+            val updated = fahimBoardEngine.buildLocalWhiteboardLesson(currentLesson.title, dialect)
+            if (updated.sceneType == currentLesson.sceneType) {
+                whiteboardLesson.value = updated
+                val settings = userSettings.value
+                fahimVoiceEngine.speakLessonSteps(
+                    steps = updated.steps,
+                    dialect = dialect,
+                    piperUrl = settings.piperTtsUrl,
+                    coquiUrl = settings.coquiTtsUrl,
+                    voiceApiKey = settings.voiceTtsApiKey
+                )
+            } else {
+                loadWhiteboardLesson(currentLesson.title, dialect, autoSpeak = true)
+            }
+        }
+    }
+
+    fun saveDeveloperFahimSettings(
+        geminiKey: String,
+        piperUrl: String,
+        coquiUrl: String,
+        voiceKey: String
+    ) {
+        viewModelScope.launch {
+            prefsRepo.updateDeveloperFahimSettings(geminiKey, piperUrl, coquiUrl, voiceKey)
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        fahimVoiceEngine.shutdown()
     }
 }

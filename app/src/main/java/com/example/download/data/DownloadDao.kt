@@ -95,6 +95,27 @@ interface DownloadDao {
     )
 
     @Query(
+        "UPDATE smart_downloads SET resolvedUrl = :resolvedUrl, audioUrl = :audioUrl, " +
+            "totalBytes = CASE WHEN :totalBytes > 0 THEN :totalBytes ELSE totalBytes END, " +
+            "headersJson = :headersJson, formatId = COALESCE(:formatId, formatId), " +
+            "qualityLabel = COALESCE(:qualityLabel, qualityLabel), " +
+            "isHlsOrDash = :isHlsOrDash, needsMux = :needsMux, updatedAt = :updatedAt " +
+            "WHERE id = :id AND status = 'QUEUED'"
+    )
+    suspend fun updatePreExtractedStreamsIfQueued(
+        id: String,
+        resolvedUrl: String,
+        audioUrl: String?,
+        totalBytes: Long,
+        headersJson: String?,
+        formatId: String?,
+        qualityLabel: String?,
+        isHlsOrDash: Boolean,
+        needsMux: Boolean,
+        updatedAt: Long = System.currentTimeMillis()
+    ): Int
+
+    @Query(
         "UPDATE smart_downloads SET status = 'COMPLETED', engineState = 'COMPLETED', errorCode = NULL, downloadedBytes = :finalBytes, totalBytes = :finalBytes, " +
             "outputUri = :outputUri, outputDisplayPath = :displayPath, activeThreads = 0, " +
             "errorFriendlyMessage = NULL, completedAt = :completedAt, updatedAt = :completedAt WHERE id = :id"

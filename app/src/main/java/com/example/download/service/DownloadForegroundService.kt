@@ -1,9 +1,7 @@
 package com.example.download.service
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -12,13 +10,14 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import com.example.MainActivity
-import com.example.R
 import com.example.download.SmartDownloadManager
+import com.example.download.data.DownloadEntity
 import com.example.download.data.DownloadStatus
-import com.example.download.engine.StorageHelper
+import com.example.download.data.LiveProgressSnapshot
+import com.hawas.study.rafid.data.RafidDatabase
+import com.hawas.study.rafid.models.RafidDownloadEntity
+import com.hawas.study.rafid.models.RafidDownloadStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,6 +25,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 class DownloadForegroundService : Service() {
 
@@ -35,9 +35,27 @@ class DownloadForegroundService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private var networkMonitor: NetworkAutoResumeMonitor? = null
 
+    private val sessionTrackedIds = ConcurrentHashMap.newKeySet<String>()
+    private var lastNotifyEmitMs = 0L
+
+    private data class ActiveNotificationUiModel(
+        val id: String,
+        val source: String,
+        val title: String,
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+        val speedBytesPerSec: Long,
+        val etaSeconds: Long,
+        val isPaused: Boolean,
+        val hasActive: Boolean,
+        val extraCount: Int,
+        val thumbnailUrl: String?,
+        val statusOverrideText: String?
+    )
+
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        DownloadNotificationManager.ensureChannels(this)
         networkMonitor = NetworkAutoResumeMonitor(this).also { it.register() }
         startObservingDownloads()
     }
@@ -49,12 +67,18 @@ class DownloadForegroundService : Service() {
             ACTION_CANCEL_ALL -> SmartDownloadManager.getInstance(this).cancelAllActive()
         }
 
-        val initialNotification = buildNotification(
-            title = "مدير التحميل الذكي",
-            content = "جارٍ تجهيز التنزيلات...",
-            progressPercent = 0,
-            indeterminate = true,
-            hasActive = true
+        val initialNotification = DownloadNotificationManager.buildActiveProgressNotification(
+            context = this,
+            downloadId = "",
+            source = DownloadNotificationManager.SOURCE_RAFID,
+            videoTitle = "مدير التحميل الذكي",
+            downloadedBytes = 0L,
+            totalBytes = 0L,
+            speedBytesPerSec = 0L,
+            etaSeconds = 0L,
+            isPaused = false,
+            hasActive = true,
+            statusOverrideText = "جارٍ تجهيز التنزيلات في الخلفية..."
         )
         startForegroundSafely(initialNotification)
         return START_STICKY
@@ -80,148 +104,241 @@ class DownloadForegroundService : Service() {
 
     private fun startObservingDownloads() {
         val manager = SmartDownloadManager.getInstance(this)
+        val rafidDao = RafidDatabase.getInstance(this).rafidDao()
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        observerJob = serviceScope.launch {
-            combine(manager.allDownloadsFlow, manager.liveStatsFlow) { list, stats ->
-                list to stats
-            }.collect { (downloads, stats) ->
-                val active = downloads.filter {
-                    it.status == DownloadStatus.DOWNLOADING ||
-                        it.status == DownloadStatus.EXTRACTING ||
-                        it.status == DownloadStatus.MERGING ||
-                        it.status == DownloadStatus.QUEUED
-                }
-                val waitingNet = downloads.filter { it.status == DownloadStatus.WAITING_NETWORK }
 
-                if (active.isEmpty() && waitingNet.isEmpty()) {
+        observerJob = serviceScope.launch {
+            combine(
+                manager.allDownloadsFlow,
+                manager.liveStatsFlow,
+                rafidDao.observeAllDownloads()
+            ) { smartList, smartStats, rafidList ->
+                Triple(smartList, smartStats, rafidList)
+            }.collect { (smartList, smartStats, rafidList) ->
+                val model = selectPrimaryNotificationModel(smartList, smartStats, rafidList)
+                if (model == null) {
                     releaseLocks()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     return@collect
                 }
 
-                if (active.isNotEmpty()) {
+                if (model.hasActive) {
                     acquireLocks()
                 } else {
                     releaseLocks()
                 }
 
-                val primary = active.firstOrNull() ?: waitingNet.first()
-                val totalSpeed = stats.values.sumOf { it.speedBytesPerSec }
-                val percent = if (primary.totalBytes > 0L) {
-                    ((primary.downloadedBytes * 100L) / primary.totalBytes).toInt().coerceIn(0, 100)
-                } else 0
-
-                val statusText = when {
-                    active.isEmpty() && waitingNet.isNotEmpty() ->
-                        "في انتظار عودة الإنترنت (${waitingNet.size}) — سيتم الاستكمال تلقائياً"
-                    primary.status == DownloadStatus.EXTRACTING ->
-                        "جارٍ تحليل الرابط وتجهيز الأجزاء..."
-                    primary.status == DownloadStatus.MERGING && primary.engineState == "VERIFYING" ->
-                        "جارٍ فحص وسلامة الملف النهائي..."
-                    primary.status == DownloadStatus.MERGING ->
-                        "جارٍ الدمج والحفظ النهائي..."
-                    else -> {
-                        val speedStr = if (totalSpeed > 0L) StorageHelper.formatSpeed(totalSpeed) else "جارٍ الاتصال..."
-                        val sizePart = if (primary.totalBytes > 0L) {
-                            "${StorageHelper.formatBytes(primary.downloadedBytes)} / ${StorageHelper.formatBytes(primary.totalBytes)}"
-                        } else {
-                            StorageHelper.formatBytes(primary.downloadedBytes)
-                        }
-                        val countNote = if (active.size > 1) " (+${active.size - 1})" else ""
-                        "$percent% • $speedStr • $sizePart$countNote"
-                    }
+                val now = System.currentTimeMillis()
+                // Throttle high-frequency progress ticks cleanly to ~1/sec unless state changed
+                if (now - lastNotifyEmitMs < 800L && model.downloadedBytes > 0L && model.hasActive && !model.isPaused) {
+                    return@collect
                 }
+                lastNotifyEmitMs = now
 
-                val notification = buildNotification(
-                    title = primary.title,
-                    content = statusText,
-                    progressPercent = percent,
-                    indeterminate = primary.totalBytes <= 0L || primary.status == DownloadStatus.EXTRACTING || primary.status == DownloadStatus.MERGING,
-                    hasActive = active.isNotEmpty()
+                val notification = DownloadNotificationManager.buildActiveProgressNotification(
+                    context = this@DownloadForegroundService,
+                    downloadId = model.id,
+                    source = model.source,
+                    videoTitle = model.title,
+                    downloadedBytes = model.downloadedBytes,
+                    totalBytes = model.totalBytes,
+                    speedBytesPerSec = model.speedBytesPerSec,
+                    etaSeconds = model.etaSeconds,
+                    isPaused = model.isPaused,
+                    hasActive = model.hasActive,
+                    extraQueuedCount = model.extraCount,
+                    thumbnailUrl = model.thumbnailUrl,
+                    statusOverrideText = model.statusOverrideText,
+                    onThumbnailReady = {
+                        lastNotifyEmitMs = 0L
+                        nm.notify(
+                            DownloadNotificationManager.ACTIVE_NOTIFICATION_ID,
+                            DownloadNotificationManager.buildActiveProgressNotification(
+                                context = this@DownloadForegroundService,
+                                downloadId = model.id,
+                                source = model.source,
+                                videoTitle = model.title,
+                                downloadedBytes = model.downloadedBytes,
+                                totalBytes = model.totalBytes,
+                                speedBytesPerSec = model.speedBytesPerSec,
+                                etaSeconds = model.etaSeconds,
+                                isPaused = model.isPaused,
+                                hasActive = model.hasActive,
+                                extraQueuedCount = model.extraCount,
+                                thumbnailUrl = model.thumbnailUrl,
+                                statusOverrideText = model.statusOverrideText
+                            )
+                        )
+                    }
                 )
-                nm.notify(NOTIFICATION_ID, notification)
+                if (model.hasActive) {
+                    nm.notify(DownloadNotificationManager.ACTIVE_NOTIFICATION_ID, notification)
+                } else {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                    nm.notify(DownloadNotificationManager.ACTIVE_NOTIFICATION_ID, notification)
+                }
             }
         }
+    }
+
+    private fun selectPrimaryNotificationModel(
+        smartList: List<DownloadEntity>,
+        smartStats: Map<String, LiveProgressSnapshot>,
+        rafidList: List<RafidDownloadEntity>
+    ): ActiveNotificationUiModel? {
+        val rafidActive = rafidList.filter {
+            it.status == RafidDownloadStatus.DOWNLOADING.name ||
+                it.status == RafidDownloadStatus.MUXING.name ||
+                it.status == RafidDownloadStatus.QUEUED.name
+        }
+        rafidActive.forEach { sessionTrackedIds.add(it.id) }
+
+        val smartActive = smartList.filter {
+            it.status == DownloadStatus.DOWNLOADING ||
+                it.status == DownloadStatus.EXTRACTING ||
+                it.status == DownloadStatus.MERGING ||
+                it.status == DownloadStatus.QUEUED
+        }
+        smartActive.forEach { sessionTrackedIds.add(it.id) }
+
+        val rafidPausedInSession = rafidList.firstOrNull {
+            it.status == RafidDownloadStatus.PAUSED.name && sessionTrackedIds.contains(it.id)
+        }
+        val smartPausedInSession = smartList.firstOrNull {
+            it.status == DownloadStatus.PAUSED && sessionTrackedIds.contains(it.id)
+        }
+        val smartWaiting = smartList.filter { it.status == DownloadStatus.WAITING_NETWORK }
+
+        val primaryRafid = rafidActive.firstOrNull { it.status == RafidDownloadStatus.DOWNLOADING.name }
+            ?: rafidActive.firstOrNull { it.status == RafidDownloadStatus.MUXING.name }
+            ?: rafidActive.firstOrNull()
+
+        if (primaryRafid != null) {
+            val statusOverride = when {
+                primaryRafid.status == RafidDownloadStatus.MUXING.name && primaryRafid.engineState == "VERIFYING" ->
+                    "جارٍ فحص وسلامة الملف النهائي..."
+                primaryRafid.status == RafidDownloadStatus.MUXING.name ->
+                    "جارٍ الدمج والحفظ في الاستوديو..."
+                primaryRafid.status == RafidDownloadStatus.QUEUED.name ->
+                    "في قائمة الانتظار — جاهز للبدء..."
+                else -> null
+            }
+            val totalSpeed = rafidActive
+                .filter { it.status == RafidDownloadStatus.DOWNLOADING.name }
+                .sumOf { it.speedBytesPerSec }
+                .coerceAtLeast(primaryRafid.speedBytesPerSec)
+            return ActiveNotificationUiModel(
+                id = primaryRafid.id,
+                source = DownloadNotificationManager.SOURCE_RAFID,
+                title = primaryRafid.title,
+                downloadedBytes = primaryRafid.downloadedBytes,
+                totalBytes = primaryRafid.totalBytes,
+                speedBytesPerSec = totalSpeed,
+                etaSeconds = primaryRafid.etaSeconds,
+                isPaused = false,
+                hasActive = true,
+                extraCount = (rafidActive.size + smartActive.size - 1).coerceAtLeast(0),
+                thumbnailUrl = primaryRafid.thumbnailUrl,
+                statusOverrideText = statusOverride
+            )
+        }
+
+        val primarySmart = smartActive.firstOrNull { it.status == DownloadStatus.DOWNLOADING }
+            ?: smartActive.firstOrNull { it.status == DownloadStatus.MERGING }
+            ?: smartActive.firstOrNull()
+
+        if (primarySmart != null) {
+            val totalSpeed = smartStats.values.sumOf { it.speedBytesPerSec }
+            val eta = smartStats[primarySmart.id]?.etaSeconds ?: -1L
+            val statusOverride = when {
+                primarySmart.status == DownloadStatus.EXTRACTING -> "جارٍ تحليل الرابط وتجهيز الأجزاء..."
+                primarySmart.status == DownloadStatus.MERGING && primarySmart.engineState == "VERIFYING" ->
+                    "جارٍ فحص وسلامة الملف النهائي..."
+                primarySmart.status == DownloadStatus.MERGING -> "جارٍ الدمج والحفظ النهائي..."
+                else -> null
+            }
+            return ActiveNotificationUiModel(
+                id = primarySmart.id,
+                source = DownloadNotificationManager.SOURCE_SMART,
+                title = primarySmart.title,
+                downloadedBytes = primarySmart.downloadedBytes,
+                totalBytes = primarySmart.totalBytes,
+                speedBytesPerSec = totalSpeed,
+                etaSeconds = eta,
+                isPaused = false,
+                hasActive = true,
+                extraCount = (smartActive.size - 1).coerceAtLeast(0),
+                thumbnailUrl = primarySmart.thumbnailUrl,
+                statusOverrideText = statusOverride
+            )
+        }
+
+        if (rafidPausedInSession != null) {
+            return ActiveNotificationUiModel(
+                id = rafidPausedInSession.id,
+                source = DownloadNotificationManager.SOURCE_RAFID,
+                title = rafidPausedInSession.title,
+                downloadedBytes = rafidPausedInSession.downloadedBytes,
+                totalBytes = rafidPausedInSession.totalBytes,
+                speedBytesPerSec = 0L,
+                etaSeconds = 0L,
+                isPaused = true,
+                hasActive = false,
+                extraCount = 0,
+                thumbnailUrl = rafidPausedInSession.thumbnailUrl,
+                statusOverrideText = null
+            )
+        }
+
+        if (smartPausedInSession != null) {
+            return ActiveNotificationUiModel(
+                id = smartPausedInSession.id,
+                source = DownloadNotificationManager.SOURCE_SMART,
+                title = smartPausedInSession.title,
+                downloadedBytes = smartPausedInSession.downloadedBytes,
+                totalBytes = smartPausedInSession.totalBytes,
+                speedBytesPerSec = 0L,
+                etaSeconds = 0L,
+                isPaused = true,
+                hasActive = false,
+                extraCount = 0,
+                thumbnailUrl = smartPausedInSession.thumbnailUrl,
+                statusOverrideText = null
+            )
+        }
+
+        if (smartWaiting.isNotEmpty()) {
+            val firstWaiting = smartWaiting.first()
+            return ActiveNotificationUiModel(
+                id = firstWaiting.id,
+                source = DownloadNotificationManager.SOURCE_SMART,
+                title = firstWaiting.title,
+                downloadedBytes = firstWaiting.downloadedBytes,
+                totalBytes = firstWaiting.totalBytes,
+                speedBytesPerSec = 0L,
+                etaSeconds = 0L,
+                isPaused = true,
+                hasActive = false,
+                extraCount = (smartWaiting.size - 1).coerceAtLeast(0),
+                thumbnailUrl = firstWaiting.thumbnailUrl,
+                statusOverrideText = "في انتظار عودة الإنترنت (${smartWaiting.size}) — سيتم الاستكمال تلقائياً"
+            )
+        }
+
+        return null
     }
 
     private fun startForegroundSafely(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(
                 this,
-                NOTIFICATION_ID,
+                DownloadNotificationManager.ACTIVE_NOTIFICATION_ID,
                 notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             )
         } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-    }
-
-    private fun buildNotification(
-        title: String,
-        content: String,
-        progressPercent: Int,
-        indeterminate: Boolean,
-        hasActive: Boolean
-    ): Notification {
-        val openIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("NAVIGATE_TO", "smart_download")
-        }
-        val openPending = PendingIntent.getActivity(
-            this,
-            1001,
-            openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val toggleIntent = Intent(this, DownloadForegroundService::class.java).apply {
-            action = if (hasActive) ACTION_PAUSE_ALL else ACTION_RESUME_ALL
-        }
-        val togglePending = PendingIntent.getService(
-            this,
-            1002,
-            toggleIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val cancelIntent = Intent(this, DownloadForegroundService::class.java).apply {
-            action = ACTION_CANCEL_ALL
-        }
-        val cancelPending = PendingIntent.getService(
-            this,
-            1003,
-            cancelIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(content)
-            .setOnlyAlertOnce(true)
-            .setOngoing(hasActive)
-            .setContentIntent(openPending)
-            .setProgress(100, progressPercent, indeterminate)
-            .addAction(0, if (hasActive) "إيقاف مؤقت" else "استئناف", togglePending)
-            .addAction(0, "إلغاء", cancelPending)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "التحميل الذكي السريع",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "إشعارات متابعة سرعة وتقدم التنزيلات في الخلفية"
-                setShowBadge(false)
-            }
-            nm.createNotificationChannel(channel)
+            startForeground(DownloadNotificationManager.ACTIVE_NOTIFICATION_ID, notification)
         }
     }
 
@@ -262,19 +379,19 @@ class DownloadForegroundService : Service() {
     }
 
     companion object {
-        private const val CHANNEL_ID = "smart_downloads_channel"
-        private const val NOTIFICATION_ID = 7742
         private const val ACTION_PAUSE_ALL = "com.example.download.ACTION_PAUSE_ALL"
         private const val ACTION_RESUME_ALL = "com.example.download.ACTION_RESUME_ALL"
         private const val ACTION_CANCEL_ALL = "com.example.download.ACTION_CANCEL_ALL"
 
         fun startOrRefresh(context: Context) {
-            val intent = Intent(context.applicationContext, DownloadForegroundService::class.java)
+            val appCtx = context.applicationContext
+            DownloadNotificationManager.ensureChannels(appCtx)
+            val intent = Intent(appCtx, DownloadForegroundService::class.java)
             runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.applicationContext.startForegroundService(intent)
+                    appCtx.startForegroundService(intent)
                 } else {
-                    context.applicationContext.startService(intent)
+                    appCtx.startService(intent)
                 }
             }
         }

@@ -56,13 +56,19 @@ fun NotificationReliabilityCheckScreen(
         }
     }
 
+    val isFullScreenRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+    val fullScreenPass = !isFullScreenRequired ||
+            diagnostics.fullScreenIntentStatus == HealthStatus.PASS ||
+            diagnostics.fullScreenIntentStatus == HealthStatus.NOT_REQUIRED
+
     val totalPass = (if (diagnostics.notificationsStatus == HealthStatus.PASS || diagnostics.notificationsStatus == HealthStatus.NOT_REQUIRED) 1 else 0) +
             (if (diagnostics.exactAlarmsStatus == HealthStatus.PASS || diagnostics.exactAlarmsStatus == HealthStatus.NOT_REQUIRED) 1 else 0) +
+            (if (isFullScreenRequired && fullScreenPass) 1 else 0) +
             (if (diagnostics.batteryOptimizationStatus == HealthStatus.PASS || diagnostics.batteryOptimizationStatus == HealthStatus.NOT_REQUIRED) 1 else 0) +
             (if (volumeResult.healthStatus == HealthStatus.PASS) 1 else 0) +
             (if (diagnostics.backgroundExecutionStatus != HealthStatus.RESTRICTED) 1 else 0)
 
-    val totalItems = 5
+    val totalItems = if (isFullScreenRequired) 6 else 5
     val isFullyReliable = totalPass == totalItems
 
     Scaffold(
@@ -173,7 +179,7 @@ fun NotificationReliabilityCheckScreen(
 
             item {
                 Text(
-                    text = "فحص بنود الاستقرار الـ 5 (Checklist)",
+                    text = "فحص بنود الاستقرار الـ $totalItems (Checklist)",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -209,6 +215,22 @@ fun NotificationReliabilityCheckScreen(
                         NotificationReliabilityManager.openExactAlarmSettings(context)
                     }
                 )
+            }
+
+            if (isFullScreenRequired) {
+                item {
+                    val isOk = fullScreenPass
+                    ChecklistItemCard(
+                        title = "إذن شاشة الأذان على شاشة القفل (Full-Screen Intent)",
+                        description = "يفتح شاشة الأذان الكاملة وقت الصلاة حتى مع قفل الشاشة دون الحاجة لإذن الظهور المقيد.",
+                        statusMessage = if (isOk) "مُفعّل لعرض شاشة الأذان الكاملة ✅" else "غير مفعّل! قد يظهر الأذان كإشعار صامت فقط.",
+                        isPass = isOk,
+                        fixButtonText = "تفعيل الآن 📱",
+                        onFixClick = {
+                            NotificationReliabilityManager.openFullScreenIntentSettings(context)
+                        }
+                    )
+                }
             }
 
             // Item 3: Battery Optimization Exemption

@@ -57,7 +57,8 @@ object NotificationReliabilityManager {
         val watchdogStatus: HealthStatus,
         val blockedChannelsCount: Int = 0,
         val isFullPass: Boolean = false,
-        val summaryMessage: String = ""
+        val summaryMessage: String = "",
+        val fullScreenIntentStatus: HealthStatus = HealthStatus.NOT_REQUIRED
     )
 
     /**
@@ -66,6 +67,7 @@ object NotificationReliabilityManager {
     fun getFullDiagnostics(context: Context): ReliabilityDiagnostics {
         val notifStatus = checkNotificationPermission(context)
         val exactStatus = checkExactAlarmPermission(context)
+        val fullScreenStatus = checkFullScreenIntentPermission(context)
         val batteryStatus = checkBatteryOptimization(context)
         val bgStatus = checkBackgroundRestrictions(context)
         val (channelStatus, blockedCount) = checkNotificationChannels(context)
@@ -73,6 +75,7 @@ object NotificationReliabilityManager {
 
         val isFullPass = (notifStatus == HealthStatus.PASS || notifStatus == HealthStatus.NOT_REQUIRED) &&
                 (exactStatus == HealthStatus.PASS || exactStatus == HealthStatus.NOT_REQUIRED) &&
+                (fullScreenStatus == HealthStatus.PASS || fullScreenStatus == HealthStatus.NOT_REQUIRED) &&
                 (batteryStatus == HealthStatus.PASS || batteryStatus == HealthStatus.NOT_REQUIRED) &&
                 (bgStatus != HealthStatus.RESTRICTED) &&
                 (channelStatus == HealthStatus.PASS)
@@ -92,7 +95,8 @@ object NotificationReliabilityManager {
             watchdogStatus = watchdogStatus,
             blockedChannelsCount = blockedCount,
             isFullPass = isFullPass,
-            summaryMessage = summary
+            summaryMessage = summary,
+            fullScreenIntentStatus = fullScreenStatus
         )
     }
 
@@ -119,6 +123,19 @@ object NotificationReliabilityManager {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
             if (alarmManager?.canScheduleExactAlarms() == true) HealthStatus.PASS else HealthStatus.RESTRICTED
+        } else {
+            HealthStatus.NOT_REQUIRED
+        }
+    }
+
+    /**
+     * Checks USE_FULL_SCREEN_INTENT permission for Android 14+ (API 34+).
+     * Allows Adhan fullscreen screen to appear over the lockscreen without requiring SYSTEM_ALERT_WINDOW.
+     */
+    fun checkFullScreenIntentPermission(context: Context): HealthStatus {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            if (notificationManager?.canUseFullScreenIntent() == true) HealthStatus.PASS else HealthStatus.RESTRICTED
         } else {
             HealthStatus.NOT_REQUIRED
         }
@@ -216,6 +233,10 @@ object NotificationReliabilityManager {
             true
         }
     }
+    fun canUseFullScreenIntent(context: Context): Boolean =
+        checkFullScreenIntentPermission(context).let { it == HealthStatus.PASS || it == HealthStatus.NOT_REQUIRED }
+    fun isOverlayRestrictedOnAndroid13Plus(context: Context): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !canDrawOverlays(context)
     fun isNotificationPolicyAccessGranted(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
@@ -235,6 +256,26 @@ object NotificationReliabilityManager {
         try {
             AzanNotificationHelper(context).createAllNotificationChannels()
         } catch (_: Exception) {}
+    }
+
+    /**
+     * Opens system Full-Screen Intent settings on Android 14+ (API 34+),
+     * or falls back to notification settings on older versions.
+     */
+    fun openFullScreenIntentSettings(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                return true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open full screen intent settings", e)
+            }
+        }
+        return openNotificationSettings(context)
     }
 
     /**
@@ -562,11 +603,34 @@ object NotificationReliabilityManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent(context, com.example.ui.prayer.AdhanFullScreenActivity::class.java)
+        val showPendingIntent = PendingIntent.getActivity(
+            context,
+            8889,
+            showIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         alarmManager?.let { am ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, targetTimeMs, pendingIntent)
+            val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) am.canScheduleExactAlarms() else true
+            if (canExact) {
+                try {
+                    am.setAlarmClock(
+                        AlarmManager.AlarmClockInfo(targetTimeMs, showPendingIntent),
+                        pendingIntent
+                    )
+                } catch (_: SecurityException) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, targetTimeMs, pendingIntent)
+                    } else {
+                        am.setExact(AlarmManager.RTC_WAKEUP, targetTimeMs, pendingIntent)
+                    }
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, targetTimeMs, pendingIntent)
             } else {
-                am.setExact(AlarmManager.RTC_WAKEUP, targetTimeMs, pendingIntent)
+                am.set(AlarmManager.RTC_WAKEUP, targetTimeMs, pendingIntent)
             }
         }
 

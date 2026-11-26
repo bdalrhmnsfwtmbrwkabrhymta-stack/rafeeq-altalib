@@ -1,59 +1,130 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
+import android.speech.RecognizerIntent
 import android.util.Base64
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.PlaylistAddCheck
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.domain.ai.AiChatStudyHelper
+import com.example.domain.ai.FahimChatMessage
+import com.example.domain.ai.FahimConfig
+import com.example.domain.ai.FahimStudyTableData
+import com.example.domain.ai.FahimStudyTableRow
 import com.example.ui.MainViewModel
 import com.example.ui.components.AiFormattedContent
+import com.example.ui.screens.ai.FahimInteractiveMascot
+import com.example.ui.screens.ai.FahimMindMapCanvas
+import com.example.ui.screens.ai.FahimSmartTableCard
 import com.example.ui.screens.ai.StudyPlanBuilderDialog
-import com.example.ui.screens.ai.ComplexTopicClarifierDialog
-import com.example.ui.screens.ai.AiTaskExtractionDialog
-import com.example.ui.screens.ai.AiWelcomeHeroCard
-import com.example.ui.screens.ai.AiScheduleSuggestionDialog
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import android.widget.Toast
-import androidx.core.content.ContextCompat
-import androidx.compose.ui.graphics.Brush
+import com.example.ui.theme.ReadexProFontFamily
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val DaylightBackground = Color(0xFFF8FAFC)
+private val DaylightSurface = Color(0xFFFFFFFF)
+private val DaylightBorder = Color(0xFFE2E8F0)
+private val DaylightInk = Color(0xFF1E1B18)
+private val DaylightMuted = Color(0xFF64748B)
+private val FahimBlue = Color(0xFF1A6FE3)
+private val FahimAmber = Color(0xFFD97706)
+private val FahimEmerald = Color(0xFF10B981)
+private val FahimTeal = Color(0xFF0D9488)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiScreen(
     viewModel: MainViewModel,
@@ -61,251 +132,257 @@ fun AiScreen(
 ) {
     val context = LocalContext.current
     val userSettings by viewModel.userSettings.collectAsState()
-    val isEnglish = userSettings.appLanguage == "en"
-
-    val messages by viewModel.aiChatMessages.collectAsState()
-    val isLoading by viewModel.isAiLoading.collectAsState()
-    val errorMessage by viewModel.aiErrorMessage.collectAsState()
+    val fahimMessages by viewModel.fahimMessages.collectAsState()
+    val isFahimLoading by viewModel.isFahimLoading.collectAsState()
+    val isSuggestedWeeklyTableAdded by viewModel.isSuggestedWeeklyTableAdded.collectAsState()
 
     var inputPrompt by remember { mutableStateOf("") }
+    var selectedImageBase64 by remember { mutableStateOf<String?>(null) }
+    var selectedImageName by remember { mutableStateOf<String?>(null) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var showScanChoiceDialog by remember { mutableStateOf(false) }
+    var showStudyPlanDialog by remember { mutableStateOf(false) }
+    var showComparisonTopicDialog by remember { mutableStateOf(false) }
+    var comparisonTopicInput by remember { mutableStateOf("") }
+    var showDevPinDialog by remember { mutableStateOf(false) }
+    var showDevPanelDialog by remember { mutableStateOf(false) }
+    var devPinInput by remember { mutableStateOf("") }
+    var devPinError by remember { mutableStateOf(false) }
+    var isListeningVoice by remember { mutableStateOf(false) }
+    var speakingMessageId by remember { mutableStateOf<String?>(null) }
+    var pdfExportStatus by remember { mutableStateOf<String?>(null) }
+
     val listState = rememberLazyListState()
-
-    // Mode Tabs: 0 -> Study Plan & Academic Chat (Firebase AI SDK), 1 -> Advanced Gemini Tools
-    var selectedTab by remember { mutableStateOf(0) }
-
-    // Gemini Feature Modes
-    var selectedModel by remember { mutableStateOf("gemini-3.5-flash") }
-    var enableThinking by remember { mutableStateOf(false) }
-    var enableSearch by remember { mutableStateOf(false) }
-    var enableMaps by remember { mutableStateOf(false) }
-    var attachStudyPlanContext by remember { mutableStateOf(true) }
-
-    // TTS Voice Assistant & Speaking State
     val ttsManager = remember { AiChatStudyHelper.ArabicTtsManager(context) }
-    var speakingMessageIndex by remember { mutableStateOf<Int?>(null) }
 
     DisposableEffect(Unit) {
-        onDispose {
-            ttsManager.shutdown()
+        onDispose { ttsManager.shutdown() }
+    }
+
+    LaunchedEffect(fahimMessages.size, isFahimLoading) {
+        if (fahimMessages.isNotEmpty()) {
+            listState.animateScrollToItem(fahimMessages.size)
         }
     }
 
-    // Network Disconnect Alert Dialog
-    var showOfflineAlert by remember { mutableStateOf(false) }
+    val suggestedWeeklyTable = remember {
+        FahimStudyTableData(
+            title = "جدول المذاكرة الأسبوعي المقترح",
+            columnHeaders = listOf("اليوم", "المهمة والمادة", "المدة"),
+            rows = listOf(
+                FahimStudyTableRow("السبت", "مراجعة الفصل الأول وحل أمثلة", "ساعتان", dayOfWeek = 6, startTime = "16:00", endTime = "18:00", tintHex = 0xFFFFFFFFL),
+                FahimStudyTableRow("الأحد", "تلخيص القوانين ورسم خريطة ذهنية", "ساعة ونصف", dayOfWeek = 7, startTime = "17:00", endTime = "18:30", tintHex = 0xFFEFF6FFL),
+                FahimStudyTableRow("الاثنين", "حل تمارين ومسائل امتحانات سابقة", "ساعتان", dayOfWeek = 1, startTime = "16:30", endTime = "18:30", tintHex = 0xFFECFDF5L),
+                FahimStudyTableRow("الثلاثاء", "مراجعة نقاط الصعوبة والأخطاء", "ساعة ونصف", dayOfWeek = 2, startTime = "18:00", endTime = "19:30", tintHex = 0xFFFEF3C7L),
+                FahimStudyTableRow("الأربعاء", "اختبار تجريبي شامل ومراجعة سريعة", "ساعة ونصف", dayOfWeek = 3, startTime = "17:00", endTime = "18:30", tintHex = 0xFFF1F5F9L)
+            ),
+            isComparisonOnly = false
+        )
+    }
 
-    // Export PDF Status State
-    var pdfExportStatus by remember { mutableStateOf<String?>(null) }
-
-    // Media Attachments
-    var selectedImageBase64 by remember { mutableStateOf<String?>(null) }
-    var selectedImageName by remember { mutableStateOf<String?>(null) }
-    var selectedAudioBase64 by remember { mutableStateOf<String?>(null) }
-    var selectedAudioName by remember { mutableStateOf<String?>(null) }
-
-    // Quick Concept Explainer Dialog State
-    var showConceptDialog by remember { mutableStateOf(false) }
-    var conceptQuery by remember { mutableStateOf("") }
-    var selectedSubjectCategory by remember { mutableStateOf("عام") }
-
-    // New AI Feature Dialogs
-    var showMusicGeneratorDialog by remember { mutableStateOf(false) }
-    var showAudioTranscribeDialog by remember { mutableStateOf(false) }
-    var showModelSwitcherDialog by remember { mutableStateOf(false) }
-    var showFirebaseSyncDialog by remember { mutableStateOf(false) }
-
-    // Dedicated Study Plan & Topic Clarifier Dialogs
-    var showStudyPlanDialog by remember { mutableStateOf(false) }
-    var showClarifyTopicDialog by remember { mutableStateOf(false) }
-    var showAddTaskDialog by remember { mutableStateOf(false) }
-    var taskToAddTitle by remember { mutableStateOf("") }
-    var taskToAddSubject by remember { mutableStateOf("") }
-
-    // Schedule Dialog
-    var showAiScheduleDialog by remember { mutableStateOf(false) }
-    var showApiKeyDialog by remember { mutableStateOf(false) }
-
-    // Camera Capture Launcher
+    // Camera capture
     val cameraCaptureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap: Bitmap? ->
         bitmap?.let {
-            try {
-                val outputStream = ByteArrayOutputStream()
-                it.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
-                val bytes = outputStream.toByteArray()
-                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                selectedImageBase64 = base64
-                selectedImageName = "صورة ملتقطة بالكاميرا 📷 (${bytes.size / 1024} KB)"
-                selectedModel = "gemini-3.1-pro-preview"
-                Toast.makeText(context, if (isEnglish) "Camera photo captured successfully" else "تم التقاط الصورة بالكاميرا بنجاح", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                e.printStackTrace()
+            runCatching {
+                val out = ByteArrayOutputStream()
+                it.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                val bytes = out.toByteArray()
+                selectedImageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                selectedImageName = "صورة مسألة بالكاميرا (${bytes.size / 1024} KB)"
+                Toast.makeText(context, "تم التقاط الصورة، اضغط إرسال لحلها مع فهيم", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    // Camera Permission Launcher
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+    ) { granted ->
+        if (granted) {
             cameraCaptureLauncher.launch(null)
         } else {
-            Toast.makeText(context, if (isEnglish) "Camera permission is required to snap questions" else "مطلوب إذن الكاميرا لتصوير الأسئلة والصفحات", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "مطلوب إذن الكاميرا لمسح المسائل", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Speech-to-Text Voice Dictation Launcher
-    var isListeningVoice by remember { mutableStateOf(false) }
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            runCatching {
+                val stream: InputStream? = context.contentResolver.openInputStream(it)
+                val bytes = stream?.use { s -> s.readBytes() }
+                if (bytes != null) {
+                    selectedImageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    selectedImageName = "صورة مرفقة (${bytes.size / 1024} KB)"
+                }
+            }
+        }
+    }
+
     val speechRecognizerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         isListeningVoice = false
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val spokenMatches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            val recognizedText = spokenMatches?.firstOrNull() ?: ""
-            if (recognizedText.isNotBlank()) {
-                inputPrompt = if (inputPrompt.isBlank()) recognizedText else "$inputPrompt $recognizedText"
-                Toast.makeText(context, if (isEnglish) "Voice input captured" else "تم التعرف على الصوت بنجاح", Toast.LENGTH_SHORT).show()
+            val recognized = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+                .orEmpty()
+            if (recognized.isNotBlank()) {
+                inputPrompt = if (inputPrompt.isBlank()) recognized else "$inputPrompt $recognized"
             }
         }
     }
 
-    // Audio / Microphone Permission Launcher
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+    ) { granted ->
+        if (granted) {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (isEnglish) "en-US" else "ar-SA")
-                putExtra(RecognizerIntent.EXTRA_PROMPT, if (isEnglish) "Speak your question or study topic..." else "تحدث بسؤالك أو استفسارك الدراسي...")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-SA")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "تحدث بسؤالك لفهيم...")
             }
-            try {
+            runCatching {
                 isListeningVoice = true
                 speechRecognizerLauncher.launch(intent)
-            } catch (e: Exception) {
+            }.onFailure {
                 isListeningVoice = false
-                Toast.makeText(context, if (isEnglish) "Speech recognizer not supported on this device" else "التعرف الصوتي غير متاح حالياً على هذا الجهاز", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "الإملاء الصوتي غير متاح حالياً على هذا الجهاز", Toast.LENGTH_SHORT).show()
             }
         } else {
-            Toast.makeText(context, if (isEnglish) "Microphone permission is required for voice input" else "مطلوب إذن الميكروفون للإملاء والتسجيل الصوتي", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "مطلوب إذن الميكروفون للتحدث مع فهيم", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Image Picker Launcher
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            try {
-                val inputStream: InputStream? = context.contentResolver.openInputStream(it)
-                val bytes: ByteArray? = inputStream?.use { stream -> stream.readBytes() }
-                if (bytes != null) {
-                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    selectedImageBase64 = base64
-                    selectedImageName = "صورة مستند تعليمي (${bytes.size / 1024} KB)"
-                    selectedModel = "gemini-3.1-pro-preview"
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+    fun submitFahimPrompt(textToSend: String, withAttachedImage: Boolean = false) {
+        val normalized = textToSend.trim()
+        if (!withAttachedImage && (normalized.contains("السبورة") || normalized.contains("مساحة الجزء المظلل") || normalized.contains("ارسم المسألة"))) {
+            viewModel.requestOpenWhiteboardWithPrompt(normalized)
+            onNavigate("fahim_whiteboard")
+            return
+        }
+        val img = if (withAttachedImage) selectedImageBase64 else null
+        viewModel.sendFahimMessage(
+            prompt = textToSend,
+            imageBytesBase64 = img,
+            onTableAutoAdded = { count ->
+                Toast.makeText(
+                    context,
+                    "تمت إضافة $count حصص تلقائياً لقسم مهامي وجدولك ✓",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
+        )
+        if (withAttachedImage) {
+            selectedImageBase64 = null
+            selectedImageName = null
         }
     }
 
-    // Audio Picker Launcher
-    val audioPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            try {
-                val inputStream: InputStream? = context.contentResolver.openInputStream(it)
-                val bytes: ByteArray? = inputStream?.use { stream -> stream.readBytes() }
-                if (bytes != null) {
-                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    selectedAudioBase64 = base64
-                    selectedAudioName = "تسجيل صوتي (${bytes.size / 1024} KB)"
-                    selectedModel = "gemini-3.5-flash"
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    val currentApiKey = remember(userSettings.geminiApiKey) {
-        userSettings.geminiApiKey.ifBlank { com.example.BuildConfig.GEMINI_API_KEY }
-    }
-    val isApiKeyConfigured = currentApiKey.isNotBlank() && currentApiKey != "MY_GEMINI_API_KEY"
-
-    LaunchedEffect(Unit) {
-        if (!isApiKeyConfigured) {
-            showApiKeyDialog = true
-        }
-    }
-
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
-        }
-    }
-
-    if (showApiKeyDialog) {
-        var keyInput by remember { mutableStateOf(userSettings.geminiApiKey) }
-
+    if (showScanChoiceDialog) {
         AlertDialog(
-            onDismissRequest = { showApiKeyDialog = false },
-            icon = { Icon(Icons.Default.VpnKey, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) },
-            title = { Text(if (isEnglish) "Gemini API Key Required 🔑" else "مطلوب مفتاح Gemini API 🔑", fontWeight = FontWeight.Bold) },
+            onDismissRequest = { showScanChoiceDialog = false },
+            containerColor = DaylightSurface,
+            title = {
+                Text(
+                    text = "مسح صورة مسألة أو صفحة",
+                    fontFamily = ReadexProFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = DaylightInk
+                )
+            },
+            text = {
+                Text(
+                    text = "التقط صورة مباشرة بالكاميرا أو اختر صورة من المعرض ليقوم فهيم بتحليلها وشرحها لك خطوة بخطوة.",
+                    fontFamily = ReadexProFontFamily,
+                    color = DaylightMuted,
+                    fontSize = 14.5.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showScanChoiceDialog = false
+                        val hasCam = ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.CAMERA
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (hasCam) cameraCaptureLauncher.launch(null)
+                        else cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = FahimBlue)
+                ) {
+                    Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("تصوير بالكاميرا", fontFamily = ReadexProFontFamily)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        showScanChoiceDialog = false
+                        imagePickerLauncher.launch("image/*")
+                    }
+                ) {
+                    Icon(Icons.Default.Image, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("من المعرض", fontFamily = ReadexProFontFamily)
+                }
+            }
+        )
+    }
+
+    if (showComparisonTopicDialog) {
+        AlertDialog(
+            onDismissRequest = { showComparisonTopicDialog = false },
+            containerColor = DaylightSurface,
+            title = {
+                Text(
+                    text = "تصميم جدول مقارنة ذكي",
+                    fontFamily = ReadexProFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = DaylightInk
+                )
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            if (isEnglish) "Please enter your personal Gemini API key to activate the live AI smart tutor and avoid connection errors."
-                            else "تنبيه: لتفعيل المساعد الذكي وإجابات الشات المباشرة وتجنب أي أخطاء في الاتصال، يرجى إدخال مفتاح API الخاص بك بـ Gemini:",
-                            fontSize = 12.5.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(10.dp)
-                        )
-                    }
+                    Text(
+                        text = "اكتب المفهومين المراد المقارنة بينهما ليصمم فهيم جدول مقارنة ملوناً ومنظماً:",
+                        fontFamily = ReadexProFontFamily,
+                        fontSize = 14.sp,
+                        color = DaylightMuted
+                    )
                     OutlinedTextField(
-                        value = keyInput,
-                        onValueChange = { keyInput = it },
-                        label = { Text(if (isEnglish) "API Key" else "مفتاح API الخاص بك") },
-                        placeholder = { Text("AIzaSy...") },
+                        value = comparisonTopicInput,
+                        onValueChange = { comparisonTopicInput = it },
+                        placeholder = { Text("مثال: الانقسام الميتوزي والميوزي") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(14.dp),
+                        singleLine = true
                     )
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.updateGeminiApiKey(keyInput.trim())
-                        showApiKeyDialog = false
-                        Toast.makeText(context, if (isEnglish) "API Key saved successfully!" else "تم حفظ وتفعيل مفتاح Gemini API بنجاح 💾", Toast.LENGTH_SHORT).show()
-                    }
+                        val topic = comparisonTopicInput.trim().ifBlank { "الخلية النباتية والخلية الحيوانية" }
+                        showComparisonTopicDialog = false
+                        comparisonTopicInput = ""
+                        submitFahimPrompt("صمم لي جدول مقارنة منظم بالألوان بين: $topic")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DaylightInk)
                 ) {
-                    Text(if (isEnglish) "Save & Activate 💾" else "حفظ وتفعيل المفتاح 💾")
+                    Text("تصميم الجدول", fontFamily = ReadexProFontFamily, color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showApiKeyDialog = false }) {
-                    Text(if (isEnglish) "Later" else "إلغاء / لاحقاً")
+                TextButton(onClick = { showComparisonTopicDialog = false }) {
+                    Text("إلغاء", fontFamily = ReadexProFontFamily)
                 }
             }
-        )
-    }
-
-    if (showAiScheduleDialog) {
-        AiScheduleSuggestionDialog(
-            viewModel = viewModel,
-            onDismiss = { showAiScheduleDialog = false }
         )
     }
 
@@ -313,490 +390,174 @@ fun AiScreen(
         StudyPlanBuilderDialog(
             viewModel = viewModel,
             onDismiss = { showStudyPlanDialog = false },
-            onRequireNetwork = { showOfflineAlert = true }
+            onRequireNetwork = {
+                Toast.makeText(context, "يرجى التأكد من الاتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+            }
         )
     }
 
-    if (showClarifyTopicDialog) {
-        ComplexTopicClarifierDialog(
-            viewModel = viewModel,
-            onDismiss = { showClarifyTopicDialog = false },
-            onRequireNetwork = { showOfflineAlert = true }
-        )
-    }
-
-    if (showAddTaskDialog) {
-        AiTaskExtractionDialog(
-            initialTaskTitle = taskToAddTitle,
-            initialSubject = taskToAddSubject,
-            viewModel = viewModel,
-            onDismiss = { showAddTaskDialog = false }
-        )
-    }
-
-    // Quick Academic Concept Explainer Dialog
-    if (showConceptDialog) {
-        val academicSubjects = listOf(
-            "كيمياء", "فيزياء", "رياضيات", "أحياء", "لغة عربية", "English", "تاريخ", "جغرافيا"
-        )
+    pdfExportStatus?.let { status ->
         AlertDialog(
-            onDismissRequest = { showConceptDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        if (isEnglish) "Quick Academic Explanation" else "شرح مفهوم أكاديمي سريع",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                }
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        if (isEnglish) "Choose subject or enter concept:" else "اختر المادة أو اكتب المفهوم المراد توضيحه:",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(academicSubjects) { sub ->
-                            FilterChip(
-                                selected = selectedSubjectCategory == sub,
-                                onClick = {
-                                    selectedSubjectCategory = sub
-                                    if (conceptQuery.isBlank()) {
-                                        conceptQuery = "مفهوم أساسي في مادة $sub"
-                                    }
-                                },
-                                label = { Text(sub, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = conceptQuery,
-                        onValueChange = { conceptQuery = it },
-                        label = { Text(if (isEnglish) "Topic / Concept (e.g. Ohm's Law, Mitosis)" else "المفهوم (مثال: قانون أوم، الانقسام الميتوزي)") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("concept_query_field"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                }
-            },
+            onDismissRequest = { pdfExportStatus = null },
+            containerColor = DaylightSurface,
+            title = { Text("تصدير ملف PDF", fontFamily = ReadexProFontFamily, fontWeight = FontWeight.Bold) },
+            text = { Text(status, fontFamily = ReadexProFontFamily) },
             confirmButton = {
-                Button(
-                    onClick = {
-                        if (!AiChatStudyHelper.isNetworkAvailable(context)) {
-                            showConceptDialog = false
-                            showOfflineAlert = true
-                            return@Button
-                        }
-
-                        if (conceptQuery.isNotBlank()) {
-                            viewModel.requestQuickAcademicExplanation(
-                                conceptOrTopic = "[$selectedSubjectCategory]: $conceptQuery"
-                            )
-                            showConceptDialog = false
-                            conceptQuery = ""
-                        }
-                    },
-                    modifier = Modifier.testTag("confirm_explain_concept_button")
-                ) {
-                    Text(if (isEnglish) "Explain Now" else "اشرح الآن")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showConceptDialog = false }) {
-                    Text(if (isEnglish) "Cancel" else "إلغاء")
+                Button(onClick = { pdfExportStatus = null }) {
+                    Text("حسناً", fontFamily = ReadexProFontFamily)
                 }
             }
         )
     }
 
-    // 1. Music Generator Dialog (Lyria AI)
-    if (showMusicGeneratorDialog) {
-        var musicPrompt by remember { mutableStateOf("Binaural alpha waves with soothing rain sounds for deep focus and studying") }
-        var isShortClip by remember { mutableStateOf(true) }
-        var isGeneratingMusic by remember { mutableStateOf(false) }
-        var generatedMusicStatus by remember { mutableStateOf<String?>(null) }
-
-        val musicPresets = listOf(
-            "موسيقى ألفا للتركيز 🧠" to "Binaural alpha beats 40Hz with soft background ambience for memory retention",
-            "بيانو هادئ مع المطر 🌧️" to "Peaceful neoclassical piano melody with gentle rain drops",
-            "لو-فاي هادئ للمذاكرة 🎧" to "Chill relaxed lofi study hip-hop beats with warm vintage synth",
-            "أجواء الطبيعة والسكينة 🌲" to "Calming forest ambient soundscape with peaceful stream flow"
-        )
-
+    // Secret Developer Control Panel PIN Gate (PIN: 2026)
+    if (showDevPinDialog) {
         AlertDialog(
-            onDismissRequest = { if (!isGeneratingMusic) showMusicGeneratorDialog = false },
+            onDismissRequest = {
+                showDevPinDialog = false
+                devPinInput = ""
+                devPinError = false
+            },
+            containerColor = DaylightSurface,
+            icon = { Icon(Icons.Default.AdminPanelSettings, null, tint = FahimBlue) },
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Brush.linearGradient(listOf(Color(0xFFEC4899), Color(0xFF8B5CF6))), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.MusicNote, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(if (isEnglish) "Generate Focus Music (Lyria)" else "توليد موسيقى التركيز (Lyria AI) 🎵", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("lyria-3-clip-preview / lyria-3-pro-preview", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        if (isEnglish) "Choose a mood or describe your ideal study track:" else "اختر نمطاً أو صف أجواء المذاكرة المطلوبة:",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(musicPresets) { (label, presetPrompt) ->
-                            SuggestionChip(
-                                onClick = { musicPrompt = presetPrompt },
-                                label = { Text(label, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = musicPrompt,
-                        onValueChange = { musicPrompt = it },
-                        label = { Text("وصف المقطع الموسيقي (Prompt)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("المدة:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilterChip(
-                                selected = isShortClip,
-                                onClick = { isShortClip = true },
-                                label = { Text("30 ثانية (Clip)", fontSize = 11.sp) }
-                            )
-                            FilterChip(
-                                selected = !isShortClip,
-                                onClick = { isShortClip = false },
-                                label = { Text("كامل (Pro Track)", fontSize = 11.sp) }
-                            )
-                        }
-                    }
-
-                    if (isGeneratingMusic) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)))
-                        Text("جاري تأليف المقطع وتوليد الموجات الصوتية بواسطة Lyria...", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                    }
-
-                    generatedMusicStatus?.let { status ->
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(status, modifier = Modifier.padding(10.dp), fontSize = 12.sp)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        isGeneratingMusic = true
-                        viewModel.generateStudyMusic(musicPrompt, isShortClip) { success, msg ->
-                            isGeneratingMusic = false
-                            generatedMusicStatus = msg
-                            if (success) {
-                                Toast.makeText(context, "تم توليد مقطع المذاكرة بنجاح 🎶", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    enabled = !isGeneratingMusic && musicPrompt.isNotBlank()
-                ) {
-                    Text(if (isEnglish) "Generate Music" else "توليد الموسيقى 🎶")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMusicGeneratorDialog = false }, enabled = !isGeneratingMusic) {
-                    Text(if (isEnglish) "Close" else "إغلاق")
-                }
-            }
-        )
-    }
-
-    // 2. Audio Transcribe Dialog
-    if (showAudioTranscribeDialog) {
-        var transcribedText by remember { mutableStateOf("") }
-        var isTranscribing by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = { if (!isTranscribing) showAudioTranscribeDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color(0xFFE91E63), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Mic, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(if (isEnglish) "Audio Transcription" else "تفريغ الصوت الذكي 🎙️", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("gemini-3.5-transcribe", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        if (isEnglish) "Speak using microphone or select an audio lecture file:" else "تحدث بصوتك مباشرة أو اختر ملف تسجيل صوتي لتفريغه بدقة:",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val hasAudioPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    android.Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                                if (hasAudioPermission) {
-                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (isEnglish) "en-US" else "ar-SA")
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "تحدث لتفريغ الصوت...")
-                                    }
-                                    try {
-                                        speechRecognizerLauncher.launch(intent)
-                                    } catch (_: Exception) {}
-                                } else {
-                                    recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Mic, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("تسجيل بالمايك")
-                        }
-
-                        OutlinedButton(
-                            onClick = { audioPickerLauncher.launch("audio/*") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.AudioFile, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("رفع ملف صوتي")
-                        }
-                    }
-
-                    if (selectedAudioName != null) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFE91E63).copy(alpha = 0.12f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("الملف: $selectedAudioName", fontSize = 11.sp, color = Color(0xFFC2185B))
-                                IconButton(onClick = { selectedAudioBase64 = null; selectedAudioName = null }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Close, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    if (inputPrompt.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text("النص المفرغ:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(inputPrompt, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showAudioTranscribeDialog = false
-                    }
-                ) {
-                    Text(if (isEnglish) "Done" else "تم واستخدام النص")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAudioTranscribeDialog = false }) {
-                    Text(if (isEnglish) "Cancel" else "إلغاء")
-                }
-            }
-        )
-    }
-
-    // 4. Model Switcher Dialog
-    if (showModelSwitcherDialog) {
-        AlertDialog(
-            onDismissRequest = { showModelSwitcherDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Psychology, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (isEnglish) "Select Gemini Model" else "اختيار نموذج Gemini الذكي", fontWeight = FontWeight.Bold)
-                }
+                Text(
+                    text = "لوحة المطور السرية",
+                    fontFamily = ReadexProFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = DaylightInk
+                )
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Option 1: Gemini 3.5 Flash
-                    Surface(
+                    Text(
+                        text = "أدخل الرمز السري للمطور للتحكم في مفاتيح Gemini وروابط الصوت:",
+                        fontFamily = ReadexProFontFamily,
+                        fontSize = 13.5.sp,
+                        color = DaylightMuted
+                    )
+                    OutlinedTextField(
+                        value = devPinInput,
+                        onValueChange = {
+                            devPinInput = it
+                            devPinError = false
+                        },
+                        label = { Text("الرمز السري (PIN)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        isError = devPinError,
                         shape = RoundedCornerShape(12.dp),
-                        color = if (selectedModel == "gemini-3.5-flash") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        border = BorderStroke(1.dp, if (selectedModel == "gemini-3.5-flash") MaterialTheme.colorScheme.primary else Color.Transparent),
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            selectedModel = "gemini-3.5-flash"
-                            showModelSwitcherDialog = false
-                        }
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("✨ Gemini 3.5 Flash (النموذج القياسي)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("متوازن، سريع، ويدعم بحث جوجل والوسائط المتعددة.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-
-                    // Option 2: Gemini 3.1 Pro Preview
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (selectedModel == "gemini-3.1-pro-preview") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        border = BorderStroke(1.dp, if (selectedModel == "gemini-3.1-pro-preview") MaterialTheme.colorScheme.primary else Color.Transparent),
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            selectedModel = "gemini-3.1-pro-preview"
-                            enableThinking = true
-                            showModelSwitcherDialog = false
-                        }
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("🧠 Gemini 3.1 Pro (تفكير عميق وSTEM)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("أعلى دقة استدلال رياضي وحل المسائل العلمية المعقدة.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-
-                    // Option 3: Gemini 3.1 Flash Lite
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (selectedModel == "gemini-3.1-flash-lite") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        border = BorderStroke(1.dp, if (selectedModel == "gemini-3.1-flash-lite") MaterialTheme.colorScheme.primary else Color.Transparent),
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            selectedModel = "gemini-3.1-flash-lite"
-                            showModelSwitcherDialog = false
-                        }
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("⚡ Gemini 3.1 Flash Lite (فائق السرعة)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("استجابة لحظية خفيفة للمفاهيم السريعة والترجمة.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("developer_pin_field")
+                    )
+                    if (devPinError) {
+                        Text(
+                            text = "الرمز غير صحيح",
+                            fontFamily = ReadexProFontFamily,
+                            fontSize = 12.5.sp,
+                            color = Color(0xFFEF4444)
+                        )
                     }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showModelSwitcherDialog = false }) {
-                    Text(if (isEnglish) "Close" else "إغلاق")
-                }
-            }
-        )
-    }
-
-    // Network Disconnect Alert Dialog
-    if (showOfflineAlert) {
-        AlertDialog(
-            onDismissRequest = { showOfflineAlert = false },
-            icon = {
-                Icon(
-                    Icons.Default.WifiOff,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(32.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = if (isEnglish) "No Internet Connection" else "لا يوجد اتصال بالإنترنت",
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(
-                    text = if (isEnglish)
-                        "Gemini AI requires an active internet connection to solve questions and analyze images. Please verify your Wi-Fi or mobile data connection and try again."
-                    else
-                        "مساعد الذكاء الاصطناعي (Gemini API) يتطلب اتصالاً حقيقياً ونشطاً بشبكة الإنترنت لتحليل الصور وحل المسائل العلمية. يرجى التأكد من تشغيل الواي فاي أو بيانات الهاتف والمحاولة مرة أخرى."
-                )
             },
             confirmButton = {
                 Button(
-                    onClick = { showOfflineAlert = false }
+                    onClick = {
+                        if (devPinInput.trim() == FahimConfig.DEVELOPER_CONTROL_PIN) {
+                            showDevPinDialog = false
+                            devPinInput = ""
+                            devPinError = false
+                            showDevPanelDialog = true
+                        } else {
+                            devPinError = true
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = FahimBlue),
+                    modifier = Modifier.testTag("developer_pin_confirm")
                 ) {
-                    Text(if (isEnglish) "OK" else "حسناً")
+                    Text("دخول", fontFamily = ReadexProFontFamily)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDevPinDialog = false }) {
+                    Text("إلغاء", fontFamily = ReadexProFontFamily)
                 }
             }
         )
     }
 
-    // PDF Export Status Alert
-    pdfExportStatus?.let { statusMsg ->
+    if (showDevPanelDialog) {
+        var devGeminiKey by remember { mutableStateOf(userSettings.geminiApiKey) }
+        var devPiperUrl by remember { mutableStateOf(userSettings.piperTtsUrl) }
+        var devCoquiUrl by remember { mutableStateOf(userSettings.coquiTtsUrl) }
+        var devVoiceKey by remember { mutableStateOf(userSettings.voiceTtsApiKey) }
+
         AlertDialog(
-            onDismissRequest = { pdfExportStatus = null },
-            icon = {
-                Icon(
-                    Icons.Default.PictureAsPdf,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
-                )
-            },
+            onDismissRequest = { showDevPanelDialog = false },
+            containerColor = DaylightSurface,
             title = {
                 Text(
-                    text = if (isEnglish) "PDF Export" else "تصدير ملف PDF",
-                    fontWeight = FontWeight.Bold
+                    text = "إعدادات المطور (Gemini & TTS)",
+                    fontFamily = ReadexProFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = DaylightInk
                 )
             },
             text = {
-                Text(text = statusMsg)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = devGeminiKey,
+                        onValueChange = { devGeminiKey = it },
+                        label = { Text("Gemini API Key (gemini-2.5-flash)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = devPiperUrl,
+                        onValueChange = { devPiperUrl = it },
+                        label = { Text("Piper TTS URL (اختياري)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = devCoquiUrl,
+                        onValueChange = { devCoquiUrl = it },
+                        label = { Text("Coqui TTS URL (اختياري)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = devVoiceKey,
+                        onValueChange = { devVoiceKey = it },
+                        label = { Text("Voice TTS API Key (اختياري)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             },
             confirmButton = {
-                Button(onClick = { pdfExportStatus = null }) {
-                    Text(if (isEnglish) "OK" else "حسناً")
+                Button(
+                    onClick = {
+                        viewModel.saveDeveloperFahimSettings(
+                            geminiKey = devGeminiKey,
+                            piperUrl = devPiperUrl,
+                            coquiUrl = devCoquiUrl,
+                            voiceKey = devVoiceKey
+                        )
+                        showDevPanelDialog = false
+                        Toast.makeText(context, "تم حفظ إعدادات المطور بأمان", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = FahimEmerald)
+                ) {
+                    Text("حفظ", fontFamily = ReadexProFontFamily)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDevPanelDialog = false }) {
+                    Text("إغلاق", fontFamily = ReadexProFontFamily)
                 }
             }
         )
@@ -805,169 +566,20 @@ fun AiScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .background(DaylightBackground)
+            .statusBarsPadding()
     ) {
-        // Sleek, Ultra-Compact Top Bar
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 6.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        // Pure White Top Header Bar
+        Surface(
+            color = DaylightSurface,
+            shadowElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f)
-                            )
-                        )
-                    )
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Column {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF10B981))
-                    ) {
-                        Icon(
-                            Icons.Default.TipsAndUpdates,
-                            contentDescription = "فهيم",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = if (isEnglish) "Faheem • Study Mentor" else "فهيم • اسأل واشرح",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.primary,
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Text(
-                                    text = if (isEnglish) "TUTOR" else "معك دائماً",
-                                    color = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                        Text(
-                            text = if (isEnglish) "Ready to explain lessons step by step" else "شرح مبسط للمناهج والمسائل خطوة بخطوة",
-                            fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // API Key Settings Button
-                    IconButton(
-                        onClick = { showApiKeyDialog = true },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .testTag("api_key_setting_button")
-                    ) {
-                        Icon(
-                            Icons.Default.VpnKey,
-                            contentDescription = if (isEnglish) "API Key" else "مفتاح API",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Model Switcher Button
-                    IconButton(
-                        onClick = { showModelSwitcherDialog = true },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Tune,
-                            contentDescription = "Model Switcher",
-                            tint = Color(0xFF9B51E0),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    if (messages.any { !it.first }) {
-                        IconButton(
-                            onClick = {
-                                val lastAiAnswer = messages.filter { !it.first }.lastOrNull()?.second ?: ""
-                                AiChatStudyHelper.exportToPdf(
-                                    context = context,
-                                    title = "شرح وحل المسألة التعليمية",
-                                    content = lastAiAnswer
-                                ) { success, msg, uri ->
-                                    pdfExportStatus = msg
-                                    if (success && uri != null) {
-                                        AiChatStudyHelper.sharePdf(context, uri)
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .testTag("export_pdf_button")
-                        ) {
-                            Icon(
-                                Icons.Default.PictureAsPdf,
-                                contentDescription = if (isEnglish) "Export PDF" else "تصدير PDF",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = { viewModel.clearAiChat() },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .testTag("clear_chat_button")
-                    ) {
-                        Icon(
-                            Icons.Default.DeleteSweep,
-                            contentDescription = if (isEnglish) "Clear Chat" else "مسح المحادثة",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // Warning banner if API key is missing or unconfigured
-        if (!isApiKeyConfigured) {
-            Surface(
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 6.dp)
-                    .clickable { showApiKeyDialog = true }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -975,682 +587,800 @@ fun AiScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            if (isEnglish) "Gemini API key missing. Tap to enter key." else "مفتاح API غير متوفر أو يحتاج لتحديث. اضغط لإدخاله الآن 🔑",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
+                        IconButton(
+                            onClick = { onNavigate("home") },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("fahim_back_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "رجوع",
+                                tint = DaylightInk
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        Column {
+                            Text(
+                                text = "فهيم • المساعد الدراسي الذكي",
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = DaylightInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color(0xFFECFDF5),
+                                border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                                modifier = Modifier.combinedClickable(
+                                    onClick = {},
+                                    onLongClick = { showDevPinDialog = true }
+                                )
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(FahimEmerald)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "متصل بـ Gemini AI",
+                                        fontFamily = ReadexProFontFamily,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF047857)
+                                    )
+                                }
+                            }
+                        }
                     }
-                    Text(
-                        if (isEnglish) "ENTER 🔑" else "إدخال 🔑",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.error
-                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { onNavigate("fahim_whiteboard") },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .testTag("fahim_open_whiteboard_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Brush,
+                                contentDescription = "سبورة فهيم الذكية",
+                                tint = FahimBlue
+                            )
+                        }
+
+                        Box {
+                            IconButton(
+                                onClick = { showMoreMenu = true },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("fahim_menu_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "خيارات فهيم",
+                                    tint = DaylightInk
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false },
+                                containerColor = DaylightSurface
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("سبورة فهيم الذكية 🎨", fontFamily = ReadexProFontFamily) },
+                                    leadingIcon = { Icon(Icons.Default.Brush, null, tint = FahimBlue) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onNavigate("fahim_whiteboard")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("فتح قسم مهامي", fontFamily = ReadexProFontFamily) },
+                                    leadingIcon = { Icon(Icons.Default.PlaylistAddCheck, null, tint = FahimEmerald) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onNavigate("tasks")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("فتح الجدول الدراسي", fontFamily = ReadexProFontFamily) },
+                                    leadingIcon = { Icon(Icons.Default.EventNote, null, tint = FahimBlue) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onNavigate("schedule")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("بناء خطة أسبوعية ذكية", fontFamily = ReadexProFontFamily) },
+                                    leadingIcon = { Icon(Icons.Default.CalendarToday, null, tint = FahimAmber) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showStudyPlanDialog = true
+                                    }
+                                )
+                                if (fahimMessages.isNotEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text("تصدير المحادثة PDF", fontFamily = ReadexProFontFamily) },
+                                        leadingIcon = { Icon(Icons.Default.PictureAsPdf, null, tint = FahimTeal) },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            val exportBody = fahimMessages.joinToString("\n\n") { m ->
+                                                if (m.isUser) "سؤال الطالب: ${m.text}" else "إجابة فهيم:\n${m.text}"
+                                            }
+                                            AiChatStudyHelper.exportToPdf(
+                                                context = context,
+                                                title = "ملخص محادثة فهيم الذكي",
+                                                content = exportBody
+                                            ) { success, msg, uri ->
+                                                pdfExportStatus = msg
+                                                if (success && uri != null) AiChatStudyHelper.sharePdf(context, uri)
+                                            }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("محادثة جديدة", fontFamily = ReadexProFontFamily) },
+                                        leadingIcon = { Icon(Icons.Default.DeleteSweep, null, tint = Color(0xFFEF4444)) },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            viewModel.clearFahimChat()
+                                        }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("إعدادات المطور (PIN)", fontFamily = ReadexProFontFamily, color = DaylightMuted) },
+                                    leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null, tint = DaylightMuted) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showDevPinDialog = true
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
+                HorizontalDivider(thickness = 1.dp, color = DaylightBorder)
             }
         }
 
-        // Single Streamlined Shortcut Strip
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 6.dp)
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AssistChip(
-                onClick = { showStudyPlanDialog = true },
-                leadingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary) },
-                label = { Text(if (isEnglish) "Study Plan 🗓️" else "خطة دراسية 🗓️", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                modifier = Modifier.testTag("build_study_plan_chip")
-            )
-            AssistChip(
-                onClick = { showClarifyTopicDialog = true },
-                leadingIcon = { Icon(Icons.Default.Lightbulb, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary) },
-                label = { Text(if (isEnglish) "Clarify Concept 💡" else "شرح مفهوم 💡", fontSize = 11.sp) },
-                modifier = Modifier.testTag("clarify_topic_quick_chip")
-            )
-            AssistChip(
-                onClick = { onNavigate("image_ocr_summary") },
-                leadingIcon = { Icon(Icons.Default.DocumentScanner, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary) },
-                label = { Text(if (isEnglish) "OCR & Summary 📸" else "مسح صورة 📸", fontSize = 11.sp) }
-            )
-            FilterChip(
-                selected = enableThinking,
-                onClick = {
-                    enableThinking = !enableThinking
-                    if (enableThinking) selectedModel = "gemini-3.1-pro-preview"
-                },
-                leadingIcon = { Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF673AB7)) },
-                label = { Text(if (isEnglish) "Deep Thinking 🧠" else "تفكير عميق 🧠", fontSize = 11.sp) }
-            )
-            AssistChip(
-                onClick = { showMusicGeneratorDialog = true },
-                leadingIcon = { Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFEC4899)) },
-                label = { Text(if (isEnglish) "Focus Music 🎵" else "موسيقى التركيز 🎵", fontSize = 11.sp) }
-            )
-            AssistChip(
-                onClick = { showAudioTranscribeDialog = true },
-                leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFE91E63)) },
-                label = { Text(if (isEnglish) "Transcribe 🎙️" else "تفريغ صوت 🎙️", fontSize = 11.sp) }
-            )
-        }
-
-        // Full-Screen Chat Message List
+        // Scrollable Main Body
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            if (messages.isEmpty()) {
+            if (fahimMessages.isEmpty()) {
                 item {
-                    AiWelcomeHeroCard(
-                        selectedTab = selectedTab,
-                        isEnglish = isEnglish,
-                        onOpenStudyPlanner = { showStudyPlanDialog = true },
-                        onAnalyzeStudyPlan = { viewModel.analyzeStudyPlanWithAi() },
-                        onOpenTopicClarifier = { showClarifyTopicDialog = true },
-                        onQuickPrompt = { prompt -> inputPrompt = prompt }
+                    FahimInteractiveMascot(compactMode = false)
+                }
+
+                item {
+                    FahimQuickActionPillsGrid(
+                        onTomorrowExamClick = {
+                            submitFahimPrompt("نظّم لي جدول مراجعة مكثف لامتحان الغد مع خريطة ذهنية لأهم النقاط")
+                        },
+                        onMindMapClick = {
+                            submitFahimPrompt("ارسم لي خريطة ذهنية ملخصة وملونة لأهم محاور وقوانين المنهج")
+                        },
+                        onCompareTableClick = {
+                            showComparisonTopicDialog = true
+                        },
+                        onScanQuestionClick = {
+                            showScanChoiceDialog = true
+                        },
+                        onWhiteboardClick = {
+                            onNavigate("fahim_whiteboard")
+                        }
                     )
                 }
-            }
 
-            items(messages.size) { index ->
-                val (isUser, text) = messages[index]
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    if (!isUser) {
-                        // AI Radiant Gemini Avatar
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.linearGradient(
-                                        colors = listOf(
-                                            Color(0xFF4285F4),
-                                            Color(0xFF9B51E0),
-                                            Color(0xFFEA4335)
-                                        )
-                                    )
-                                )
-                        ) {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = "Gemini",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
-                    Card(
-                        shape = RoundedCornerShape(
-                            topStart = if (isUser) 18.dp else 4.dp,
-                            topEnd = if (isUser) 4.dp else 18.dp,
-                            bottomStart = 18.dp,
-                            bottomEnd = 18.dp
-                        ),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isUser) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
-                        ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = if (isUser) 1.dp else 2.dp),
-                        modifier = Modifier.widthIn(max = if (isUser) 310.dp else 340.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            // Speaker label for clarity and color
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 6.dp)
-                            ) {
-                                Text(
-                                    text = if (isUser) (if (isEnglish) "You" else "أنت") else (if (isEnglish) "Gemini AI" else "الذكاء الاصطناعي (Gemini)"),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isUser) MaterialTheme.colorScheme.primary else Color(0xFF673AB7)
-                                )
+                item {
+                    FahimSmartTableCard(
+                        table = suggestedWeeklyTable,
+                        isAddedToSchedule = isSuggestedWeeklyTableAdded,
+                        onAddToSchedule = {
+                            viewModel.insertFahimTableToApp(
+                                table = suggestedWeeklyTable,
+                                isSuggestedCard = true
+                            ) { count ->
+                                Toast.makeText(
+                                    context,
+                                    "تمت إضافة $count حصص تلقائياً لقسم مهامي ✓",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
+                        },
+                        onOpenTasks = { onNavigate("tasks") }
+                    )
+                }
+            } else {
+                item {
+                    FahimInteractiveMascot(compactMode = true)
+                }
 
-                            AiFormattedContent(
-                                text = text,
-                                isUser = isUser,
-                                onCopyMathBlock = { formula ->
-                                    viewModel.copyTextToClipboard("معادلة رياضية", formula)
-                                }
-                            )
-
-                            if (!isUser) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(vertical = 4.dp),
-                                    thickness = 0.5.dp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // TTS Listen Button
-                                    val isCurrentSpeaking = speakingMessageIndex == index
-                                    IconButton(
-                                        onClick = {
-                                            if (isCurrentSpeaking) {
-                                                ttsManager.stop()
-                                                speakingMessageIndex = null
-                                            } else {
-                                                speakingMessageIndex = index
-                                                ttsManager.speak(text) { isSpeaking ->
-                                                    if (!isSpeaking && speakingMessageIndex == index) {
-                                                        speakingMessageIndex = null
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            if (isCurrentSpeaking) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
-                                            contentDescription = if (isCurrentSpeaking) "إيقاف القراءة" else "قراءة الإجابة صوتياً",
-                                            tint = if (isCurrentSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(6.dp))
-
-                                    // Single Message PDF Export Button
-                                    IconButton(
-                                        onClick = {
-                                            AiChatStudyHelper.exportToPdf(
-                                                context = context,
-                                                title = "حل المسألة والشرح الأكاديمي",
-                                                content = text
-                                            ) { success, msg, uri ->
-                                                pdfExportStatus = msg
-                                                if (success && uri != null) {
-                                                    AiChatStudyHelper.sharePdf(context, uri)
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.PictureAsPdf,
-                                            contentDescription = "تصدير هذه الإجابة إلى PDF",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(6.dp))
-
-                                    // Copy Answer Button
-                                    IconButton(
-                                        onClick = { viewModel.copyTextToClipboard("إجابة الذكاء الاصطناعي", text) },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.ContentCopy,
-                                            contentDescription = "نسخ الإجابة",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(6.dp))
-
-                                    // Add to Study Tasks Button
-                                    IconButton(
-                                        onClick = {
-                                            taskToAddTitle = text.lines()
-                                                .firstOrNull { it.isNotBlank() && !it.startsWith("#") }
-                                                ?.replace("*", "")
-                                                ?.take(60)
-                                                ?: if (isEnglish) "AI Study Task" else "مهمة مذاكرة موصى بها من الذكاء الاصطناعي"
-                                            taskToAddSubject = if (isEnglish) "General" else "مذاكرة"
-                                            showAddTaskDialog = true
-                                        },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.AddTask,
-                                            contentDescription = if (isEnglish) "Add to Study Tasks" else "إضافة إلى مهام المذاكرة",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
+                items(fahimMessages, key = { it.id }) { msg ->
+                    FahimMessageBubble(
+                        message = msg,
+                        isSpeaking = speakingMessageId == msg.id,
+                        onCopy = { textToCopy ->
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Fahim Reply", textToCopy))
+                            Toast.makeText(context, "تم النسخ", Toast.LENGTH_SHORT).show()
+                        },
+                        onSpeakToggle = {
+                            if (speakingMessageId == msg.id) {
+                                ttsManager.stop()
+                                speakingMessageId = null
+                            } else {
+                                speakingMessageId = msg.id
+                                ttsManager.speak(msg.text) { active ->
+                                    if (!active) speakingMessageId = null
                                 }
                             }
-                        }
-                    }
+                        },
+                        onExportPdf = {
+                            AiChatStudyHelper.exportToPdf(
+                                context = context,
+                                title = "شرح فهيم الدراسي",
+                                content = msg.text
+                            ) { success, statusMsg, uri ->
+                                pdfExportStatus = statusMsg
+                                if (success && uri != null) AiChatStudyHelper.sharePdf(context, uri)
+                            }
+                        },
+                        onAddTableToSchedule = { table ->
+                            viewModel.insertFahimTableToApp(
+                                table = table,
+                                messageId = msg.id
+                            ) { count ->
+                                Toast.makeText(
+                                    context,
+                                    "تمت إضافة $count حصص لقسم مهامي ✓",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        onOpenTasks = { onNavigate("tasks") }
+                    )
+                }
 
-                    if (isUser) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        // User Avatar
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                        ) {
-                            Icon(
-                                Icons.Default.Person,
-                                contentDescription = "User",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                if (isFahimLoading) {
+                    item {
+                        FahimLoadingBubble()
                     }
                 }
             }
+        }
 
-            if (isLoading) {
-                item {
+        // Quick Action Strip during active chat
+        if (fahimMessages.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SmallQuickChip("سبورة فهيم 🎨", FahimBlue) {
+                    onNavigate("fahim_whiteboard")
+                }
+                SmallQuickChip("جدول امتحان الغد", DaylightInk) {
+                    submitFahimPrompt("نظّم لي جدول مراجعة مكثف لامتحان الغد مع خريطة ذهنية")
+                }
+                SmallQuickChip("خريطة ذهنية", FahimAmber) {
+                    submitFahimPrompt("ارسم لي خريطة ذهنية ملخصة لهذا الموضوع")
+                }
+                SmallQuickChip("جدول مقارنة +", FahimBlue) {
+                    showComparisonTopicDialog = true
+                }
+                SmallQuickChip("مسح صورة مسألة", FahimTeal) {
+                    showScanChoiceDialog = true
+                }
+            }
+        }
+
+        // Floating Pure-White Rounded Input Dock (respects navigation bar & IME cleanly)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(DaylightBackground)
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            if (selectedImageName != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
                     Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = when {
-                                enableThinking -> "جاري التفكير والتسلسل العميق في الحل (High Thinking Mode)..."
-                                enableSearch -> "جاري البحث في نتائج جوجل الحية وتجميع الشرح..."
-                                selectedImageBase64 != null -> "جاري تحليل الصورة وقراءة المحتوى بـ Gemini Pro..."
-                                selectedAudioBase64 != null -> "جاري تفريغ التسجيل الصوتي وتلخيصه..."
-                                attachStudyPlanContext -> "جاري مراجعة خطتك الدراسية وصياغة أفضل إرشاد بالذكاء الاصطناعي..."
-                                else -> "جاري تحضير الشرح والإجابة..."
-                            },
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Attached Media Previews
-        AnimatedVisibility(visible = selectedImageBase64 != null || selectedAudioBase64 != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                selectedImageName?.let { imgName ->
-                    InputChip(
-                        selected = true,
-                        onClick = { },
-                        label = { Text(imgName, fontSize = 11.sp) },
-                        leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    selectedImageBase64 = null
-                                    selectedImageName = null
-                                },
-                                modifier = Modifier.size(16.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
-                            }
-                        }
-                    )
-                }
-
-                selectedAudioName?.let { audName ->
-                    InputChip(
-                        selected = true,
-                        onClick = { },
-                        label = { Text(audName, fontSize = 11.sp) },
-                        leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    selectedAudioBase64 = null
-                                    selectedAudioName = null
-                                },
-                                modifier = Modifier.size(16.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
-                            }
-                        }
-                    )
-                }
-            }
-        }
-
-        // Quick Suggestion Chips for Students
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            when (selectedTab) {
-                0 -> {
-                    SuggestionChip(
-                        onClick = { showStudyPlanDialog = true },
-                        icon = { Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary) },
-                        label = { Text(if (isEnglish) "Build Plan 🗓️✨" else "صمّم خطة دراسية 🗓️✨", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                        )
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "How should I structure my Pomodoro sessions for today's tasks?" else "كيف أنظم جلسات بومودورو وأوقات الراحة لإنجاز مهام اليوم بأعلى تركيز؟"
-                        },
-                        label = { Text(if (isEnglish) "⏱️ Pomodoro Breakdown" else "⏱️ تقسيم بومودورو لليوم", fontSize = 11.sp) }
-                    )
-                    SuggestionChip(
-                        onClick = { viewModel.analyzeStudyPlanWithAi() },
-                        icon = { Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                        label = { Text(if (isEnglish) "Analyze Plan 📊" else "تحليل خطتي والمهام 📊", fontSize = 11.sp) }
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "Create a comprehensive 7-day revision schedule before my upcoming exams:" else "صمم لي جدول مراجعة مكثف لمدة 7 أيام قبل موعد امتحاناتي:"
-                        },
-                        label = { Text(if (isEnglish) "7-Day Exam Plan ⏳" else "خطة 7 أيام للاختبار ⏳", fontSize = 11.sp) }
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "How do I balance daily homework assignments and deep revision without burnout?" else "كيف أوازن بين الواجبات المدرسية والمذاكرة اليومية بدون إرهاق؟"
-                        },
-                        label = { Text(if (isEnglish) "Study Balance ⚖️" else "الموازنة بين المواد ⚖️", fontSize = 11.sp) }
-                    )
-                }
-                1 -> {
-                    SuggestionChip(
-                        onClick = { showClarifyTopicDialog = true },
-                        icon = { Icon(Icons.Default.Lightbulb, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary) },
-                        label = { Text(if (isEnglish) "Clarify Topic 💡✨" else "اشرح وبسّط مفهوماً 💡✨", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-                        )
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "Explain step-by-step with formulas and laws: " else "اشرح لي بالتفصيل والخطوات والمعادلات الرياضية أو الفيزيائية مسألة: "
-                        },
-                        label = { Text(if (isEnglish) "Step-by-Step 📐" else "📐 حل تدريجي بالمعادلات", fontSize = 11.sp) }
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "Explain this concept using the Feynman technique and an intuitive story: " else "بسّط لي بأسلوب فاينمان وبمثال واقعي سهل جداً مفهوم: "
-                        },
-                        label = { Text(if (isEnglish) "Feynman Story 🧠" else "🧠 تشبيه فاينمان البسيط", fontSize = 11.sp) }
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "What are the top 3 exam traps and student mistakes regarding: " else "ما هي أشهر 3 أخطاء ومصائد يقع فيها الطلاب في الامتحانات بخصوص: "
-                        },
-                        label = { Text(if (isEnglish) "Exam Traps ⚠️" else "⚠️ مصائد الامتحانات", fontSize = 11.sp) }
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "Test my understanding with 3 high-yield questions with solutions about: " else "اطرح علي 3 أسئلة ذكية مع الحل النموذجي لاختبار فهمي لـ: "
-                        },
-                        label = { Text(if (isEnglish) "Quick Quiz 🎯" else "🎯 اختبار فهمي الفوري", fontSize = 11.sp) }
-                    )
-                }
-                else -> {
-                    SuggestionChip(
-                        onClick = { showAiScheduleDialog = true },
-                        icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                        label = { Text(if (isEnglish) "AI Smart Schedule 🤖" else "جدول ذكي بـ Gemini 🤖", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        )
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "Analyze and solve the question in this image step-by-step:" else "قم بتحليل وحل المسألة العلمية في هذه الصورة خطوة بخطوة:"
-                        },
-                        label = { Text(if (isEnglish) "📷 Solve from Photo" else "📷 حل من صورة", fontSize = 11.sp) }
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            inputPrompt = if (isEnglish) "Summarize this lesson into 5 key points with examples:" else "قم بتلخيص هذا الدرس في 5 نقاط أساسية مع أمثلة عملية:"
-                        },
-                        label = { Text(if (isEnglish) "Summarize Lesson 📝" else "تلخيص درس 📝", fontSize = 11.sp) }
-                    )
-                    SuggestionChip(
-                        onClick = {
-                            enableThinking = true
-                            selectedModel = "gemini-3.1-pro-preview"
-                            inputPrompt = if (isEnglish) "Deep-reason and formulate a comprehensive breakdown for:" else "فكر بعمق وقدّم تحليلاً شاملاً وتفصيلياً لـ:"
-                        },
-                        label = { Text(if (isEnglish) "🧠 High Thinking Mode" else "🧠 وضع التفكير العميق", fontSize = 11.sp) }
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Quick Media & Tool Actions Bar above input
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Camera Direct Capture Pill
-            FilterChip(
-                selected = false,
-                onClick = {
-                    val hasPermission = ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.CAMERA
-                    ) == PackageManager.PERMISSION_GRANTED
-                    if (hasPermission) {
-                        cameraCaptureLauncher.launch(null)
-                    } else {
-                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
-                    }
-                },
-                leadingIcon = {
-                    Icon(
-                        Icons.Default.PhotoCamera,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = Color(0xFF1A73E8)
-                    )
-                },
-                label = { Text(if (isEnglish) "Camera 📸" else "تصوير بالكاميرا 📸", fontSize = 11.sp) },
-                modifier = Modifier.testTag("camera_capture_button")
-            )
-
-            // Pick Image Pill
-            FilterChip(
-                selected = selectedImageBase64 != null,
-                onClick = { imagePickerLauncher.launch("image/*") },
-                leadingIcon = {
-                    Icon(
-                        Icons.Default.Image,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                },
-                label = { Text(if (isEnglish) "Attach Image 🖼️" else "إرفاق صورة 🖼️", fontSize = 11.sp) },
-                modifier = Modifier.testTag("pick_image_button")
-            )
-
-            // Voice Dictation Pill
-            FilterChip(
-                selected = isListeningVoice,
-                onClick = {
-                    val hasPermission = ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.RECORD_AUDIO
-                    ) == PackageManager.PERMISSION_GRANTED
-                    if (hasPermission) {
-                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (isEnglish) "en-US" else "ar-SA")
-                            putExtra(RecognizerIntent.EXTRA_PROMPT, if (isEnglish) "Speak your question or study topic..." else "تحدث بسؤالك أو استفسارك الدراسي...")
-                        }
-                        try {
-                            isListeningVoice = true
-                            speechRecognizerLauncher.launch(intent)
-                        } catch (e: Exception) {
-                            isListeningVoice = false
-                            Toast.makeText(context, if (isEnglish) "Speech recognizer not supported on this device" else "التعرف الصوتي غير متاح على هذا الجهاز", Toast.LENGTH_SHORT).show()
-                        }
-                    } else {
-                        recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                leadingIcon = {
-                    Icon(
-                        if (isListeningVoice) Icons.Default.GraphicEq else Icons.Default.Mic,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = if (isListeningVoice) Color(0xFFD32F2F) else Color(0xFF7B1FA2)
-                    )
-                },
-                label = { Text(if (isEnglish) "Voice Dictation 🎙️" else "إملاء صوتي 🎙️", fontSize = 11.sp) },
-                modifier = Modifier.testTag("voice_dictation_button")
-            )
-
-            // Pick Audio File Pill
-            FilterChip(
-                selected = selectedAudioBase64 != null,
-                onClick = { audioPickerLauncher.launch("audio/*") },
-                leadingIcon = {
-                    Icon(
-                        Icons.Default.AudioFile,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = Color(0xFFE91E63)
-                    )
-                },
-                label = { Text(if (isEnglish) "Audio File 🎵" else "تسجيل صوتي 🎵", fontSize = 11.sp) },
-                modifier = Modifier.testTag("pick_audio_button")
-            )
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Open, Spacious Input Field & Send Button
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = inputPrompt,
-                    onValueChange = { inputPrompt = it },
-                    placeholder = {
-                        Text(
-                            when (selectedTab) {
-                                0 -> if (isEnglish) "Ask about study planning, Pomodoro, or timetable..."
-                                else "اسأل عن تنظيم المذاكرة، الجداول، أو خطة المراجعة..."
-                                1 -> if (isEnglish) "Ask to explain any formula, concept, or hard topic..."
-                                else "اكتب المفهوم أو المسألة الصعبة لشرحها وتبسيطها..."
-                                else -> if (isEnglish) "Ask Gemini anything, snap photo, or dictate..."
-                                else "اسأل الذكاء الاصطناعي، اطلب حلاً، أو اكتب سؤالك..."
-                            },
-                            fontSize = 13.5.sp,
-                            maxLines = 2
-                        )
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("ai_input_field"),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        disabledBorderColor = Color.Transparent
-                    ),
-                    maxLines = 5
-                )
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // Radiant Send Button
-                IconButton(
-                    onClick = {
-                        if (!AiChatStudyHelper.isNetworkAvailable(context)) {
-                            showOfflineAlert = true
-                            return@IconButton
-                        }
-
-                        if (!isApiKeyConfigured) {
-                            showApiKeyDialog = true
-                            Toast.makeText(context, if (isEnglish) "Please enter your Gemini API key first" else "يرجى إدخال مفتاح Gemini API أولاً لتشغيل الإجابات المباشرة 🔑", Toast.LENGTH_LONG).show()
-                            return@IconButton
-                        }
-
-                        if (inputPrompt.isNotBlank() || selectedImageBase64 != null || selectedAudioBase64 != null) {
-                            viewModel.sendAiUserMessage(
-                                prompt = inputPrompt,
-                                imageBytesBase64 = selectedImageBase64,
-                                audioBytesBase64 = selectedAudioBase64,
-                                enableSearch = enableSearch,
-                                enableMaps = enableMaps,
-                                enableThinking = enableThinking,
-                                selectedModel = selectedModel,
-                                includeStudyPlanContext = attachStudyPlanContext
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Image, null, tint = FahimBlue, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = selectedImageName.orEmpty(),
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = FahimBlue,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            inputPrompt = ""
-                            selectedImageBase64 = null
-                            selectedImageName = null
-                            selectedAudioBase64 = null
-                            selectedAudioName = null
                         }
-                    },
+                        IconButton(
+                            onClick = {
+                                selectedImageBase64 = null
+                                selectedImageName = null
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "إزالة الصورة", tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(28.dp),
+                color = DaylightSurface,
+                border = BorderStroke(1.2.dp, DaylightBorder),
+                shadowElevation = 6.dp
+            ) {
+                Row(
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.tertiary
-                                )
-                            )
-                        )
-                        .testTag("send_ai_button")
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Send,
-                        contentDescription = if (isEnglish) "Send" else "إرسال",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                    IconButton(
+                        onClick = { showScanChoiceDialog = true },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .testTag("fahim_camera_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = "تصوير مسألة",
+                            tint = FahimTeal,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            val hasAudioPerm = ContextCompat.checkSelfPermission(
+                                context,
+                                android.Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasAudioPerm) {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-SA")
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "تحدث بسؤالك لفهيم...")
+                                }
+                                runCatching {
+                                    isListeningVoice = true
+                                    speechRecognizerLauncher.launch(intent)
+                                }.onFailure {
+                                    isListeningVoice = false
+                                    Toast.makeText(context, "الإملاء الصوتي غير متاح حالياً", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .testTag("fahim_mic_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isListeningVoice) Icons.Default.GraphicEq else Icons.Default.Mic,
+                            contentDescription = "تحدث بالصوت",
+                            tint = if (isListeningVoice) Color(0xFFEF4444) else DaylightMuted,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = inputPrompt,
+                        onValueChange = { inputPrompt = it },
+                        placeholder = {
+                            Text(
+                                text = "اسأل فهيم عن أي درس أو جدول...",
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 14.5.sp,
+                                color = DaylightMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("ai_input_field"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedTextColor = DaylightInk,
+                            unfocusedTextColor = DaylightInk
+                        ),
+                        maxLines = 4
                     )
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(FahimBlue)
+                            .clickable(enabled = !isFahimLoading) {
+                                if (inputPrompt.isNotBlank() || selectedImageBase64 != null) {
+                                    val outgoing = inputPrompt
+                                    inputPrompt = ""
+                                    submitFahimPrompt(outgoing, withAttachedImage = selectedImageBase64 != null)
+                                }
+                            }
+                            .testTag("send_ai_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "إرسال",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+@Composable
+private fun FahimQuickActionPillsGrid(
+    onTomorrowExamClick: () -> Unit,
+    onMindMapClick: () -> Unit,
+    onCompareTableClick: () -> Unit,
+    onScanQuestionClick: () -> Unit,
+    onWhiteboardClick: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            FahimActionPill(
+                label = "جدول امتحان الغد",
+                icon = Icons.Default.CalendarToday,
+                color = DaylightInk,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("pill_tomorrow_exam"),
+                onClick = onTomorrowExamClick
+            )
+            FahimActionPill(
+                label = "خريطة ذهنية",
+                icon = Icons.Default.AccountTree,
+                color = FahimAmber,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("pill_mind_map"),
+                onClick = onMindMapClick
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            FahimActionPill(
+                label = "تصميم جدول مقارنة +",
+                icon = Icons.Default.CompareArrows,
+                color = FahimBlue,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("pill_comparison_table"),
+                onClick = onCompareTableClick
+            )
+            FahimActionPill(
+                label = "مسح صورة مسألة",
+                icon = Icons.Default.CenterFocusStrong,
+                color = FahimTeal,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("pill_scan_question"),
+                onClick = onScanQuestionClick
+            )
+        }
+        FahimActionPill(
+            label = "سبورة فهيم الذكية • رسم حي وشرح صوتي",
+            icon = Icons.Default.Brush,
+            color = FahimBlue,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("pill_smart_whiteboard"),
+            onClick = onWhiteboardClick
+        )
+    }
+}
+
+@Composable
+private fun FahimActionPill(
+    label: String,
+    icon: ImageVector,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(50.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = color,
+        shadowElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(7.dp))
+            Text(
+                text = label,
+                fontFamily = ReadexProFontFamily,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun SmallQuickChip(
+    label: String,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = color.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.35f))
+    ) {
+        Text(
+            text = label,
+            fontFamily = ReadexProFontFamily,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+        )
+    }
+}
+
+@Composable
+private fun FahimMessageBubble(
+    message: FahimChatMessage,
+    isSpeaking: Boolean,
+    onCopy: (String) -> Unit,
+    onSpeakToggle: () -> Unit,
+    onExportPdf: () -> Unit,
+    onAddTableToSchedule: (FahimStudyTableData) -> Unit,
+    onOpenTasks: () -> Unit
+) {
+    if (message.isUser) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Surface(
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 4.dp, bottomStart = 20.dp, bottomEnd = 20.dp),
+                color = FahimBlue,
+                shadowElevation = 2.dp,
+                modifier = Modifier.widthIn(max = 310.dp)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    if (message.hasAttachedImage) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Image, null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "صورة مرفقة",
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
+                    }
+                    Text(
+                        text = message.text,
+                        fontFamily = ReadexProFontFamily,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                        lineHeight = 24.sp
+                    )
+                }
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = DaylightSurface,
+                border = BorderStroke(1.2.dp, DaylightBorder),
+                shadowElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFEFF6FF),
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Psychology,
+                                        contentDescription = null,
+                                        tint = FahimBlue,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "فهيم الذكي",
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = FahimBlue
+                            )
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(
+                                onClick = onSpeakToggle,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isSpeaking) Icons.Default.Stop else Icons.Default.VolumeUp,
+                                    contentDescription = "استماع",
+                                    tint = if (isSpeaking) Color(0xFFEF4444) else DaylightMuted,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onCopy(message.text) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "نسخ",
+                                    tint = DaylightMuted,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = onExportPdf,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PictureAsPdf,
+                                    contentDescription = "تصدير PDF",
+                                    tint = FahimTeal,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    AiFormattedContent(
+                        text = message.text,
+                        isUser = false,
+                        onCopyMathBlock = onCopy,
+                        bodyFontSize = 16.5.sp,
+                        bodyLineHeight = 26.sp,
+                        bodyColor = DaylightInk,
+                        headerColor = FahimBlue
+                    )
+                }
+            }
+
+            message.mindMap?.let { mm ->
+                FahimMindMapCanvas(mindMap = mm)
+            }
+
+            message.studyTable?.let { tbl ->
+                FahimSmartTableCard(
+                    table = tbl,
+                    isAddedToSchedule = message.isAddedToSchedule,
+                    onAddToSchedule = { onAddTableToSchedule(tbl) },
+                    onOpenTasks = onOpenTasks
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FahimLoadingBubble() {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = DaylightSurface,
+        border = BorderStroke(1.2.dp, DaylightBorder),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.5.dp,
+                color = FahimBlue
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "فهيم يفكر ويجهز الشرح والجدول...",
+                fontFamily = ReadexProFontFamily,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DaylightInk
+            )
+        }
+    }
+}

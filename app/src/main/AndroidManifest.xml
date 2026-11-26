@@ -35,12 +35,16 @@
     <!-- Location for Prayer Times calculation -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
 
     <!-- Biometrics & Security -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- Audio recording for Voice Notes -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:name="com.example.download.HawasApplication"
@@ -54,6 +58,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.RafiqAlTalib"
+        tools:remove="android:testOnly"
         tools:targetApi="36">
 
         <!-- Google Mobile Ads (AdMob) App ID -->
@@ -224,6 +229,11 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name="com.example.download.service.DownloadNotificationActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

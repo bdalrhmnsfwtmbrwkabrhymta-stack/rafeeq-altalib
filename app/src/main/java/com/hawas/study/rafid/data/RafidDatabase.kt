@@ -106,6 +106,27 @@ interface RafidDao {
     )
 
     @Query(
+        "UPDATE rafid_downloads SET videoStreamUrl = :videoStreamUrl, audioStreamUrl = :audioStreamUrl, " +
+            "totalBytes = CASE WHEN :totalBytes > 0 THEN :totalBytes ELSE totalBytes END, " +
+            "headersJson = :headersJson, cookiesHeader = COALESCE(:cookiesHeader, cookiesHeader), " +
+            "formatExpression = COALESCE(:formatExpression, formatExpression), " +
+            "qualityLabel = COALESCE(:qualityLabel, qualityLabel), " +
+            "isMuxRequired = :isMuxRequired " +
+            "WHERE id = :id AND status = 'QUEUED'"
+    )
+    suspend fun updatePreExtractedStreamsIfQueued(
+        id: String,
+        videoStreamUrl: String,
+        audioStreamUrl: String?,
+        totalBytes: Long,
+        headersJson: String?,
+        cookiesHeader: String?,
+        formatExpression: String?,
+        qualityLabel: String?,
+        isMuxRequired: Boolean
+    ): Int
+
+    @Query(
         "UPDATE rafid_downloads SET status = 'COMPLETED', engineState = 'COMPLETED', errorCode = NULL, downloadedBytes = :finalSize, totalBytes = :finalSize, " +
             "speedBytesPerSec = 0, etaSeconds = 0, mediaStoreUri = :mediaStoreUri, " +
             "displayPath = :displayPath, completedAtMillis = :completedAtMillis, errorMessage = NULL WHERE id = :id"
