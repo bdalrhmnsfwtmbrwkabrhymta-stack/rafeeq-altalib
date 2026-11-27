@@ -2,18 +2,19 @@ package com.example.domain.ai
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
-enum class FahimDialect(val labelAr: String, val localeLang: String, val localeCountry: String) {
-    EGYPTIAN("مصري", "ar", "EG"),
-    FUSHA("فصحى", "ar", ""),
-    SAUDI("سعودي", "ar", "SA");
+/**
+ * اللهجات المعتمدة حصراً في محرك صوت «مُتعلِّم»: مصري (ar-EG) وفصحى (ar) فقط.
+ */
+enum class FahimDialect(
+    val labelAr: String,
+    val localeLang: String,
+    val localeCountry: String,
+    val bcp47Tag: String
+) {
+    EGYPTIAN("مصري", "ar", "EG", "ar-EG"),
+    FUSHA("فصحى", "ar", "", "ar");
 
     companion object {
         fun fromName(name: String): FahimDialect =
@@ -48,12 +49,9 @@ data class FahimWhiteboardLesson(
     val finalSummaryText: String
 )
 
-class FahimBoardDrawingEngine {
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(25, TimeUnit.SECONDS)
-        .readTimeout(40, TimeUnit.SECONDS)
-        .build()
+class FahimBoardDrawingEngine(
+    private val geminiClient: FahimGeminiClient = FahimGeminiClient()
+) {
 
     suspend fun generateWhiteboardLesson(
         prompt: String,
@@ -74,19 +72,18 @@ class FahimBoardDrawingEngine {
         buildLocalWhiteboardLesson(cleanPrompt, dialect)
     }
 
-    private fun callGeminiWhiteboardJson(
+    private suspend fun callGeminiWhiteboardJson(
         prompt: String,
         dialect: FahimDialect,
         apiKey: String
-    ): String? = runCatching {
+    ): String? {
         val dialectHint = when (dialect) {
             FahimDialect.EGYPTIAN -> "اللهجة المصرية الودودة المبسطة كمدرس خصوصي شاطر"
             FahimDialect.FUSHA -> "اللغة العربية الفصحى الواضحة والدقيقة"
-            FahimDialect.SAUDI -> "اللهجة السعودية المبسطة بأسلوب اختبارات القدرات والتحصيلي"
         }
 
         val systemInstruction = """
-            أنت محرك «سبورة فهيم الذكية». حوّل سؤال الطالب إلى خطة رسم هندسي ومعادلات ملونة خطوة بخطوة بـ $dialectHint.
+            أنت محرك «سبورة فهيم الذكية» (OpenMAIC Smart Board). حوّل سؤال الطالب إلى خطة رسم هندسي ومعادلات ملونة خطوة بخطوة بـ $dialectHint.
             أرجع JSON فقط دون أي نص خارجه بالصيغة التالية:
             {
               "title": "عنوان الدرس",
@@ -107,52 +104,22 @@ class FahimBoardDrawingEngine {
             }
         """.trimIndent()
 
-        val body = JSONObject().apply {
-            put("systemInstruction", JSONObject().apply {
-                put("parts", JSONArray().put(JSONObject().put("text", systemInstruction)))
-            })
-            put("contents", JSONArray().put(JSONObject().apply {
-                put("role", "user")
-                put("parts", JSONArray().put(JSONObject().put("text", prompt)))
-            }))
-            put("generationConfig", JSONObject().apply {
-                put("temperature", 0.25)
-                put("responseMimeType", "application/json")
-            })
-        }
-
-        val model = FahimConfig.GEMINI_MODEL
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
-        val req = Request.Builder()
-            .url(url)
-            .addHeader("Content-Type", "application/json")
-            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .build()
-
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return@runCatching null
-            val raw = resp.body?.string().orEmpty()
-            val root = JSONObject(raw)
-            root.optJSONArray("candidates")
-                ?.optJSONObject(0)
-                ?.optJSONObject("content")
-                ?.optJSONArray("parts")
-                ?.optJSONObject(0)
-                ?.optString("text")
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-        }
-    }.getOrNull()
+        return geminiClient.generateContent(
+            prompt = prompt,
+            apiKey = apiKey,
+            systemInstruction = systemInstruction,
+            preferredModel = FahimConfig.PRIMARY_MODEL,
+            temperature = 0.25,
+            responseMimeType = "application/json"
+        ).getOrNull()
+    }
 
     internal fun parseWhiteboardLessonJson(
         rawJson: String,
         fallbackPrompt: String,
         dialect: FahimDialect
     ): FahimWhiteboardLesson? = runCatching {
-        val cleaned = rawJson
-            .replace("```json", "")
-            .replace("```", "")
-            .trim()
+        val cleaned = FahimGeminiClient.stripMarkdownJsonFences(rawJson)
         val obj = JSONObject(cleaned)
         val title = obj.optString("title").ifBlank { "شرح على سبورة فهيم" }
         val sceneName = obj.optString("sceneType").uppercase()
@@ -204,7 +171,7 @@ class FahimBoardDrawingEngine {
         }
     }
 
-    private fun detectSceneFromPrompt(prompt: String): WhiteboardGeometryScene {
+    internal fun detectSceneFromPrompt(prompt: String): WhiteboardGeometryScene {
         val p = prompt.lowercase()
         return when {
             p.contains("مظلل") || p.contains("مستطيل") || p.contains("shaded") ->
@@ -225,22 +192,18 @@ class FahimBoardDrawingEngine {
         val speech1 = when (dialect) {
             FahimDialect.EGYPTIAN -> "بص يا بطل! الأول بنرسم المستطيل وجواه الدوائر المتماسة، ولاحظ إن القطر d بيساوي 4 يعني نصف القطر r بيساوي 2."
             FahimDialect.FUSHA -> "أهلاً بك! نرسم أولاً المستطيل وبداخله الدوائر المتماسة، نلاحظ أن القطر يساوي ٤، إذن نصف القطر r يساوي ٢."
-            FahimDialect.SAUDI -> "حياك الله يا بطل القدرات! هنا عندنا مستطيل وبداخله الدوائر متماسة، القطر d يساوي ٤ يعني نصف القطر r يساوي ٢."
         }
         val speech2 = when (dialect) {
             FahimDialect.EGYPTIAN -> "تاني خطوة: نحسب مساحة المستطيل الكبير: الطول في العرض، يعني 4 في 4 بيساوي 16."
             FahimDialect.FUSHA -> "الخطوة الثانية: نحسب مساحة المستطيل، وتساوي الطول ضرب العرض، أي ٤ ضرب ٤ وتساوي ١٦."
-            FahimDialect.SAUDI -> "الخطوة الثانية: نحسب مساحة المستطيل كامل وهي الطول ضرب العرض، ٤ ضرب ٤ يساوي ١٦."
         }
         val speech3 = when (dialect) {
             FahimDialect.EGYPTIAN -> "تالت خطوة: نحسب مساحة الدائرة الواحدة: ط نق تربيع، يعني 4 × π."
             FahimDialect.FUSHA -> "الخطوة الثالثة: نحسب مساحة الدائرة الواحدة بالقانون π × r تربيع، فتساوي ٤ ضرب π."
-            FahimDialect.SAUDI -> "الحين نطلع مساحة الدائرة الواحدة: ط نق تربيع، وبما إن نق بـ ٢ فالمساحة ٤ × π."
         }
         val speech4 = when (dialect) {
             FahimDialect.EGYPTIAN -> "والنتيجة النهائية للجزء المظلل يا بطل: بنطرح مساحة الدائرة من مساحة المستطيل: 16 ناقص 4π، وتطلع تقريباً 3.44!"
             FahimDialect.FUSHA -> "وأخيراً، لإيجاد مساحة الجزء المظلل نطرح مساحة الدائرة من مساحة المستطيل فتكون النتيجة النهائية تقريباً ٣٫٤٤."
-            FahimDialect.SAUDI -> "وبالتالي مساحة الجزء المظلل هي الفرق بين المستطيل والدائرة: ١٦ ناقص ٤π، والناتج النهائي ٣.٤٤ تقريباً!"
         }
 
         return FahimWhiteboardLesson(
@@ -288,17 +251,14 @@ class FahimBoardDrawingEngine {
         val s1 = when (dialect) {
             FahimDialect.EGYPTIAN -> "في المثلث القائم ده، الضلع الأول 3 والضلع التاني 4 وعايزين نجيب طول الوتر c."
             FahimDialect.FUSHA -> "في هذا المثلث القائم الزاوية، طولا ضلعي القائمة هما ٣ و ٤، والمطلوب إيجاد طول الوتر c."
-            FahimDialect.SAUDI -> "مثلث قائم مشهور يا بطل! ضلعي القائمة ٣ و ٤ والمطلوب طول الوتر c."
         }
         val s2 = when (dialect) {
             FahimDialect.EGYPTIAN -> "نطبق نظرية فيثاغورس: مربع الوتر بيساوي مجموع مربعي الضلعين، يعني 9 + 16 = 25."
             FahimDialect.FUSHA -> "نطبق مبرهنة فيثاغورس: c² = a² + b²، أي ٩ + ١٦ وتساوي ٢٥."
-            FahimDialect.SAUDI -> "على طول نستخدم فيثاغورس: نربع الضلعين ٣ تربيع ٩ و ٤ تربيع ١٦ ومجموعهم ٢٥."
         }
         val s3 = when (dialect) {
             FahimDialect.EGYPTIAN -> "ناخد الجذر التربيعي للطرفين: جذر 25 يساوي 5، وده الوتر المطلوب!"
             FahimDialect.FUSHA -> "بأخذ الجذر التربيعي للطرفين نحصل على c = √25 = 5."
-            FahimDialect.SAUDI -> "بأخذ الجذر التربيعي لـ ٢٥ يطلع طول الوتر يساوي ٥ مباشرة!"
         }
 
         return FahimWhiteboardLesson(
@@ -320,12 +280,10 @@ class FahimBoardDrawingEngine {
         val s1 = when (dialect) {
             FahimDialect.EGYPTIAN -> "عشان نحسب محيط ومساحة الدائرة، أهم حاجة نحدد نصف القطر r = 7 سم."
             FahimDialect.FUSHA -> "لحساب محيط الدائرة ومساحتها، نحدد أولاً نصف القطر r = ٧ سم."
-            FahimDialect.SAUDI -> "في مسائل الدائرة، أول خطوة نثبت نصف القطر r = ٧ سم."
         }
         val s2 = when (dialect) {
             FahimDialect.EGYPTIAN -> "المحيط بيساوي 2 ط نق، يعني 2 × (22/7) × 7 = 44 سم، والمساحة بتساوي ط نق تربيع = 154 سم مربع."
             FahimDialect.FUSHA -> "المحيط يساوي ٢ × π × r ويساوي ٤٤ سم، والمساحة π × r² وتساوي ١٥٤ سم مربع."
-            FahimDialect.SAUDI -> "المحيط ٢ ط نق يطلع ٤٤، والمساحة ط نق تربيع تساوي ١٥٤ سم مربع."
         }
         return FahimWhiteboardLesson(
             title = "قوانين مساحة ومحيط الدائرة",
@@ -345,12 +303,10 @@ class FahimBoardDrawingEngine {
         val s1 = when (dialect) {
             FahimDialect.EGYPTIAN -> "في الفيزياء، قانون نيوتن التاني بيقول إن القوة F بتساوي الكتلة m مضروبة في العجلة a."
             FahimDialect.FUSHA -> "ينص قانون نيوتن الثاني على أن القوة المحصلة تساوي حاصل ضرب الكتلة في التسارع."
-            FahimDialect.SAUDI -> "قانون نيوتن الثاني من أهم قوانين التحصيلي: القوة F تساوي الكتلة في التسارع."
         }
         val s2 = when (dialect) {
             FahimDialect.EGYPTIAN -> "لو الكتلة 5 كجم والتسارع 4 متر على الثانية تربيع، يبقى القوة بتساوي 5 × 4 = 20 نيوتن!"
             FahimDialect.FUSHA -> "بتعويض m = ٥ كجم و a = ٤ م/ث²، تكون القوة الناتجة ٢٠ نيوتن."
-            FahimDialect.SAUDI -> "نعوض مباشرة: ٥ ضرب ٤ يساوي ٢٠ نيوتن."
         }
         return FahimWhiteboardLesson(
             title = "تحليل القوى وقانون نيوتن الثاني",
@@ -370,12 +326,10 @@ class FahimBoardDrawingEngine {
         val s1 = when (dialect) {
             FahimDialect.EGYPTIAN -> "هنا بنمثل الدالة التربيعية y = x² على الشبكة الإحداثية، ورأس المنحنى عند نقطة الأصل (0, 0)."
             FahimDialect.FUSHA -> "نمثل الدالة التربيعية y = x² بيانياً حيث يكون رأس القطع المكافئ عند نقطة الأصل."
-            FahimDialect.SAUDI -> "في التمثيل البياني للدالة y = x²، الرأس يكون عند (0, 0) والمنحنى مفتوح للأعلى."
         }
         val s2 = when (dialect) {
             FahimDialect.EGYPTIAN -> "لما x = 2 بتكون y = 4، والمنحنى متماثل حوالين محور الصادات y."
             FahimDialect.FUSHA -> "عند x = ٢ فإن y = ٤، والمنحنى متماثل تماماً حول محور الصادات."
-            FahimDialect.SAUDI -> "عند التعويض بـ ٢ تطلع y = ٤، وهو متماثل حول محور الصادات."
         }
         return FahimWhiteboardLesson(
             title = "التمثيل البياني للدالة التربيعية",

@@ -122,7 +122,7 @@ class FahimAiService(
                 ),
                 systemInstruction = FAHIM_SYSTEM_PROMPT,
                 customApiKey = resolvedGeminiKey,
-                modelName = FahimConfig.GEMINI_MODEL,
+                modelName = FahimConfig.PRIMARY_MODEL,
                 imageBytesBase64 = imageBytesBase64,
                 chatHistory = history.takeLast(8).map { it.isUser to it.text }
             )
@@ -369,7 +369,7 @@ class FahimAiService(
     }
 
     private fun parseMindMapJson(rawJson: String): FahimMindMapData? = runCatching {
-        val obj = JSONObject(rawJson.trim())
+        val obj = JSONObject(FahimGeminiClient.stripMarkdownJsonFences(rawJson))
         val center = obj.optString("centerTitle").ifBlank { "موضوع الدرس" }
         val arr = obj.optJSONArray("branches") ?: return null
         val paletteHexes = listOf(0xFF1A6FE3L, 0xFFD97706L, 0xFF10B981L, 0xFF0D9488L)
@@ -396,7 +396,7 @@ class FahimAiService(
     }.getOrNull()
 
     private fun parseStudyTableJson(rawJson: String, isComparisonOnly: Boolean): FahimStudyTableData? = runCatching {
-        val obj = JSONObject(rawJson.trim())
+        val obj = JSONObject(FahimGeminiClient.stripMarkdownJsonFences(rawJson))
         val title = obj.optString("title").ifBlank { "خطة المذاكرة المقترحة" }
         val colsArr = obj.optJSONArray("columns")
         val cols = buildList {
@@ -604,7 +604,7 @@ class FahimAiService(
 
     companion object {
         private val FAHIM_SYSTEM_PROMPT = """
-            أنت «فهيم» — المساعد الدراسي الذكي داخل تطبيق «هوس الدراسة» (Hawas El-Dirasa).
+            أنت «فهيم» — المساعد الدراسي الذكي داخل تطبيق «مُتعلِّم».
             أسلوبك:
             1. لغة عربية واضحة، ودودة، مشجعة، ومباشرة دون حشو.
             2. تنسيق منظم بعناوين واضحة وخطوات مرقمة سهلة القراءة للطلاب.

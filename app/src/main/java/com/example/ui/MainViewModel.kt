@@ -210,19 +210,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val aiErrorMessage = MutableStateFlow<String?>(null)
     val aiTutorResponse = MutableStateFlow<String?>(null)
 
-    // Fahim AI Assistant (Gemini / DeepSeek + Smart Whiteboard + Multi-Dialect TTS + Auto Schedule/Tasks)
+    // Fahim AI Assistant (Gemini + OpenMAIC Smart Whiteboard + Dual-Dialect TTS + Auto Schedule/Tasks)
     private val fahimAiService by lazy { com.example.domain.ai.FahimAiService(aiRepository) }
     private val fahimBoardEngine by lazy { com.example.domain.ai.FahimBoardDrawingEngine() }
+    private val openMaicEngine by lazy { com.example.domain.ai.OpenMaicPdfBoardEngine() }
     val fahimVoiceEngine by lazy { com.example.domain.ai.FahimVoiceEngine(getApplication()) }
     val fahimMessages = MutableStateFlow<List<com.example.domain.ai.FahimChatMessage>>(emptyList())
     val isFahimLoading = MutableStateFlow(false)
     val isSuggestedWeeklyTableAdded = MutableStateFlow(false)
-    val whiteboardLesson = MutableStateFlow(
-        fahimBoardEngine.buildLocalWhiteboardLesson(
-            "مساحة الجزء المظلل",
-            com.example.domain.ai.FahimDialect.EGYPTIAN
+    val openMaicPdfDoc = MutableStateFlow<com.example.domain.ai.OpenMaicPdfDocument?>(null)
+    val openMaicSession = MutableStateFlow(
+        openMaicEngine.buildLocalOpenMaicSession(
+            topic = "مساحة الجزء المظلل",
+            dialect = com.example.domain.ai.FahimDialect.EGYPTIAN
         )
     )
+    val whiteboardLesson = MutableStateFlow(openMaicSession.value.lesson)
     val isWhiteboardLoading = MutableStateFlow(false)
     val pendingWhiteboardPrompt = MutableStateFlow<String?>(null)
 
@@ -2591,23 +2594,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             isWhiteboardLoading.value = true
-            val lesson = fahimBoardEngine.generateWhiteboardLesson(
-                prompt = prompt,
+            val session = openMaicEngine.runMultiAgentClassroom(
+                topicOrQuestion = prompt,
                 dialect = dialect,
+                pdfDoc = openMaicPdfDoc.value,
                 customGeminiKey = userSettings.value.geminiApiKey
             )
-            whiteboardLesson.value = lesson
+            openMaicSession.value = session
+            whiteboardLesson.value = session.lesson
             isWhiteboardLoading.value = false
             if (autoSpeak) {
                 val settings = userSettings.value
                 fahimVoiceEngine.speakLessonSteps(
-                    steps = lesson.steps,
+                    steps = session.lesson.steps,
                     dialect = dialect,
                     piperUrl = settings.piperTtsUrl,
                     coquiUrl = settings.coquiTtsUrl,
-                    voiceApiKey = settings.voiceTtsApiKey
+                    voiceApiKey = settings.voiceTtsApiKey,
+                    gender = fahimVoiceEngine.voiceGender.value,
+                    speed = fahimVoiceEngine.speechRate.value
                 )
             }
+        }
+    }
+
+    fun loadPdfForWhiteboard(
+        uri: Uri,
+        pageIndex: Int = 0,
+        autoExplain: Boolean = true
+    ) {
+        viewModelScope.launch {
+            isWhiteboardLoading.value = true
+            val doc = openMaicEngine.inspectAndLoadPdfPage(getApplication(), uri, pageIndex)
+            if (doc != null) {
+                openMaicPdfDoc.value = doc
+                val dialect = com.example.domain.ai.FahimDialect.fromName(userSettings.value.fahimDialect)
+                if (autoExplain) {
+                    val session = openMaicEngine.runMultiAgentClassroom(
+                        topicOrQuestion = "اشرح صفحة ${doc.currentPageIndex + 1} من ${doc.displayName}",
+                        dialect = dialect,
+                        pdfDoc = doc,
+                        customGeminiKey = userSettings.value.geminiApiKey
+                    )
+                    openMaicSession.value = session
+                    whiteboardLesson.value = session.lesson
+                }
+            }
+            isWhiteboardLoading.value = false
+        }
+    }
+
+    fun selectPdfPageForWhiteboard(pageIndex: Int, autoExplain: Boolean = true) {
+        val currentDoc = openMaicPdfDoc.value ?: return
+        val safePage = pageIndex.coerceIn(0, (currentDoc.pageCount - 1).coerceAtLeast(0))
+        loadPdfForWhiteboard(Uri.parse(currentDoc.uriString), pageIndex = safePage, autoExplain = autoExplain)
+    }
+
+    fun clearPdfFromWhiteboard() {
+        openMaicPdfDoc.value = null
+    }
+
+    fun saveOpenMaicScheduleToTasks(onComplete: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            val session = openMaicSession.value
+            val inserted = persistFahimTableToRoom(session.studyTable)
+            if (inserted > 0) {
+                openMaicSession.value = session.copy(isSavedToTasks = true)
+                soundManager.playSuccess()
+            }
+            onComplete(inserted)
         }
     }
 
@@ -2620,22 +2675,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateFahimDialect(dialect: com.example.domain.ai.FahimDialect) {
         viewModelScope.launch {
             prefsRepo.updateFahimDialect(dialect.name)
-            val currentLesson = whiteboardLesson.value
-            val updated = fahimBoardEngine.buildLocalWhiteboardLesson(currentLesson.title, dialect)
-            if (updated.sceneType == currentLesson.sceneType) {
-                whiteboardLesson.value = updated
+            val currentSession = openMaicSession.value
+            val updated = openMaicEngine.buildLocalOpenMaicSession(
+                topic = currentSession.topicTitle,
+                dialect = dialect,
+                pdfDoc = openMaicPdfDoc.value
+            )
+            if (updated.lesson.sceneType == currentSession.lesson.sceneType && openMaicPdfDoc.value == null) {
+                openMaicSession.value = updated.copy(
+                    mindMap = currentSession.mindMap,
+                    studyTable = currentSession.studyTable,
+                    isSavedToTasks = currentSession.isSavedToTasks
+                )
+                whiteboardLesson.value = updated.lesson
                 val settings = userSettings.value
                 fahimVoiceEngine.speakLessonSteps(
-                    steps = updated.steps,
+                    steps = updated.lesson.steps,
                     dialect = dialect,
                     piperUrl = settings.piperTtsUrl,
                     coquiUrl = settings.coquiTtsUrl,
-                    voiceApiKey = settings.voiceTtsApiKey
+                    voiceApiKey = settings.voiceTtsApiKey,
+                    gender = fahimVoiceEngine.voiceGender.value,
+                    speed = fahimVoiceEngine.speechRate.value
                 )
             } else {
-                loadWhiteboardLesson(currentLesson.title, dialect, autoSpeak = true)
+                loadWhiteboardLesson(currentSession.topicTitle, dialect, autoSpeak = true)
             }
         }
+    }
+
+    fun toggleFahimVoiceGender(gender: com.example.domain.ai.FahimVoiceGender) {
+        fahimVoiceEngine.setVoiceGender(gender)
+    }
+
+    fun cycleFahimSpeechRate(): Float = fahimVoiceEngine.cycleSpeechRate()
+
+    suspend fun testDeveloperGeminiKey(rawKey: String): com.example.domain.ai.GeminiConnectionTestResult {
+        return com.example.domain.ai.FahimGeminiClient().testConnection(rawKey)
     }
 
     fun saveDeveloperFahimSettings(

@@ -282,7 +282,7 @@ fun CreateBatchScreen(viewModel: DofaatiViewModel) {
                                     type = "text/plain"
                                     putExtra(
                                         Intent.EXTRA_TEXT,
-                                        "انضم لدفعة «${created.name}» في تطبيق هوس الدراسة عبر الكود: ${created.code}"
+                                        "انضم لدفعة «${created.name}» في تطبيق مُتعلِّم عبر الكود: ${created.code}"
                                     )
                                 }
                                 runCatching { context.startActivity(Intent.createChooser(shareIntent, "مشاركة كود الدفعة")) }

@@ -55,7 +55,7 @@ fun CommunityScreen(
                 avatar = "👩‍🎓",
                 grade = "الصف الثاني الثانوي",
                 timeAgo = "منذ ساعة",
-                content = "الحمد لله أتممت اليوم مراجعة الفصل الأول أحياء وحليت 50 سؤال على هوس الدراسة، النقاط والبطاقات ساعدتني جداً في المراجعة!",
+                content = "الحمد لله أتممت اليوم مراجعة الفصل الأول أحياء وحليت 50 سؤال على مُتعلِّم، النقاط والبطاقات ساعدتني جداً في المراجعة!",
                 tag = "إنجاز 🏆",
                 likes = 28,
                 commentsCount = 4
@@ -86,7 +86,7 @@ fun CommunityScreen(
         ) {
             item {
                 CurvedHeader(
-                    title = "مجتمع هوس الدراسة 👥",
+                    title = "مجتمع مُتعلِّم 👥",
                     subtitle = "تواصل مع زملائك، تبادلوا النصائح والخبرات، وشجعوا بعضكم على التفوق",
                     gradientColors = listOf(Color(0xFF4A148C), NavPurple),
                     onMenuClick = onOpenDrawer

@@ -354,7 +354,7 @@ fun StudentLoginScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.MenuBook,
-                            contentDescription = "شعار هوس الدراسة",
+                            contentDescription = "شعار مُتعلِّم",
                             tint = Color.White,
                             modifier = Modifier.size(44.dp)
                         )
@@ -363,12 +363,12 @@ fun StudentLoginScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // App Brand Name: "هَوَسُ الدِّرَاسَةِ"
+                // App Brand Name: "مُتعلِّم"
                 Text(
-                    text = "هوس الدراسة",
+                    text = "مُتعلِّم",
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2563EB),
+                    color = Color(0xFF1A6FE3),
                     letterSpacing = (-0.5).sp
                 )
 
@@ -664,12 +664,12 @@ fun StudentRegisterScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Brand Title: "هَوَسُ الدِّرَاسَةِ"
+                // Brand Title: "مُتعلِّم"
                 Text(
-                    text = "هوس الدراسة",
+                    text = "مُتعلِّم",
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2563EB),
+                    color = Color(0xFF1A6FE3),
                     letterSpacing = (-0.5).sp
                 )
 
@@ -1051,21 +1051,24 @@ fun SplashScreen(onSplashFinished: () -> Unit) {
             withStyle(
                 SpanStyle(
                     brush = Brush.horizontalGradient(
-                        listOf(Color(0xFF0EA5E9), Color(0xFF1A6FE3))
+                        listOf(Color(0xFF1A6FE3), Color(0xFF0EA5E9))
                     )
                 )
             ) {
-                append("هَوَسُ ")
-            }
-            withStyle(SpanStyle(color = Color(0xFF0F172A))) {
-                append("الد")
+                append("م\u064Fتعل")
             }
             // Pure color-only SpanStyle preserves HarfBuzz Arabic diacritic ligatures
-            withStyle(SpanStyle(color = Color(0xFFD97706))) {
+            withStyle(SpanStyle(color = Color(0xFF1E1B18))) {
                 append("\u0651\u0650")
             }
-            withStyle(SpanStyle(color = Color(0xFF0F172A))) {
-                append("رَاسَة")
+            withStyle(
+                SpanStyle(
+                    brush = Brush.horizontalGradient(
+                        listOf(Color(0xFF1A6FE3), Color(0xFF0EA5E9))
+                    )
+                )
+            ) {
+                append("م")
             }
         }
     }
@@ -1201,7 +1204,7 @@ private fun SplashHeroIconBadge() {
         ) {
             Image(
                 painter = painterResource(id = R.drawable.ic_launcher_art),
-                contentDescription = "شعار هوس الدراسة",
+                contentDescription = "شعار مُتعلِّم",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()

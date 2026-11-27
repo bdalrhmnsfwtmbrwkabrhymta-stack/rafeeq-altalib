@@ -109,6 +109,7 @@ import com.example.ui.components.AiFormattedContent
 import com.example.ui.screens.ai.FahimInteractiveMascot
 import com.example.ui.screens.ai.FahimMindMapCanvas
 import com.example.ui.screens.ai.FahimSmartTableCard
+import com.example.ui.screens.ai.SecretDeveloperControlDialogs
 import com.example.ui.screens.ai.StudyPlanBuilderDialog
 import com.example.ui.theme.ReadexProFontFamily
 import java.io.ByteArrayOutputStream
@@ -146,8 +147,6 @@ fun AiScreen(
     var comparisonTopicInput by remember { mutableStateOf("") }
     var showDevPinDialog by remember { mutableStateOf(false) }
     var showDevPanelDialog by remember { mutableStateOf(false) }
-    var devPinInput by remember { mutableStateOf("") }
-    var devPinError by remember { mutableStateOf(false) }
     var isListeningVoice by remember { mutableStateOf(false) }
     var speakingMessageId by remember { mutableStateOf<String?>(null) }
     var pdfExportStatus by remember { mutableStateOf<String?>(null) }
@@ -410,158 +409,19 @@ fun AiScreen(
         )
     }
 
-    // Secret Developer Control Panel PIN Gate (PIN: 2026)
-    if (showDevPinDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showDevPinDialog = false
-                devPinInput = ""
-                devPinError = false
-            },
-            containerColor = DaylightSurface,
-            icon = { Icon(Icons.Default.AdminPanelSettings, null, tint = FahimBlue) },
-            title = {
-                Text(
-                    text = "لوحة المطور السرية",
-                    fontFamily = ReadexProFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    color = DaylightInk
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "أدخل الرمز السري للمطور للتحكم في مفاتيح Gemini وروابط الصوت:",
-                        fontFamily = ReadexProFontFamily,
-                        fontSize = 13.5.sp,
-                        color = DaylightMuted
-                    )
-                    OutlinedTextField(
-                        value = devPinInput,
-                        onValueChange = {
-                            devPinInput = it
-                            devPinError = false
-                        },
-                        label = { Text("الرمز السري (PIN)") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        isError = devPinError,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("developer_pin_field")
-                    )
-                    if (devPinError) {
-                        Text(
-                            text = "الرمز غير صحيح",
-                            fontFamily = ReadexProFontFamily,
-                            fontSize = 12.5.sp,
-                            color = Color(0xFFEF4444)
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (devPinInput.trim() == FahimConfig.DEVELOPER_CONTROL_PIN) {
-                            showDevPinDialog = false
-                            devPinInput = ""
-                            devPinError = false
-                            showDevPanelDialog = true
-                        } else {
-                            devPinError = true
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = FahimBlue),
-                    modifier = Modifier.testTag("developer_pin_confirm")
-                ) {
-                    Text("دخول", fontFamily = ReadexProFontFamily)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDevPinDialog = false }) {
-                    Text("إلغاء", fontFamily = ReadexProFontFamily)
-                }
-            }
-        )
-    }
-
-    if (showDevPanelDialog) {
-        var devGeminiKey by remember { mutableStateOf(userSettings.geminiApiKey) }
-        var devPiperUrl by remember { mutableStateOf(userSettings.piperTtsUrl) }
-        var devCoquiUrl by remember { mutableStateOf(userSettings.coquiTtsUrl) }
-        var devVoiceKey by remember { mutableStateOf(userSettings.voiceTtsApiKey) }
-
-        AlertDialog(
-            onDismissRequest = { showDevPanelDialog = false },
-            containerColor = DaylightSurface,
-            title = {
-                Text(
-                    text = "إعدادات المطور (Gemini & TTS)",
-                    fontFamily = ReadexProFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    color = DaylightInk
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = devGeminiKey,
-                        onValueChange = { devGeminiKey = it },
-                        label = { Text("Gemini API Key (gemini-2.5-flash)") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = devPiperUrl,
-                        onValueChange = { devPiperUrl = it },
-                        label = { Text("Piper TTS URL (اختياري)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = devCoquiUrl,
-                        onValueChange = { devCoquiUrl = it },
-                        label = { Text("Coqui TTS URL (اختياري)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = devVoiceKey,
-                        onValueChange = { devVoiceKey = it },
-                        label = { Text("Voice TTS API Key (اختياري)") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.saveDeveloperFahimSettings(
-                            geminiKey = devGeminiKey,
-                            piperUrl = devPiperUrl,
-                            coquiUrl = devCoquiUrl,
-                            voiceKey = devVoiceKey
-                        )
-                        showDevPanelDialog = false
-                        Toast.makeText(context, "تم حفظ إعدادات المطور بأمان", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = FahimEmerald)
-                ) {
-                    Text("حفظ", fontFamily = ReadexProFontFamily)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDevPanelDialog = false }) {
-                    Text("إغلاق", fontFamily = ReadexProFontFamily)
-                }
-            }
-        )
-    }
+    // Secret Developer Control Panel (PIN: 2026) — invisible to regular students
+    SecretDeveloperControlDialogs(
+        showPinDialog = showDevPinDialog,
+        onDismissPinDialog = { showDevPinDialog = false },
+        showPanelDialog = showDevPanelDialog,
+        onPinVerifiedOpenPanel = {
+            showDevPinDialog = false
+            showDevPanelDialog = true
+        },
+        onDismissPanelDialog = { showDevPanelDialog = false },
+        userSettings = userSettings,
+        viewModel = viewModel
+    )
 
     Column(
         modifier = Modifier
@@ -738,14 +598,6 @@ fun AiScreen(
                                         }
                                     )
                                 }
-                                DropdownMenuItem(
-                                    text = { Text("إعدادات المطور (PIN)", fontFamily = ReadexProFontFamily, color = DaylightMuted) },
-                                    leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null, tint = DaylightMuted) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showDevPinDialog = true
-                                    }
-                                )
                             }
                         }
                     }

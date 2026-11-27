@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">هوس الدراسة</string>
+    <string name="app_name">مُتعلِّم</string>
     <string name="developer_name">عبد الرحمن صفوت عطا</string>
 
     <!-- Firebase App Measurement Fallback configuration to prevent E/FA Missing google_app_id log warning -->
@@ -10,6 +10,6 @@
     <string name="google_api_key" translatable="false">AIzaSyDummyKeyForMeasurementDisable0000</string>
     <string name="google_crash_reporting_api_key" translatable="false">AIzaSyDummyKeyForMeasurementDisable0000</string>
     <string name="project_id" translatable="false">rafiq-altalib</string>
-    <string name="rafid_share_label">الرسالة — تحميل في هوس الدراسة</string>
-    <string name="smart_download_share_label">تحميل سريع — هوس الدراسة</string>
+    <string name="rafid_share_label">الرسالة — تحميل في مُتعلِّم</string>
+    <string name="smart_download_share_label">تحميل سريع — مُتعلِّم</string>
 </resources>

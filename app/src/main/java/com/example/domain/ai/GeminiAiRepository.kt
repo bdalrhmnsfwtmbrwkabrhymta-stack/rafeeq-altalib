@@ -68,8 +68,10 @@ data class UniversalAnkiCard(
 
 class GeminiAiRepository {
 
+    private val fahimGeminiClient = FahimGeminiClient()
+
     suspend fun generateText(prompt: String, customApiKey: String = ""): String {
-        return generateAiResponse(prompt = prompt, customApiKey = customApiKey).getOrElse { "مرحباً بك، أنا مساعدك الذكي في رفيق الطالب." }
+        return generateAiResponse(prompt = prompt, customApiKey = customApiKey).getOrElse { "مرحباً بك، أنا مساعدك الذكي في مُتعلِّم." }
     }
 
     suspend fun generateStudyResponse(prompt: String, customApiKey: String = ""): String {
@@ -335,7 +337,7 @@ class GeminiAiRepository {
              5. **لغة عربية سليمة**: قدم الإجابة بلغة عربية فصحى مشجعة ومحفزة تنمي ثقة الطالب بنفسه وتساعده على التفوق الدراسي.
         """.trimIndent(),
         customApiKey: String = "",
-        modelName: String = "gemini-3.5-flash",
+        modelName: String = FahimConfig.PRIMARY_MODEL,
         imageBytesBase64: String? = null,
         imageMimeType: String = "image/jpeg",
         audioBytesBase64: String? = null,
@@ -345,7 +347,7 @@ class GeminiAiRepository {
         enableHighThinking: Boolean = false,
         chatHistory: List<Pair<Boolean, String>> = emptyList()
     ): Result<String> = withContext(Dispatchers.IO) {
-        val apiKey = if (customApiKey.isNotBlank()) customApiKey else BuildConfig.GEMINI_API_KEY
+        val apiKey = FahimConfig.resolveGeminiApiKey(customApiKey)
         val hasGeminiKey = apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY"
         val hasImageOrAudio = !imageBytesBase64.isNullOrEmpty() || !audioBytesBase64.isNullOrEmpty()
 
@@ -361,23 +363,36 @@ class GeminiAiRepository {
             }
         }
 
-        // Adjust effective model based on feature requirements
-        // For vision / image STEM analysis or high-thinking tasks, gemini-3.1-pro-preview provides top-tier reasoning and vision accuracy.
         val effectiveModel = when {
             modelName == "lyria-3-clip-preview" || modelName == "lyria-3-pro-preview" -> modelName
             modelName == "gemini-3.5-transcribe" || (!audioBytesBase64.isNullOrEmpty() && modelName.contains("transcribe")) -> "gemini-3.5-transcribe"
             modelName == "gemini-3.1-flash-image-preview" -> "gemini-3.1-flash-image-preview"
-            enableHighThinking -> "gemini-3.1-pro-preview"
-            !imageBytesBase64.isNullOrEmpty() && (modelName == "gemini-3.1-pro-preview" || enableHighThinking) -> "gemini-3.1-pro-preview"
-            !imageBytesBase64.isNullOrEmpty() -> "gemini-3.5-flash"
-            !audioBytesBase64.isNullOrEmpty() || enableGoogleSearch || enableGoogleMaps -> "gemini-3.5-flash"
-            modelName == "gemini-3.1-flash-lite" -> "gemini-3.1-flash-lite"
-            modelName == "gemini-3.1-pro-preview" -> "gemini-3.1-pro-preview"
-            else -> "gemini-3.5-flash"
+            enableHighThinking -> FahimConfig.PRIMARY_MODEL
+            else -> if (modelName.isBlank() || modelName == "gemini-3.5-flash") FahimConfig.PRIMARY_MODEL else modelName.trim()
         }
 
         if (!hasGeminiKey) {
             return@withContext Result.success(generateOfflineAcademicResponse(prompt))
+        }
+
+        val isSpecialExperimentalModel = effectiveModel.startsWith("lyria") ||
+            effectiveModel == "gemini-3.5-transcribe" ||
+            effectiveModel == "gemini-3.1-flash-image-preview"
+
+        if (!isSpecialExperimentalModel && !enableHighThinking) {
+            return@withContext fahimGeminiClient.generateContent(
+                prompt = prompt,
+                apiKey = apiKey,
+                systemInstruction = systemInstruction,
+                preferredModel = effectiveModel,
+                imageBytesBase64 = imageBytesBase64,
+                imageMimeType = imageMimeType,
+                audioBytesBase64 = audioBytesBase64,
+                audioMimeType = audioMimeType,
+                chatHistory = chatHistory,
+                enableGoogleSearch = enableGoogleSearch,
+                enableGoogleMaps = enableGoogleMaps
+            )
         }
 
         try {
@@ -386,8 +401,8 @@ class GeminiAiRepository {
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
-                connectTimeout = 30000
-                readTimeout = 30000
+                connectTimeout = 60000
+                readTimeout = 60000
                 doOutput = true
             }
 
@@ -641,17 +656,12 @@ class GeminiAiRepository {
     }
 
     suspend fun testGeminiConnection(customApiKey: String): Result<String> = withContext(Dispatchers.IO) {
-        val apiKey = if (customApiKey.isNotBlank()) customApiKey else BuildConfig.GEMINI_API_KEY
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext Result.failure(IllegalStateException("يرجى إدخال مفتاح Gemini API أولاً للاختبار."))
+        val result = fahimGeminiClient.testConnection(FahimConfig.resolveGeminiApiKey(customApiKey))
+        if (result.isSuccess) {
+            Result.success(result.messageAr)
+        } else {
+            Result.failure(IllegalStateException(result.messageAr))
         }
-        val res = generateAiResponse(
-            prompt = "قل: الاتصال بخدمة Gemini ناجح وجاهز للاستخدام.",
-            systemInstruction = "أنت مساعد دراسي لتطبيق رفيق الطالب. أجب بجملة تأكيد قصيرة جداً.",
-            customApiKey = apiKey,
-            modelName = "gemini-3.5-flash"
-        )
-        res
     }
 
     suspend fun summarizeLesson(text: String, customApiKey: String): Result<String> {

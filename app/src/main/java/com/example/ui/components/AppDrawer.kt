@@ -207,7 +207,7 @@ fun AppDrawerContent(
 
             // Bottom note
             Text(
-                text = "هوس الدراسة • طريقك نحو مستقبل أفضل",
+                text = "مُتعلِّم • طريقك نحو مستقبل أفضل",
                 fontSize = 11.sp,
                 color = TextMuted,
                 modifier = Modifier

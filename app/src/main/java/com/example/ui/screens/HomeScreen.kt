@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -52,6 +53,7 @@ import com.example.R
 import com.example.domain.telegram.DailyTelegramReportHelper
 import com.example.ui.MainViewModel
 import com.example.ui.components.AutoSizeText
+import com.example.ui.screens.ai.SecretDeveloperControlDialogs
 import com.example.ui.theme.CURATED_ACCENT_CHOICES
 import com.example.ui.theme.DisplayArabicFontFamily
 import com.example.ui.theme.HeaderBrandAmiriFontFamily
@@ -119,6 +121,10 @@ fun HomeScreen(
     var showAccentPickerBar by remember { mutableStateOf(false) }
     var showExamDialog by remember { mutableStateOf(false) }
     var showQuickFahimCommandDialog by remember { mutableStateOf(false) }
+    var showDevPinDialog by remember { mutableStateOf(false) }
+    var showDevPanelDialog by remember { mutableStateOf(false) }
+    var headerTapCount by remember { mutableIntStateOf(0) }
+    var lastHeaderTapMs by remember { mutableLongStateOf(0L) }
 
     // Live clock ticker for Prayer countdown
     var currentTimeMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -280,38 +286,59 @@ fun HomeScreen(
                                 )
                             }
                             Spacer(modifier = Modifier.width(4.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                val titleNavyColor = if (isDarkTheme) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-                                val shaddaAccentColor = if (isDarkTheme) Color(0xFFF59E0B) else Color(0xFFD97706)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        val now = System.currentTimeMillis()
+                                        if (now - lastHeaderTapMs <= 2500L) {
+                                            headerTapCount++
+                                        } else {
+                                            headerTapCount = 1
+                                        }
+                                        lastHeaderTapMs = now
+                                        if (headerTapCount >= 5) {
+                                            headerTapCount = 0
+                                            showDevPinDialog = true
+                                        }
+                                    }
+                            ) {
+                                val titleDiacriticColor = if (isDarkTheme) Color(0xFFF8FAFC) else Color(0xFF1E1B18)
                                 val styledAppTitle = remember(isDarkTheme) {
                                     buildAnnotatedString {
-                                        // RTL visual sweep: #1A6FE3 on right ('هـ') -> #0EA5E9 on left ('سُ')
+                                        // RTL visual sweep: Royal Blue '#1A6FE3' -> Sky '#0EA5E9'
                                         withStyle(
                                             SpanStyle(
                                                 brush = Brush.horizontalGradient(
-                                                    listOf(Color(0xFF0EA5E9), Color(0xFF1A6FE3))
+                                                    listOf(Color(0xFF1A6FE3), Color(0xFF0EA5E9))
                                                 )
                                             )
                                         ) {
-                                            append("هَوَسُ ")
-                                        }
-                                        withStyle(SpanStyle(color = titleNavyColor)) {
-                                            append("الد")
+                                            append("م\u064Fتعل")
                                         }
                                         // Pure color-only SpanStyle avoids MetricAffectingSpan splitting HarfBuzz diacritic clusters
-                                        withStyle(SpanStyle(color = shaddaAccentColor)) {
+                                        withStyle(SpanStyle(color = titleDiacriticColor)) {
                                             append("\u0651\u0650")
                                         }
-                                        withStyle(SpanStyle(color = titleNavyColor)) {
-                                            append("رَاسَة")
+                                        withStyle(
+                                            SpanStyle(
+                                                brush = Brush.horizontalGradient(
+                                                    listOf(Color(0xFF1A6FE3), Color(0xFF0EA5E9))
+                                                )
+                                            )
+                                        ) {
+                                            append("م")
                                         }
                                     }
                                 }
                                 AutoSizeText(
                                     text = styledAppTitle,
                                     fontFamily = HeaderBrandAmiriFontFamily,
-                                    maxFontSize = 21.sp,
-                                    minFontSize = 15.5.sp,
+                                    maxFontSize = 23.sp,
+                                    minFontSize = 16.sp,
                                     lineHeightRatio = 1.32f,
                                     fontWeight = FontWeight.Bold,
                                     overflowToTwoLinesAtMinSize = false,
@@ -847,7 +874,7 @@ fun HomeScreen(
                                         color = tipLabelPink
                                     )
                                     Text(
-                                        text = "من هوس الدراسة ليك",
+                                        text = "من مُتعلِّم ليك",
                                         fontFamily = DisplayArabicFontFamily,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.ExtraBold,
@@ -972,7 +999,7 @@ fun HomeScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "المكتبة الدراسية وكل أدوات هوس الدراسة على بُعد ضغطة واحدة",
+                        text = "المكتبة الدراسية وكل أدوات مُتعلِّم على بُعد ضغطة واحدة",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = textSub
@@ -1322,6 +1349,20 @@ fun HomeScreen(
                 onDismiss = { showExamDialog = false }
             )
         }
+
+        // Secret Developer Panel triggered by 5 consecutive taps on "مُتعلِّم" (PIN: 2026)
+        SecretDeveloperControlDialogs(
+            showPinDialog = showDevPinDialog,
+            onDismissPinDialog = { showDevPinDialog = false },
+            showPanelDialog = showDevPanelDialog,
+            onPinVerifiedOpenPanel = {
+                showDevPinDialog = false
+                showDevPanelDialog = true
+            },
+            onDismissPanelDialog = { showDevPanelDialog = false },
+            userSettings = userSettings,
+            viewModel = viewModel
+        )
 
         if (showQuickFahimCommandDialog) {
             var quickQuery by remember { mutableStateOf("") }

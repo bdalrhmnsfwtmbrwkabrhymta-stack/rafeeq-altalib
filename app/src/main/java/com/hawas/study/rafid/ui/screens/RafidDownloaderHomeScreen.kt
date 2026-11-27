@@ -191,7 +191,7 @@ fun RafidDownloaderHomeScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = if (isEnglish) "Back to Study Obsession" else "العودة لتطبيق هوس الدراسة",
+                            contentDescription = if (isEnglish) "Back to Mutaallim" else "العودة لتطبيق مُتعلِّم",
                             tint = palette.textPrimary
                         )
                     }

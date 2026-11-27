@@ -29,7 +29,7 @@ class StartupSmokeTest {
         composeTestRule.onNodeWithTag("splash_screen_root").assertIsDisplayed()
         composeTestRule.onNodeWithTag("splash_3d_icon", useUnmergedTree = true).assertIsDisplayed()
         composeTestRule.onNodeWithTag("splash_brand_title", useUnmergedTree = true).assertIsDisplayed()
-        composeTestRule.onNodeWithText("هَوَسُ الدِّرَاسَة", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("مُتعلِّم", useUnmergedTree = true).assertIsDisplayed()
         composeTestRule.onNodeWithText("منظمتك الدراسية والدينية الشاملة", useUnmergedTree = true).assertIsDisplayed()
         composeTestRule.onNodeWithText("المطور: عبد الرحمن صفوت عطا", useUnmergedTree = true).assertIsDisplayed()
 

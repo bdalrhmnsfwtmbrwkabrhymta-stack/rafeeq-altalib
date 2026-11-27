@@ -75,7 +75,7 @@ fun AppLockScreen(
             errorMessage = null
             BiometricAuthManager.authenticate(
                 activity = activity,
-                title = if (isEnglish) "Hawas Al-Dirasa App Lock 🔒" else "قفل تطبيق هوس الدراسة 🔒",
+                title = if (isEnglish) "Mutaallim App Lock 🔒" else "قفل تطبيق مُتعلِّم 🔒",
                 subtitle = if (isEnglish) "Confirm fingerprint or face to access your study platform" else "استخدم بصمة الإصبع أو الوجه لتأكيد هويتك والدخول",
                 negativeButtonText = if (isEnglish) "Use PIN / Cancel" else "إلغاء / استخدام PIN",
                 onSuccess = {

@@ -19,10 +19,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,13 +40,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -79,9 +90,11 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -92,6 +105,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.domain.ai.FahimDialect
+import com.example.domain.ai.FahimVoiceGender
 import com.example.domain.ai.FahimWhiteboardLesson
 import com.example.domain.ai.WhiteboardGeometryScene
 import com.example.domain.ai.WhiteboardStep
@@ -116,9 +130,13 @@ fun FahimSmartWhiteboardScreen(
     val context = LocalContext.current
     val settings by viewModel.userSettings.collectAsState()
     val lesson by viewModel.whiteboardLesson.collectAsState()
+    val openMaicSession by viewModel.openMaicSession.collectAsState()
+    val openMaicPdfDoc by viewModel.openMaicPdfDoc.collectAsState()
     val isLoading by viewModel.isWhiteboardLoading.collectAsState()
     val isSpeaking by viewModel.fahimVoiceEngine.isSpeaking.collectAsState()
     val activeStepIndex by viewModel.fahimVoiceEngine.activeStepIndex.collectAsState()
+    val voiceGender by viewModel.fahimVoiceEngine.voiceGender.collectAsState()
+    val speechRate by viewModel.fahimVoiceEngine.speechRate.collectAsState()
 
     val selectedDialect = remember(settings.fahimDialect) {
         FahimDialect.fromName(settings.fahimDialect)
@@ -127,6 +145,23 @@ fun FahimSmartWhiteboardScreen(
     var questionInput by remember { mutableStateOf("") }
     var replayNonce by remember { mutableIntStateOf(0) }
     var isListeningVoice by remember { mutableStateOf(false) }
+    var showPdfPreviewImage by remember { mutableStateOf(true) }
+    var activeAgentTab by remember { mutableIntStateOf(0) } // 0: MindMap, 1: StudyTable, 2: AgentSummary
+
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            viewModel.loadPdfForWhiteboard(uri, pageIndex = 0, autoExplain = true)
+            replayNonce++
+        }
+    }
 
     val drawProgress = remember { Animatable(0f) }
 
@@ -251,7 +286,7 @@ fun FahimSmartWhiteboardScreen(
             }
         }
 
-        // Scrollable Whiteboard + Controls
+        // Scrollable OpenMAIC PDF Controls + Whiteboard + Agent Cards + Audio Controls
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -260,6 +295,192 @@ fun FahimSmartWhiteboardScreen(
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // OpenMAIC PDF Upload & Multi-Page Classroom Bar
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = Color.White,
+                border = BorderStroke(1.2.dp, BoardGridLine),
+                shadowElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("openmaic_pdf_bar")
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFFEFF6FF)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PictureAsPdf,
+                                    contentDescription = "قارئ OpenMAIC PDF",
+                                    tint = BoardRoyalBlue,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = openMaicPdfDoc?.displayName ?: "سبورة OpenMAIC الذكية",
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = BoardCharcoal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = openMaicPdfDoc?.let {
+                                        "صفحة ${it.currentPageIndex + 1} من ${it.pageCount} • جاهزة للشرح والخريطة"
+                                    } ?: "ارفع كتاب أو ملزمة PDF ليشرحها فهيم بالرسوم والخرائط",
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFF64748B),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = BoardRoyalBlue,
+                            modifier = Modifier.testTag("openmaic_upload_pdf_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.UploadFile,
+                                    contentDescription = "رفع ملف PDF",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = if (openMaicPdfDoc == null) "رفع PDF" else "تغيير",
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    openMaicPdfDoc?.let { pdfDoc ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                onClick = {
+                                    if (pdfDoc.currentPageIndex > 0) {
+                                        viewModel.selectPdfPageForWhiteboard(pdfDoc.currentPageIndex - 1)
+                                        replayNonce++
+                                    }
+                                },
+                                enabled = pdfDoc.currentPageIndex > 0 && !isLoading,
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF1F5F9),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = "السابق", tint = BoardCharcoal, modifier = Modifier.size(18.dp))
+                                    Text("السابق", fontFamily = ReadexProFontFamily, fontSize = 12.sp, color = BoardCharcoal)
+                                }
+                            }
+
+                            Surface(
+                                onClick = {
+                                    if (pdfDoc.currentPageIndex + 1 < pdfDoc.pageCount) {
+                                        viewModel.selectPdfPageForWhiteboard(pdfDoc.currentPageIndex + 1)
+                                        replayNonce++
+                                    }
+                                },
+                                enabled = pdfDoc.currentPageIndex + 1 < pdfDoc.pageCount && !isLoading,
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF1F5F9),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("التالي", fontFamily = ReadexProFontFamily, fontSize = 12.sp, color = BoardCharcoal)
+                                    Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = "التالي", tint = BoardCharcoal, modifier = Modifier.size(18.dp))
+                                }
+                            }
+
+                            Surface(
+                                onClick = { showPdfPreviewImage = !showPdfPreviewImage },
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFEFF6FF),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Visibility, contentDescription = "معاينة الصفحة", tint = BoardRoyalBlue, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (showPdfPreviewImage) "إخفاء" else "عرض", fontFamily = ReadexProFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = BoardRoyalBlue)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.weight(1f))
+
+                            IconButton(
+                                onClick = { viewModel.clearPdfFromWhiteboard() },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "إغلاق PDF", tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        if (showPdfPreviewImage && pdfDoc.currentPagePreviewBitmap != null) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, BoardGridLine),
+                                color = Color(0xFFF8FAFC),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(170.dp)
+                            ) {
+                                Image(
+                                    bitmap = pdfDoc.currentPagePreviewBitmap.asImageBitmap(),
+                                    contentDescription = "معاينة صفحة ${pdfDoc.currentPageIndex + 1}",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // 2. Main Interactive Grid-Paper Whiteboard Card
             Surface(
                 modifier = Modifier
@@ -332,7 +553,7 @@ fun FahimSmartWhiteboardScreen(
                                 )
                             }
 
-                            FahimWhiteboardTeacherAvatar(isDrawing = drawProgress.value < 1f || isSpeaking)
+                            FahimTeacherAvatar3D(isDrawing = drawProgress.value < 1f || isSpeaking)
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -409,13 +630,12 @@ fun FahimSmartWhiteboardScreen(
                 }
             }
 
-            // 3. Bottom Dialect Pills & Live Voice Waveform Controls
+            // 3. Dual-Dialect Audio Controls (EGYPTIAN / FUSHA ONLY + Teacher Gender + Speech Speed)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Voice & Dialects Control Card
                 Surface(
                     modifier = Modifier.weight(1.75f),
                     shape = RoundedCornerShape(18.dp),
@@ -427,8 +647,9 @@ fun FahimSmartWhiteboardScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Dialect Pills: Strictly 2 dialects only (مصري / فصحى)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -459,6 +680,81 @@ fun FahimSmartWhiteboardScreen(
                             }
                         }
 
+                        // Teacher Voice Gender (معلم / معلمة) & Speech Speed (0.75x - 1.5x)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FahimVoiceGender.entries.forEach { g ->
+                                val isGenderSelected = g == voiceGender
+                                Surface(
+                                    onClick = { viewModel.toggleFahimVoiceGender(g) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(32.dp)
+                                        .testTag("voice_gender_${g.name}"),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isGenderSelected) Color(0xFFEFF6FF) else Color(0xFFF8FAFC),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isGenderSelected) BoardRoyalBlue else BoardGridLine
+                                    )
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.RecordVoiceOver,
+                                            contentDescription = g.labelAr,
+                                            tint = if (isGenderSelected) BoardRoyalBlue else Color(0xFF64748B),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = g.labelAr,
+                                            fontFamily = ReadexProFontFamily,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isGenderSelected) BoardRoyalBlue else BoardCharcoal
+                                        )
+                                    }
+                                }
+                            }
+
+                            Surface(
+                                onClick = { viewModel.cycleFahimSpeechRate() },
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .testTag("voice_speed_toggle"),
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFFFFBEB),
+                                border = BorderStroke(1.dp, Color(0xFFFCD34D))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Speed,
+                                        contentDescription = "سرعة الصوت",
+                                        tint = BoardAmberGold,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "${speechRate}x",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BoardAmberGold
+                                    )
+                                }
+                            }
+                        }
+
                         // Animated Waveform + Play/Stop Status
                         Row(
                             modifier = Modifier
@@ -474,7 +770,9 @@ fun FahimSmartWhiteboardScreen(
                                             dialect = selectedDialect,
                                             piperUrl = settings.piperTtsUrl,
                                             coquiUrl = settings.coquiTtsUrl,
-                                            voiceApiKey = settings.voiceTtsApiKey
+                                            voiceApiKey = settings.voiceTtsApiKey,
+                                            gender = voiceGender,
+                                            speed = speechRate
                                         )
                                     }
                                 }
@@ -518,12 +816,14 @@ fun FahimSmartWhiteboardScreen(
                             dialect = selectedDialect,
                             piperUrl = settings.piperTtsUrl,
                             coquiUrl = settings.coquiTtsUrl,
-                            voiceApiKey = settings.voiceTtsApiKey
+                            voiceApiKey = settings.voiceTtsApiKey,
+                            gender = voiceGender,
+                            speed = speechRate
                         )
                     },
                     modifier = Modifier
-                        .weight(0.95f)
-                        .height(106.dp)
+                        .weight(0.88f)
+                        .height(140.dp)
                         .testTag("whiteboard_replay_button"),
                     shape = RoundedCornerShape(18.dp),
                     color = Color.White,
@@ -561,6 +861,106 @@ fun FahimSmartWhiteboardScreen(
                             textAlign = TextAlign.Center,
                             lineHeight = 16.sp
                         )
+                    }
+                }
+            }
+
+            // 4. OpenMAIC Multi-Agent Companion Cards (MindMap + StudyTable Auto-Tasks + Agent Summary)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val tabs = listOf(
+                    Triple(0, "الخريطة الذهنية", Icons.Default.AccountTree),
+                    Triple(1, "جدول المراجعة ✓", Icons.Default.CalendarMonth),
+                    Triple(2, "ملخص الوكلاء", Icons.Default.AutoAwesome)
+                )
+                tabs.forEach { (tabIndex, label, icon) ->
+                    val selected = activeAgentTab == tabIndex
+                    Surface(
+                        onClick = { activeAgentTab = tabIndex },
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (selected) BoardRoyalBlue else Color.White,
+                        border = BorderStroke(1.dp, if (selected) BoardRoyalBlue else BoardGridLine),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .testTag("openmaic_agent_tab_$tabIndex")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (selected) Color.White else BoardRoyalBlue,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = label,
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selected) Color.White else BoardCharcoal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            when (activeAgentTab) {
+                0 -> {
+                    FahimMindMapCanvas(mindMap = openMaicSession.mindMap)
+                }
+                1 -> {
+                    FahimSmartTableCard(
+                        table = openMaicSession.studyTable,
+                        isAddedToSchedule = openMaicSession.isSavedToTasks,
+                        onAddToSchedule = {
+                            viewModel.saveOpenMaicScheduleToTasks { count ->
+                                Toast.makeText(
+                                    context,
+                                    "تمت إضافة $count حصص تلقائياً لقسم مهامي ✓",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    )
+                }
+                else -> {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.2.dp, BoardGridLine),
+                        shadowElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "خلاصة وكلاء OpenMAIC • ${openMaicSession.topicTitle}",
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = BoardRoyalBlue
+                            )
+                            Text(
+                                text = openMaicSession.agentSummaryText,
+                                fontFamily = ReadexProFontFamily,
+                                fontSize = 13.5.sp,
+                                color = BoardCharcoal,
+                                lineHeight = 22.sp
+                            )
+                        }
                     }
                 }
             }
@@ -1007,65 +1407,7 @@ private fun BoardLegendChip(label: String, color: Color) {
     }
 }
 
-@Composable
-private fun FahimWhiteboardTeacherAvatar(isDrawing: Boolean) {
-    val transition = rememberInfiniteTransition(label = "wb_avatar")
-    val bob by transition.animateFloat(
-        initialValue = -3f,
-        targetValue = 3f,
-        animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Reverse),
-        label = "wb_bob"
-    )
-    Canvas(
-        modifier = Modifier
-            .size(62.dp)
-            .padding(top = (bob.coerceAtLeast(0f)).dp)
-    ) {
-        val w = size.width
-        val h = size.height
-        val cx = w * 0.5f
-
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(BoardRoyalBlue.copy(alpha = 0.25f), Color.Transparent)
-            ),
-            radius = w * 0.48f,
-            center = Offset(cx, h * 0.5f)
-        )
-        // Hood & Body
-        drawRoundRect(
-            color = Color(0xFF1E293B),
-            topLeft = Offset(cx - w * 0.30f, h * 0.16f),
-            size = Size(w * 0.60f, h * 0.56f),
-            cornerRadius = CornerRadius(w * 0.25f, w * 0.25f)
-        )
-        drawRoundRect(
-            color = BoardRoyalBlue,
-            topLeft = Offset(cx - w * 0.25f, h * 0.22f),
-            size = Size(w * 0.50f, h * 0.44f),
-            cornerRadius = CornerRadius(w * 0.18f, w * 0.18f),
-            style = Stroke(width = 2.dp.toPx())
-        )
-        drawRoundRect(
-            color = Color(0xFF090E1A),
-            topLeft = Offset(cx - w * 0.22f, h * 0.25f),
-            size = Size(w * 0.44f, h * 0.36f),
-            cornerRadius = CornerRadius(w * 0.16f, w * 0.16f)
-        )
-        // Happy Eyes
-        val eyeColor = if (isDrawing) Color(0xFF38BDF8) else BoardAmberGold
-        drawCircle(eyeColor, radius = w * 0.045f, center = Offset(cx - w * 0.08f, h * 0.41f))
-        drawCircle(eyeColor, radius = w * 0.045f, center = Offset(cx + w * 0.08f, h * 0.41f))
-        // Stylus Pen held by mascot
-        drawLine(
-            color = BoardRoyalBlue,
-            start = Offset(w * 0.08f, h * 0.78f),
-            end = Offset(w * 0.28f, h * 0.56f),
-            strokeWidth = 3.2.dp.toPx(),
-            cap = StrokeCap.Round
-        )
-    }
-}
+// Uses shared 3D glossy teacher mascot FahimTeacherAvatar3D from FahimMascot3D.kt
 
 @Composable
 private fun FahimAnimatedAudioWaveform(isActive: Boolean) {

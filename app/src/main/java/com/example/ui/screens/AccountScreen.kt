@@ -180,7 +180,7 @@ fun AccountScreen(
 
             item {
                 AccountOptionCard(
-                    title = "عن هوس الدراسة والمطور ℹ️",
+                    title = "عن مُتعلِّم والمطور ℹ️",
                     subtitle = "تطوير: عبد الرحمن صفوت عطا • الإصدار 3.0",
                     icon = Icons.Default.Info,
                     color = TextSecondary,
