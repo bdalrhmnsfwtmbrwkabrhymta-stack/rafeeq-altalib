@@ -18,6 +18,7 @@ import com.example.download.data.LiveProgressSnapshot
 import com.hawas.study.rafid.data.RafidDatabase
 import com.hawas.study.rafid.models.RafidDownloadEntity
 import com.hawas.study.rafid.models.RafidDownloadStatus
+import com.hawas.study.rafid.worker.DownloadQueueManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap
 class DownloadForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val serviceIoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var observerJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
@@ -37,6 +39,8 @@ class DownloadForegroundService : Service() {
 
     private val sessionTrackedIds = ConcurrentHashMap.newKeySet<String>()
     private var lastNotifyEmitMs = 0L
+    private var lastRafidQueueSignature: String? = null
+    private var lastSmartQueueSignature: String? = null
 
     private data class ActiveNotificationUiModel(
         val id: String,
@@ -61,12 +65,6 @@ class DownloadForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_PAUSE_ALL -> SmartDownloadManager.getInstance(this).pauseAllActive()
-            ACTION_RESUME_ALL -> SmartDownloadManager.getInstance(this).resumeAllInterrupted()
-            ACTION_CANCEL_ALL -> SmartDownloadManager.getInstance(this).cancelAllActive()
-        }
-
         val initialNotification = DownloadNotificationManager.buildActiveProgressNotification(
             context = this,
             downloadId = "",
@@ -81,6 +79,20 @@ class DownloadForegroundService : Service() {
             statusOverrideText = "جارٍ تجهيز التنزيلات في الخلفية..."
         )
         startForegroundSafely(initialNotification)
+
+        when (intent?.action) {
+            ACTION_PAUSE_ALL -> SmartDownloadManager.getInstance(this).pauseAllActive()
+            ACTION_RESUME_ALL -> {
+                SmartDownloadManager.getInstance(this).resumeAllInterrupted()
+                DownloadQueueManager.processQueueInService(this, serviceIoScope)
+            }
+            ACTION_CANCEL_ALL -> SmartDownloadManager.getInstance(this).cancelAllActive()
+            ACTION_START_QUEUE, null -> {
+                val taskId = intent?.getStringExtra(EXTRA_TASK_ID)
+                DownloadQueueManager.processQueueInService(this, serviceIoScope, taskId)
+                SmartDownloadManager.getInstance(this).ensureQueueRunning()
+            }
+        }
         return START_STICKY
     }
 
@@ -97,6 +109,7 @@ class DownloadForegroundService : Service() {
         networkMonitor?.unregister()
         releaseLocks()
         serviceScope.cancel()
+        serviceIoScope.cancel()
         super.onDestroy()
     }
 
@@ -115,11 +128,47 @@ class DownloadForegroundService : Service() {
             ) { smartList, smartStats, rafidList ->
                 Triple(smartList, smartStats, rafidList)
             }.collect { (smartList, smartStats, rafidList) ->
+                val rafidQueuedCount = rafidList.count { it.status == RafidDownloadStatus.QUEUED.name }
+                val rafidActiveCount = rafidList.count {
+                    it.status == RafidDownloadStatus.DOWNLOADING.name ||
+                        it.status == RafidDownloadStatus.MUXING.name
+                }
+                val rafidSignature = "$rafidActiveCount:$rafidQueuedCount"
+                if (rafidQueuedCount > 0 &&
+                    (rafidSignature != lastRafidQueueSignature || !DownloadQueueManager.hasActiveInProcessDownloads())
+                ) {
+                    lastRafidQueueSignature = rafidSignature
+                    DownloadQueueManager.processQueueInService(this@DownloadForegroundService, serviceIoScope)
+                } else if (rafidQueuedCount == 0) {
+                    lastRafidQueueSignature = null
+                }
+
+                val smartQueuedCount = smartList.count { it.status == DownloadStatus.QUEUED }
+                val smartActiveCount = smartList.count {
+                    it.status == DownloadStatus.DOWNLOADING ||
+                        it.status == DownloadStatus.EXTRACTING ||
+                        it.status == DownloadStatus.MERGING
+                }
+                val smartSignature = "$smartActiveCount:$smartQueuedCount"
+                if (smartQueuedCount > 0 && smartSignature != lastSmartQueueSignature) {
+                    lastSmartQueueSignature = smartSignature
+                    manager.ensureQueueRunning()
+                } else if (smartQueuedCount == 0) {
+                    lastSmartQueueSignature = null
+                }
+
                 val model = selectPrimaryNotificationModel(smartList, smartStats, rafidList)
                 if (model == null) {
-                    releaseLocks()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    val hasPendingOrActiveRafid = rafidQueuedCount > 0 || rafidActiveCount > 0
+                    val hasPendingOrActiveSmart = smartQueuedCount > 0 || smartActiveCount > 0
+                    if (!hasPendingOrActiveRafid &&
+                        !hasPendingOrActiveSmart &&
+                        !DownloadQueueManager.hasActiveInProcessDownloads()
+                    ) {
+                        releaseLocks()
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
                     return@collect
                 }
 
@@ -379,14 +428,26 @@ class DownloadForegroundService : Service() {
     }
 
     companion object {
+        const val ACTION_START_QUEUE = "com.example.download.ACTION_START_QUEUE"
+        const val EXTRA_TASK_ID = "extra_task_id"
         private const val ACTION_PAUSE_ALL = "com.example.download.ACTION_PAUSE_ALL"
         private const val ACTION_RESUME_ALL = "com.example.download.ACTION_RESUME_ALL"
         private const val ACTION_CANCEL_ALL = "com.example.download.ACTION_CANCEL_ALL"
 
-        fun startOrRefresh(context: Context) {
+        fun buildStartQueueIntent(context: Context, taskId: String? = null): Intent {
+            val appCtx = context.applicationContext
+            return Intent(appCtx, DownloadForegroundService::class.java).apply {
+                action = ACTION_START_QUEUE
+                if (!taskId.isNullOrBlank()) {
+                    putExtra(EXTRA_TASK_ID, taskId)
+                }
+            }
+        }
+
+        fun startQueue(context: Context, taskId: String? = null) {
             val appCtx = context.applicationContext
             DownloadNotificationManager.ensureChannels(appCtx)
-            val intent = Intent(appCtx, DownloadForegroundService::class.java)
+            val intent = buildStartQueueIntent(appCtx, taskId)
             runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     appCtx.startForegroundService(intent)
@@ -394,6 +455,10 @@ class DownloadForegroundService : Service() {
                     appCtx.startService(intent)
                 }
             }
+        }
+
+        fun startOrRefresh(context: Context) {
+            startQueue(context, null)
         }
     }
 }

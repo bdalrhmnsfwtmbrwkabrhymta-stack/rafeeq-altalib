@@ -19,11 +19,13 @@ data class SavedMediaResult(
 
 object RafidMediaStoreSaver {
 
+    private const val APP_FOLDER_NAME = "HawasElDirasa"
+
     fun buildDisplaySubfolder(category: RafidMediaCategory, saveToStudyFolder: Boolean): String {
         return if (saveToStudyFolder) {
-            "Download/Rafid/Study"
+            "Download/$APP_FOLDER_NAME/Study"
         } else {
-            "Download/Rafid/${category.folderName}"
+            "Download/$APP_FOLDER_NAME/${category.folderName}"
         }
     }
 
@@ -33,7 +35,7 @@ object RafidMediaStoreSaver {
             .replace(Regex("""\s+"""), " ")
             .trim()
             .take(64)
-            .ifBlank { "rafid_media_${System.currentTimeMillis()}" }
+            .ifBlank { "hawas_media_${System.currentTimeMillis()}" }
         val cleanExt = extension.trim().lowercase().removePrefix(".").ifBlank { "mp4" }
         return if (cleanBase.endsWith(".$cleanExt", ignoreCase = true)) {
             cleanBase
@@ -42,6 +44,7 @@ object RafidMediaStoreSaver {
         }
     }
 
+    @Suppress("DEPRECATION")
     fun saveFileToRafidDownloads(
         context: Context,
         sourceFile: File,
@@ -52,12 +55,9 @@ object RafidMediaStoreSaver {
         saveToStudyFolder: Boolean
     ): SavedMediaResult {
         val fileName = sanitizeFileName(title, extension)
-        val relativeFolder = if (saveToStudyFolder) {
-            "${Environment.DIRECTORY_DOWNLOADS}/Rafid/Study"
-        } else {
-            "${Environment.DIRECTORY_DOWNLOADS}/Rafid/${category.folderName}"
-        }
-        val displayPath = if (saveToStudyFolder) "Download/Rafid/Study/$fileName" else "Download/Rafid/${category.folderName}/$fileName"
+        val subFolder = if (saveToStudyFolder) "Study" else category.folderName
+        val relativeFolder = "${Environment.DIRECTORY_DOWNLOADS}/$APP_FOLDER_NAME/$subFolder"
+        val displayPath = "Download/$APP_FOLDER_NAME/$subFolder/$fileName"
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
@@ -100,14 +100,16 @@ object RafidMediaStoreSaver {
             }
         }
 
-        // Fallback for API 24-28 (app-scoped external downloads directory -> zero permission required)
-        val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
-        val subDir = if (saveToStudyFolder) {
-            File(baseDir, "Rafid/Study")
+        // Legacy Android 7-9: try public Download/HawasElDirasa/... first, then fallback to app external downloads
+        val publicDir = runCatching {
+            File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "$APP_FOLDER_NAME/$subFolder")
+        }.getOrNull()
+        val subDir = if (publicDir != null && (publicDir.exists() || publicDir.mkdirs())) {
+            publicDir
         } else {
-            File(baseDir, "Rafid/${category.folderName}")
+            val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+            File(baseDir, "$APP_FOLDER_NAME/$subFolder").apply { mkdirs() }
         }
-        subDir.mkdirs()
 
         var outFile = File(subDir, fileName)
         if (outFile.exists()) {
@@ -121,17 +123,18 @@ object RafidMediaStoreSaver {
                 input.copyTo(output, bufferSize = 64 * 1024)
             }
         }
+        val finalDisplayPath = "Download/$APP_FOLDER_NAME/$subFolder/${outFile.name}"
         com.example.download.service.DownloadNotificationManager.scanFileIntoGallery(
             context = context,
             resolvedFile = outFile,
             savedUriString = null,
-            displayPath = displayPath,
+            displayPath = finalDisplayPath,
             mimeType = mimeType
         )
 
         return SavedMediaResult(
             uriString = Uri.fromFile(outFile).toString(),
-            displayPath = "$displayPath",
+            displayPath = finalDisplayPath,
             fileSizeBytes = outFile.length()
         )
     }

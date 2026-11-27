@@ -6,6 +6,7 @@ import com.example.download.core.model.ResolveRequest
 import com.example.download.core.model.ResolvedMediaFormat
 import com.example.download.core.model.ResolvedMediaKind
 import com.example.download.core.model.ResolvedMediaResult
+import com.hawas.study.rafid.engine.UrlNormalizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -28,7 +29,8 @@ class UnifiedMediaResolver(
     )
 
     suspend fun resolve(request: ResolveRequest): ResolvedMediaResult = withContext(Dispatchers.IO) {
-        val normalizedUrl = ResolverHttpUtils.extractFirstHttpUrl(request.rawUrl) ?: request.rawUrl.trim()
+        val extractedUrl = ResolverHttpUtils.extractFirstHttpUrl(request.rawUrl) ?: request.rawUrl.trim()
+        val normalizedUrl = UrlNormalizer.normalize(extractedUrl)
         if (!normalizedUrl.startsWith("http://", true) && !normalizedUrl.startsWith("https://", true)) {
             return@withContext ResolvedMediaResult.Failure(
                 error = DownloadError.UnsupportedPlatform(
@@ -40,7 +42,9 @@ class UnifiedMediaResolver(
         }
 
         val canonicalUrl = if (shouldFollowShortRedirects(normalizedUrl)) {
-            ResolverHttpUtils.resolveRedirects(httpClient, normalizedUrl, request.cookiesHeader)
+            UrlNormalizer.normalize(
+                ResolverHttpUtils.resolveRedirects(httpClient, normalizedUrl, request.cookiesHeader)
+            )
         } else {
             normalizedUrl
         }
@@ -180,10 +184,6 @@ class UnifiedMediaResolver(
     }
 
     private fun shouldFollowShortRedirects(url: String): Boolean {
-        val lower = url.lowercase(Locale.ROOT)
-        return listOf(
-            "pin.it", "vm.tiktok.com", "vt.tiktok.com", "fb.watch", "t.co/",
-            "youtu.be/", "bit.ly/", "facebook.com/share/", "instagr.am"
-        ).any { lower.contains(it) }
+        return UrlNormalizer.isShortRedirectUrl(url)
     }
 }

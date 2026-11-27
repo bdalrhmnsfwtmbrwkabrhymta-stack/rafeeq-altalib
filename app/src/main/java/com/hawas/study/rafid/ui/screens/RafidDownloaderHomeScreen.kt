@@ -465,9 +465,9 @@ fun RafidDownloaderHomeScreen(
                         )
                         Text(
                             text = if (isEnglish) {
-                                "Paste a link from YouTube, Pinterest, TikTok or open the Smart Browser. Files save directly in Download/Rafid."
+                                "Paste a link from YouTube, Pinterest, TikTok or open the Smart Browser. Files save directly in Download/HawasElDirasa."
                             } else {
-                                "الصق رابط محاضرة أو فيديو من يوتيوب أو بينتيريست أو تيك توك، أو افتح المتصفح الذكي للالتقاط التلقائي. تُحفظ الملفات في Download/Rafid."
+                                "الصق رابط محاضرة أو فيديو من يوتيوب أو بينتيريست أو تيك توك، أو افتح المتصفح الذكي للالتقاط التلقائي. تُحفظ الملفات في Download/HawasElDirasa."
                             },
                             fontSize = 12.5.sp,
                             color = palette.textSecondary,
@@ -566,6 +566,7 @@ private fun StackedHeroDownloadCard(
             }
         } else {
             val isMuxing = activeDownload.status == RafidDownloadStatus.MUXING.name
+            val isIndeterminate = !isMuxing && activeDownload.totalBytes <= 0L
             val progress = when {
                 isMuxing -> 1f
                 activeDownload.totalBytes > 0L -> (activeDownload.downloadedBytes.toFloat() / activeDownload.totalBytes.toFloat()).coerceIn(0f, 1f)
@@ -674,21 +675,33 @@ private fun StackedHeroDownloadCard(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "$pct%",
+                        text = if (isIndeterminate) "..." else "$pct%",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        color = Color.White,
-                        trackColor = Color.White.copy(alpha = 0.25f),
-                        strokeCap = StrokeCap.Round,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(7.dp)
-                            .clip(CircleShape)
-                    )
+                    if (isIndeterminate) {
+                        LinearProgressIndicator(
+                            color = Color.White,
+                            trackColor = Color.White.copy(alpha = 0.25f),
+                            strokeCap = StrokeCap.Round,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(7.dp)
+                                .clip(CircleShape)
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            color = Color.White,
+                            trackColor = Color.White.copy(alpha = 0.25f),
+                            strokeCap = StrokeCap.Round,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(7.dp)
+                                .clip(CircleShape)
+                        )
+                    }
                     Text(
                         text = if (activeDownload.totalBytes > 0L) {
                             "${RafidFormatUtils.formatFileSize(activeDownload.downloadedBytes, isEnglish)} / ${
@@ -1098,19 +1111,28 @@ private fun DownloadActivityCard(
             }
 
             if (statusEnum == RafidDownloadStatus.DOWNLOADING || statusEnum == RafidDownloadStatus.MUXING) {
-                val p = if (statusEnum == RafidDownloadStatus.MUXING) 1f
-                else if (item.totalBytes > 0L) (item.downloadedBytes.toFloat() / item.totalBytes.toFloat()).coerceIn(0f, 1f)
-                else 0f
-                LinearProgressIndicator(
-                    progress = { p },
-                    color = if (statusEnum == RafidDownloadStatus.DOWNLOADING) DownloadingGreen else palette.heroBlue,
-                    trackColor = palette.surfaceVariant,
-                    strokeCap = StrokeCap.Round,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(5.dp)
-                        .clip(CircleShape)
-                )
+                val barModifier = Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(CircleShape)
+                if (statusEnum == RafidDownloadStatus.DOWNLOADING && item.totalBytes <= 0L) {
+                    LinearProgressIndicator(
+                        color = DownloadingGreen,
+                        trackColor = palette.surfaceVariant,
+                        strokeCap = StrokeCap.Round,
+                        modifier = barModifier
+                    )
+                } else {
+                    val p = if (statusEnum == RafidDownloadStatus.MUXING) 1f
+                    else (item.downloadedBytes.toFloat() / item.totalBytes.toFloat()).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = { p },
+                        color = if (statusEnum == RafidDownloadStatus.DOWNLOADING) DownloadingGreen else palette.heroBlue,
+                        trackColor = palette.surfaceVariant,
+                        strokeCap = StrokeCap.Round,
+                        modifier = barModifier
+                    )
+                }
             }
         }
     }

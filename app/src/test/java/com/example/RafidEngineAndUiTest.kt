@@ -270,11 +270,11 @@ class RafidEngineAndUiTest {
     @Test
     fun mediaStoreSaverBuildsStudyAndMediaFoldersWithSafeFilenames() {
         assertEquals(
-            "Download/Rafid/Study",
+            "Download/HawasElDirasa/Study",
             RafidMediaStoreSaver.buildDisplaySubfolder(RafidMediaCategory.VIDEO, saveToStudyFolder = true)
         )
         assertEquals(
-            "Download/Rafid/Audio",
+            "Download/HawasElDirasa/Audio",
             RafidMediaStoreSaver.buildDisplaySubfolder(RafidMediaCategory.AUDIO, saveToStudyFolder = false)
         )
         val sanitized = RafidMediaStoreSaver.sanitizeFileName("شرح: الدرس/الأول*؟<مهم>", "mp4")

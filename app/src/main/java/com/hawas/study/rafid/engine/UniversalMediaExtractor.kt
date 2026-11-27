@@ -56,9 +56,14 @@ class UniversalMediaExtractor(
         userAgent: String? = null,
         checkCollection: Boolean = true
     ): Result<ExtractedMediaMetadata> = withContext(Dispatchers.IO) {
-        val cleanInput = AdAndTrackerShield.extractFirstUrl(rawUrl) ?: rawUrl.trim()
-        val preResolved = runCatching { linkResolver.resolve(cleanInput, cookiesHeader) }.getOrNull()
-        val targetUrl = preResolved?.resolvedUrl ?: cleanInput
+        val rawExtracted = AdAndTrackerShield.extractFirstUrl(rawUrl) ?: rawUrl.trim()
+        val cleanInput = UrlNormalizer.normalize(rawExtracted)
+        val preResolved = if (UrlNormalizer.isShortRedirectUrl(cleanInput)) {
+            runCatching { linkResolver.resolve(cleanInput, cookiesHeader) }.getOrNull()
+        } else {
+            null
+        }
+        val targetUrl = UrlNormalizer.normalize(preResolved?.resolvedUrl ?: cleanInput)
 
         when (val res = unifiedResolver.resolve(
             ResolveRequest(

@@ -1,6 +1,8 @@
 package com.hawas.study.rafid.worker
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.example.download.core.resolver.AndroidWebViewSniffGateway
@@ -12,8 +14,11 @@ import com.hawas.study.rafid.data.RafidDatabase
 import com.hawas.study.rafid.data.RafidPreferencesRepository
 import com.hawas.study.rafid.engine.UniversalMediaExtractor
 import com.hawas.study.rafid.models.RafidDownloadEntity
+import com.hawas.study.rafid.models.RafidDownloadStatus
+import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -32,6 +37,8 @@ object DownloadQueueManager {
     private val queueMutex = Mutex()
     private val preExtractScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val preExtractingIds = ConcurrentHashMap.newKeySet<String>()
+    private val inFlightDownloadIds = ConcurrentHashMap.newKeySet<String>()
+    private val serviceActiveJobs = ConcurrentHashMap<String, Job>()
 
     private val preExtractClient: OkHttpClient by lazy {
         val dispatcher = Dispatcher().apply {
@@ -49,6 +56,153 @@ object DownloadQueueManager {
             .build()
     }
 
+    fun tryClaimExecution(downloadId: String): Boolean = inFlightDownloadIds.add(downloadId)
+
+    fun releaseExecution(downloadId: String) {
+        inFlightDownloadIds.remove(downloadId)
+    }
+
+    fun hasActiveInProcessDownloads(): Boolean {
+        serviceActiveJobs.entries.removeAll { !it.value.isActive }
+        return inFlightDownloadIds.isNotEmpty() || serviceActiveJobs.isNotEmpty()
+    }
+
+    fun cancelInProcessJob(downloadId: String) {
+        serviceActiveJobs.remove(downloadId)?.cancel()
+        runCatching { YoutubeDL.getInstance().destroyProcessById("rafid_$downloadId") }
+    }
+
+    suspend fun enqueueAndStart(context: Context, taskId: String? = null) {
+        val appContext = context.applicationContext
+        DownloadForegroundService.startQueue(appContext, taskId)
+        triggerQueueProcessing(appContext)
+    }
+
+    fun processQueueInService(
+        context: Context,
+        serviceScope: CoroutineScope,
+        prioritizedTaskId: String? = null
+    ) {
+        val appContext = context.applicationContext
+        serviceScope.launch(Dispatchers.IO) {
+            var itemsToPreExtract: List<RafidDownloadEntity> = emptyList()
+            queueMutex.withLock {
+                val prefs = RafidPreferencesRepository(appContext).getSnapshot()
+                if (prefs.isQueuePaused) return@withLock
+
+                if (prefs.isScheduledStartEnabled &&
+                    computeDelayUntilMillis(prefs.scheduledHour, prefs.scheduledMinute) > 0L
+                ) {
+                    return@withLock
+                }
+
+                if (prefs.wifiOnly && !isOnUnmeteredNetwork(appContext)) {
+                    return@withLock
+                }
+
+                val dao = RafidDatabase.getInstance(appContext).rafidDao()
+                val workManager = runCatching { WorkManager.getInstance(appContext) }.getOrNull()
+
+                serviceActiveJobs.entries.removeAll { !it.value.isActive }
+
+                // Recover orphaned DOWNLOADING / MUXING records not currently running in service or WorkManager
+                val staleActives = dao.getActiveDownloads()
+                for (active in staleActives) {
+                    if (inFlightDownloadIds.contains(active.id) || serviceActiveJobs[active.id]?.isActive == true) {
+                        continue
+                    }
+                    val hasRunningWork = workManager?.let { wm ->
+                        runCatching {
+                            wm.getWorkInfosForUniqueWork(RafidDownloadWorker.uniqueWorkName(active.id)).get()
+                        }.getOrDefault(emptyList()).any { it.state == WorkInfo.State.RUNNING }
+                    } ?: false
+                    if (!hasRunningWork) {
+                        dao.resetOrphanedActiveToQueued(active.id)
+                    }
+                }
+
+                val activeCount = maxOf(
+                    dao.countActiveDownloads(),
+                    inFlightDownloadIds.size,
+                    serviceActiveJobs.count { it.value.isActive }
+                )
+                val freeSlots = (prefs.maxConcurrentDownloads - activeCount).coerceAtLeast(0)
+                val rawQueued = dao.getQueuedDownloads()
+                val allQueued = if (!prioritizedTaskId.isNullOrBlank()) {
+                    val prioritized = rawQueued.firstOrNull { it.id == prioritizedTaskId }
+                    if (prioritized != null) {
+                        listOf(prioritized) + rawQueued.filterNot { it.id == prioritizedTaskId }
+                    } else {
+                        rawQueued
+                    }
+                } else {
+                    rawQueued
+                }
+
+                if (freeSlots > 0) {
+                    val toDispatch = allQueued.take(freeSlots)
+                    for (next in toDispatch) {
+                        if (inFlightDownloadIds.contains(next.id) || serviceActiveJobs[next.id]?.isActive == true) {
+                            continue
+                        }
+                        // Immediately transition from QUEUED -> DOWNLOADING so hero card & list update at once
+                        dao.updateEngineState(next.id, "RESOLVING")
+                        dao.updateDownloadProgress(
+                            id = next.id,
+                            status = RafidDownloadStatus.DOWNLOADING.name,
+                            downloadedBytes = next.downloadedBytes,
+                            totalBytes = next.totalBytes,
+                            speedBytesPerSec = 0L,
+                            etaSeconds = 0L
+                        )
+                        val job = serviceScope.launch(
+                            context = Dispatchers.IO,
+                            start = kotlinx.coroutines.CoroutineStart.LAZY
+                        ) {
+                            try {
+                                RafidDownloadExecutor.execute(appContext, next.id)
+                            } finally {
+                                serviceActiveJobs.remove(next.id)
+                                processQueueInService(appContext, serviceScope)
+                            }
+                        }
+                        serviceActiveJobs[next.id] = job
+                        job.start()
+                    }
+                }
+
+                itemsToPreExtract = allQueued
+                    .drop(freeSlots)
+                    .filter {
+                        it.videoStreamUrl == it.resolvedUrl &&
+                            !ResolverHttpUtils.isManifestUrl(it.resolvedUrl) &&
+                            !preExtractingIds.contains(it.id)
+                    }
+                    .take(2)
+            }
+
+            if (itemsToPreExtract.isNotEmpty()) {
+                val dao = RafidDatabase.getInstance(appContext).rafidDao()
+                val extractor = UniversalMediaExtractor(
+                    httpClient = preExtractClient,
+                    ytDlpGateway = AndroidYtDlpGateway(appContext),
+                    webViewSniffGateway = AndroidWebViewSniffGateway(appContext)
+                )
+                itemsToPreExtract.forEach { candidateItem ->
+                    if (preExtractingIds.add(candidateItem.id)) {
+                        preExtractScope.launch {
+                            try {
+                                preExtractQueuedItem(dao, candidateItem, extractor)
+                            } finally {
+                                preExtractingIds.remove(candidateItem.id)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun triggerQueueProcessing(context: Context) {
         val appContext = context.applicationContext
         var itemsToPreExtract: List<RafidDownloadEntity> = emptyList()
@@ -63,6 +217,9 @@ object DownloadQueueManager {
             if (workManager != null) {
                 val staleActives = dao.getActiveDownloads()
                 for (active in staleActives) {
+                    if (inFlightDownloadIds.contains(active.id) || serviceActiveJobs[active.id]?.isActive == true) {
+                        continue
+                    }
                     val infos = runCatching {
                         workManager.getWorkInfosForUniqueWork(RafidDownloadWorker.uniqueWorkName(active.id)).get()
                     }.getOrDefault(emptyList())
@@ -91,6 +248,9 @@ object DownloadQueueManager {
                 val toDispatch = allQueued.take(freeSlots)
                 var dispatchedAny = false
                 for (next in toDispatch) {
+                    if (inFlightDownloadIds.contains(next.id) || serviceActiveJobs[next.id]?.isActive == true) {
+                        continue
+                    }
                     val alreadyScheduled = if (workManager != null) {
                         val infos = runCatching {
                             workManager.getWorkInfosForUniqueWork(RafidDownloadWorker.uniqueWorkName(next.id)).get()
@@ -114,7 +274,7 @@ object DownloadQueueManager {
                     }
                 }
                 if (dispatchedAny && initialDelay == 0L) {
-                    DownloadForegroundService.startOrRefresh(appContext)
+                    DownloadForegroundService.startQueue(appContext, toDispatch.firstOrNull()?.id)
                 }
             }
 
@@ -148,6 +308,14 @@ object DownloadQueueManager {
                 }
             }
         }
+    }
+
+    private fun isOnUnmeteredNetwork(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val net = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(net) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
     }
 
     internal suspend fun preExtractQueuedItem(

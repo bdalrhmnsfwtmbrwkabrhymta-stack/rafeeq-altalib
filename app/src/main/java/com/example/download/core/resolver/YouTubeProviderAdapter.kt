@@ -114,9 +114,10 @@ class YouTubeProviderAdapter(
                 originalUrl = request.rawUrl,
                 canonicalUrl = normalizedWatchUrl,
                 videoId = videoId,
-                playerJson = playerResult,
+                playerJson = playerResult.playerJson,
                 cookiesHeader = request.cookiesHeader,
-                diag = diag
+                diag = diag,
+                streamHeaders = playerResult.streamHeaders
             )
         }
 
@@ -305,8 +306,17 @@ class YouTubeProviderAdapter(
         videoId: String,
         playerJson: JSONObject,
         cookiesHeader: String? = null,
-        diag: StringBuilder = StringBuilder()
+        diag: StringBuilder = StringBuilder(),
+        streamHeaders: Map<String, String> = emptyMap()
     ): ResolvedMediaResult {
+        val effectiveHeaders = buildMap {
+            putAll(streamHeaders)
+            if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+            if (keys.none { it.equals("Accept-Encoding", true) }) put("Accept-Encoding", "identity")
+            if (!cookiesHeader.isNullOrBlank() && keys.none { it.equals("Cookie", true) }) {
+                put("Cookie", cookiesHeader)
+            }
+        }
         val playability = playerJson.optJSONObject("playabilityStatus")
         val status = playability?.optString("status").orEmpty().uppercase(Locale.ROOT)
         val reason = playability?.optString("reason").orEmpty()
@@ -485,6 +495,7 @@ class YouTubeProviderAdapter(
                     isApproximateBytes = combinedSize <= 0L,
                     isAudioOnly = false,
                     needsMux = true,
+                    headers = effectiveHeaders,
                     badgeAr = badgeArForHeight(height),
                     badgeEn = badgeEnForHeight(height),
                     width = f.optInt("width", 0),
@@ -520,6 +531,7 @@ class YouTubeProviderAdapter(
                             isApproximateBytes = altBytes <= 0L,
                             isAudioOnly = false,
                             needsMux = true,
+                            headers = effectiveHeaders,
                             badgeAr = if (altCode.startsWith("ar")) "مدبلج عربي" else altCode.uppercase(Locale.ROOT),
                             badgeEn = altCode.uppercase(Locale.ROOT),
                             width = f.optInt("width", 0),
@@ -568,6 +580,7 @@ class YouTubeProviderAdapter(
                 isApproximateBytes = size <= 0L,
                 isAudioOnly = false,
                 needsMux = false,
+                headers = effectiveHeaders,
                 badgeAr = badgeArForHeight(height),
                 badgeEn = badgeEnForHeight(height),
                 width = f.optInt("width", 0),
@@ -595,7 +608,8 @@ class YouTubeProviderAdapter(
                 resolutionHeight = 0,
                 streamUrl = hlsManifest,
                 isHls = true,
-                needsMux = true
+                needsMux = true,
+                headers = effectiveHeaders
             )
         }
 
@@ -613,6 +627,7 @@ class YouTubeProviderAdapter(
                 exactBytes = bestAudioBytes,
                 isAudioOnly = true,
                 needsMux = false,
+                headers = effectiveHeaders,
                 badgeAr = "صوت أصلي",
                 badgeEn = "Original Audio",
                 acodec = primaryAudio?.codec.orEmpty(),
@@ -637,6 +652,7 @@ class YouTubeProviderAdapter(
                     exactBytes = altAudio.bytes,
                     isAudioOnly = true,
                     needsMux = false,
+                    headers = effectiveHeaders,
                     badgeAr = altLabel,
                     badgeEn = altCode.uppercase(Locale.ROOT),
                     acodec = altAudio.codec,
@@ -662,6 +678,7 @@ class YouTubeProviderAdapter(
                 isApproximateBytes = true,
                 isAudioOnly = true,
                 needsMux = true,
+                headers = effectiveHeaders,
                 badgeAr = "للمحاضرات",
                 badgeEn = "For Lectures",
                 languageCode = primaryAudio?.langCode.orEmpty(),
@@ -692,8 +709,41 @@ class YouTubeProviderAdapter(
             thumbnailUrl = thumbUrl,
             durationSeconds = durationSec,
             formats = sortedFormats,
+            headers = effectiveHeaders,
             cookiesHeader = cookiesHeader
         )
+    }
+
+    private data class InnertubeClientSpec(
+        val name: String,
+        val payload: String,
+        val requestHeaders: Map<String, String>,
+        val streamHeaders: Map<String, String>
+    )
+
+    private data class InnertubePlayerResult(
+        val playerJson: JSONObject,
+        val streamHeaders: Map<String, String>
+    )
+
+    private fun hasPlayableDirectStreamingData(obj: JSONObject): Boolean {
+        val sd = obj.optJSONObject("streamingData") ?: return false
+        if (sd.optString("hlsManifestUrl").startsWith("http")) return true
+        val fmts = sd.optJSONArray("formats")
+        if (fmts != null) {
+            for (i in 0 until fmts.length()) {
+                val f = fmts.optJSONObject(i) ?: continue
+                if (resolveDirectStreamUrl(f) != null) return true
+            }
+        }
+        val adaptive = sd.optJSONArray("adaptiveFormats")
+        if (adaptive != null) {
+            for (i in 0 until adaptive.length()) {
+                val f = adaptive.optJSONObject(i) ?: continue
+                if (resolveDirectStreamUrl(f) != null) return true
+            }
+        }
+        return false
     }
 
     private fun fetchInnertubeOrHtmlPlayer(
@@ -701,18 +751,71 @@ class YouTubeProviderAdapter(
         videoId: String,
         cookiesHeader: String?,
         diag: StringBuilder
-    ): JSONObject? {
+    ): InnertubePlayerResult? {
+        val androidUa = "com.google.android.youtube/19.44.38 (Linux; U; Android 14) gzip"
+        val iosUa = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X;)"
+        val webUa = ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA
+
         val clients = listOf(
-            """{"context":{"client":{"clientName":"ANDROID","clientVersion":"19.44.38","androidSdkVersion":34,"hl":"ar","gl":"EG"}},"videoId":"$videoId","contentCheckOk":true,"racyCheckOk":true}""",
-            """{"context":{"client":{"clientName":"IOS","clientVersion":"19.45.4","deviceMake":"Apple","deviceModel":"iPhone16,2","hl":"ar","gl":"EG"}},"videoId":"$videoId","contentCheckOk":true,"racyCheckOk":true}"""
+            InnertubeClientSpec(
+                name = "ANDROID",
+                payload = """{"context":{"client":{"clientName":"ANDROID","clientVersion":"19.44.38","androidSdkVersion":34,"userAgent":"$androidUa","hl":"ar","gl":"EG"}},"videoId":"$videoId","contentCheckOk":true,"racyCheckOk":true}""",
+                requestHeaders = mapOf(
+                    "User-Agent" to androidUa,
+                    "X-YouTube-Client-Name" to "3",
+                    "X-YouTube-Client-Version" to "19.44.38",
+                    "Origin" to "https://www.youtube.com",
+                    "Content-Type" to "application/json"
+                ),
+                streamHeaders = mapOf(
+                    "User-Agent" to androidUa,
+                    "Accept" to "*/*",
+                    "Accept-Encoding" to "identity"
+                )
+            ),
+            InnertubeClientSpec(
+                name = "IOS",
+                payload = """{"context":{"client":{"clientName":"IOS","clientVersion":"19.45.4","deviceMake":"Apple","deviceModel":"iPhone16,2","userAgent":"$iosUa","hl":"ar","gl":"EG"}},"videoId":"$videoId","contentCheckOk":true,"racyCheckOk":true}""",
+                requestHeaders = mapOf(
+                    "User-Agent" to iosUa,
+                    "X-YouTube-Client-Name" to "5",
+                    "X-YouTube-Client-Version" to "19.45.4",
+                    "Content-Type" to "application/json"
+                ),
+                streamHeaders = mapOf(
+                    "User-Agent" to iosUa,
+                    "Accept" to "*/*",
+                    "Accept-Encoding" to "identity"
+                )
+            ),
+            InnertubeClientSpec(
+                name = "WEB_EMBEDDED",
+                payload = """{"context":{"client":{"clientName":"WEB_EMBEDDED_PLAYER","clientVersion":"1.20241009.01.00","hl":"ar","gl":"EG"},"thirdParty":{"embedUrl":"https://www.youtube.com/"}},"videoId":"$videoId","contentCheckOk":true,"racyCheckOk":true}""",
+                requestHeaders = mapOf(
+                    "User-Agent" to webUa,
+                    "X-YouTube-Client-Name" to "56",
+                    "X-YouTube-Client-Version" to "1.20241009.01.00",
+                    "Referer" to "https://www.youtube.com/embed/$videoId",
+                    "Origin" to "https://www.youtube.com",
+                    "Content-Type" to "application/json"
+                ),
+                streamHeaders = mapOf(
+                    "User-Agent" to webUa,
+                    "Referer" to "https://www.youtube.com/",
+                    "Origin" to "https://www.youtube.com",
+                    "Accept" to "*/*",
+                    "Accept-Encoding" to "identity"
+                )
+            )
         )
-        for (payload in clients) {
+
+        var fallbackStatusObj: InnertubePlayerResult? = null
+        for (clientSpec in clients) {
             val req = Request.Builder()
                 .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-                .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                .header("User-Agent", ResolverHttpUtils.MOBILE_UA)
-                .header("Content-Type", "application/json")
+                .post(clientSpec.payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .apply {
+                    clientSpec.requestHeaders.forEach { (k, v) -> header(k, v) }
                     if (!cookiesHeader.isNullOrBlank()) header("Cookie", cookiesHeader)
                 }
                 .build()
@@ -722,42 +825,54 @@ class YouTubeProviderAdapter(
                         val body = resp.body?.string().orEmpty()
                         if (body.isNotBlank()) {
                             val obj = JSONObject(body)
-                            val sd = obj.optJSONObject("streamingData")
-                            if (sd != null && ((sd.optJSONArray("formats")?.length() ?: 0) > 0 ||
-                                    (sd.optJSONArray("adaptiveFormats")?.length() ?: 0) > 0 ||
-                                    sd.optString("hlsManifestUrl").isNotBlank())
-                            ) {
-                                return obj
+                            if (hasPlayableDirectStreamingData(obj)) {
+                                return InnertubePlayerResult(obj, clientSpec.streamHeaders)
                             }
-                            if (obj.optJSONObject("playabilityStatus")?.optString("status") in listOf("LOGIN_REQUIRED", "ERROR", "UNPLAYABLE")) {
-                                return obj
+                            if (fallbackStatusObj == null &&
+                                obj.optJSONObject("playabilityStatus")?.optString("status") in listOf("LOGIN_REQUIRED", "ERROR", "UNPLAYABLE")
+                            ) {
+                                fallbackStatusObj = InnertubePlayerResult(obj, clientSpec.streamHeaders)
                             }
                         }
                     } else {
-                        diag.appendLine("[innertube] HTTP ${resp.code}")
+                        diag.appendLine("[innertube-${clientSpec.name}] HTTP ${resp.code}")
                     }
                 }
             } catch (t: Throwable) {
-                diag.appendLine("[innertube] ${t.javaClass.simpleName}: ${t.message}")
+                diag.appendLine("[innertube-${clientSpec.name}] ${t.javaClass.simpleName}: ${t.message}")
             }
         }
 
-        val htmlResp = ResolverHttpUtils.fetchTextWithStatus(
-            client = httpClient,
-            url = canonicalUrl,
-            cookiesHeader = cookiesHeader,
-            userAgent = ResolverHttpUtils.DESKTOP_UA
+        val htmlStreamHeaders = mapOf(
+            "User-Agent" to webUa,
+            "Referer" to "https://www.youtube.com/",
+            "Origin" to "https://www.youtube.com",
+            "Accept" to "*/*",
+            "Accept-Encoding" to "identity"
         )
-        if (htmlResp != null) {
-            if (htmlResp.statusCode >= 400) {
-                diag.appendLine("[yt-html] HTTP ${htmlResp.statusCode}")
-            } else {
-                val player = ResolverHttpUtils.extractJsonObjectFromHtml(htmlResp.body, "var ytInitialPlayerResponse = ")
-                    ?: ResolverHttpUtils.extractJsonObjectFromHtml(htmlResp.body, "ytInitialPlayerResponse = ")
-                if (player != null) return player
+        for (pageUrl in listOf(canonicalUrl, "https://www.youtube.com/embed/$videoId")) {
+            val htmlResp = ResolverHttpUtils.fetchTextWithStatus(
+                client = httpClient,
+                url = pageUrl,
+                cookiesHeader = cookiesHeader,
+                userAgent = webUa,
+                extraHeaders = mapOf("Referer" to "https://www.youtube.com/")
+            )
+            if (htmlResp != null) {
+                if (htmlResp.statusCode >= 400) {
+                    diag.appendLine("[yt-html] HTTP ${htmlResp.statusCode}")
+                } else {
+                    val player = ResolverHttpUtils.extractJsonObjectFromHtml(htmlResp.body, "var ytInitialPlayerResponse = ")
+                        ?: ResolverHttpUtils.extractJsonObjectFromHtml(htmlResp.body, "ytInitialPlayerResponse = ")
+                    if (player != null && hasPlayableDirectStreamingData(player)) {
+                        return InnertubePlayerResult(player, htmlStreamHeaders)
+                    } else if (player != null && fallbackStatusObj == null) {
+                        fallbackStatusObj = InnertubePlayerResult(player, htmlStreamHeaders)
+                    }
+                }
             }
         }
-        return null
+        return fallbackStatusObj
     }
 
     private fun resolveDirectStreamUrl(formatObj: JSONObject): String? {

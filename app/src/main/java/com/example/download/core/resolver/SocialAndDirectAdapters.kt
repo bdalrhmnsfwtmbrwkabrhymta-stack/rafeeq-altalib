@@ -95,8 +95,10 @@ class FacebookProviderAdapter(
             client = httpClient,
             url = canonicalUrl,
             cookiesHeader = request.cookiesHeader,
-            userAgent = request.userAgent ?: ResolverHttpUtils.DESKTOP_UA,
+            userAgent = request.userAgent ?: ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA,
             extraHeaders = mapOf(
+                "Referer" to "https://www.facebook.com/",
+                "Accept" to "*/*",
                 "Sec-Fetch-Dest" to "document",
                 "Sec-Fetch-Mode" to "navigate"
             )
@@ -120,7 +122,11 @@ class FacebookProviderAdapter(
                     client = httpClient,
                     url = mbasicUrl,
                     cookiesHeader = mergedCookies,
-                    userAgent = ResolverHttpUtils.MOBILE_UA
+                    userAgent = ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA,
+                    extraHeaders = mapOf(
+                        "Referer" to "https://www.facebook.com/",
+                        "Accept" to "*/*"
+                    )
                 )
                 if (mbasicResp != null && mbasicResp.statusCode < 400) {
                     val mbasicCookies = ResolverHttpUtils.mergeCookieStrings(mergedCookies, mbasicResp.setCookiesHeader)
@@ -197,7 +203,10 @@ class FacebookProviderAdapter(
         }
 
         val headers = buildMap {
-            put("Referer", canonicalUrl)
+            put("User-Agent", ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA)
+            put("Referer", "https://www.facebook.com/")
+            put("Accept", "*/*")
+            put("Accept-Encoding", "identity")
             if (!cookiesHeader.isNullOrBlank()) put("Cookie", cookiesHeader)
         }
         val formats = candidates.entries.mapIndexed { idx, (streamUrl, meta) ->
@@ -273,7 +282,11 @@ class InstagramProviderAdapter(
             client = httpClient,
             url = canonicalUrl,
             cookiesHeader = request.cookiesHeader,
-            userAgent = request.userAgent ?: ResolverHttpUtils.DESKTOP_UA
+            userAgent = request.userAgent ?: ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA,
+            extraHeaders = mapOf(
+                "Referer" to "https://www.instagram.com/",
+                "Accept" to "*/*"
+            )
         ) ?: return ResolvedMediaResult.Failure(
             DownloadError.NetworkUnavailable("Failed to connect to Instagram"),
             diag.toString()
@@ -351,8 +364,10 @@ class InstagramProviderAdapter(
         }
 
         val headers = buildMap {
+            put("User-Agent", ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA)
             put("Referer", "https://www.instagram.com/")
-            put("User-Agent", ResolverHttpUtils.DESKTOP_UA)
+            put("Accept", "*/*")
+            put("Accept-Encoding", "identity")
             if (!cookiesHeader.isNullOrBlank()) put("Cookie", cookiesHeader)
         }
 
@@ -1544,7 +1559,11 @@ class PinterestProviderAdapter(
             client = httpClient,
             url = canonicalUrl,
             cookiesHeader = request.cookiesHeader,
-            userAgent = request.userAgent ?: ResolverHttpUtils.DESKTOP_UA
+            userAgent = request.userAgent ?: ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA,
+            extraHeaders = mapOf(
+                "Referer" to "https://www.pinterest.com/",
+                "Accept" to "*/*"
+            )
         )
         if (resp != null && resp.statusCode < 400 && resp.body.isNotBlank()) {
             val parsed = parsePinterestHtml(
@@ -1616,6 +1635,14 @@ class PinterestProviderAdapter(
             imageUrls.add(ogImage)
         }
 
+        val headers = buildMap {
+            put("User-Agent", ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA)
+            put("Referer", "https://www.pinterest.com/")
+            put("Accept", "*/*")
+            put("Accept-Encoding", "identity")
+            if (!cookiesHeader.isNullOrBlank()) put("Cookie", cookiesHeader)
+        }
+
         val formats = mutableListOf<ResolvedMediaFormat>()
         videoUrls.filter { it.startsWith("http", true) }.forEachIndexed { idx, vUrl ->
             val isHls = ResolverHttpUtils.isManifestUrl(vUrl)
@@ -1626,7 +1653,7 @@ class PinterestProviderAdapter(
                 vUrl.contains("720") -> 720
                 else -> 0
             }
-            val size = if (!isHls) ResolverHttpUtils.probeContentLength(httpClient, vUrl) else -1L
+            val size = if (!isHls) ResolverHttpUtils.probeContentLength(httpClient, vUrl, headers) else -1L
             formats += ResolvedMediaFormat(
                 id = "pin_v_$idx",
                 labelAr = qualityLabelForHeight(height),
@@ -1640,6 +1667,7 @@ class PinterestProviderAdapter(
                 isApproximateBytes = size <= 0L,
                 isHls = isHls,
                 needsMux = isHls,
+                headers = headers,
                 badgeAr = if (height >= 1080) "الأوضح" else null
             )
         }
@@ -1650,7 +1678,7 @@ class PinterestProviderAdapter(
                 .lowercase(Locale.ROOT)
                 .takeIf { it in setOf("jpg", "jpeg", "png", "webp") } ?: "jpg"
             val mime = if (ext == "png") "image/png" else if (ext == "webp") "image/webp" else "image/jpeg"
-            val size = ResolverHttpUtils.probeContentLength(httpClient, bestImage)
+            val size = ResolverHttpUtils.probeContentLength(httpClient, bestImage, headers)
             formats += ResolvedMediaFormat(
                 id = "pin_img_orig",
                 labelAr = "صورة عالية الدقة (${ext.uppercase(Locale.ROOT)})",
@@ -1661,6 +1689,7 @@ class PinterestProviderAdapter(
                 streamUrl = bestImage,
                 exactBytes = size,
                 isApproximateBytes = size <= 0L,
+                headers = headers,
                 badgeAr = "الأصلية"
             )
         }
@@ -1688,6 +1717,7 @@ class PinterestProviderAdapter(
             kind = kind,
             thumbnailUrl = ogImage ?: bestImage,
             formats = formats.sortedByDescending { it.resolutionHeight },
+            headers = headers,
             cookiesHeader = cookiesHeader
         )
     }

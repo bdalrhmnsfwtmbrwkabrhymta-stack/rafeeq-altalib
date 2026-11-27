@@ -75,7 +75,9 @@ object NoOpWebViewSniffGateway : WebViewSniffGateway {
 object ResolverHttpUtils {
 
     const val MOBILE_UA =
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+
+    const val PIXEL8_ANDROID14_CHROME128_UA = MOBILE_UA
 
     const val DESKTOP_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -98,6 +100,58 @@ object ResolverHttpUtils {
         }
     }
 
+    fun defaultRefererForUrl(url: String): String? {
+        val host = normalizeHost(url)
+        return when {
+            host == "fb.watch" || host == "fb.com" || host.endsWith(".fb.com") ||
+                host == "facebook.com" || host.endsWith(".facebook.com") || host.contains("fbcdn.net") ->
+                "https://www.facebook.com/"
+            host == "instagram.com" || host.endsWith(".instagram.com") || host == "instagr.am" ||
+                host.contains("cdninstagram.com") ->
+                "https://www.instagram.com/"
+            host == "pin.it" || host.contains("pinterest.") || host.contains("pinimg.com") ->
+                "https://www.pinterest.com/"
+            host == "tiktok.com" || host.endsWith(".tiktok.com") || host.contains("tiktokv.com") ||
+                host.contains("tiktokcdn") ->
+                "https://www.tiktok.com/"
+            else -> null
+        }
+    }
+
+    fun requiresSocialCdnHeaders(url: String): Boolean {
+        val host = normalizeHost(url)
+        return host == "fb.watch" || host == "fb.com" || host.endsWith(".fb.com") ||
+            host == "facebook.com" || host.endsWith(".facebook.com") || host.contains("fbcdn.net") ||
+            host == "instagram.com" || host.endsWith(".instagram.com") || host == "instagr.am" ||
+            host.contains("cdninstagram.com") ||
+            host == "pin.it" || host.contains("pinterest.") || host.contains("pinimg.com")
+    }
+
+    fun defaultHeadersForUrl(
+        url: String,
+        existing: Map<String, String> = emptyMap(),
+        cookiesHeader: String? = null
+    ): Map<String, String> = buildMap {
+        putAll(existing)
+        val isSocial = requiresSocialCdnHeaders(url)
+        if (keys.none { it.equals("User-Agent", true) }) {
+            put("User-Agent", if (isSocial) PIXEL8_ANDROID14_CHROME128_UA else DESKTOP_UA)
+        }
+        val ref = defaultRefererForUrl(url)
+        if (ref != null && keys.none { it.equals("Referer", true) }) {
+            put("Referer", ref)
+        }
+        if (keys.none { it.equals("Accept", true) }) {
+            put("Accept", "*/*")
+        }
+        if (isSocial && keys.none { it.equals("Accept-Encoding", true) }) {
+            put("Accept-Encoding", "identity")
+        }
+        if (!cookiesHeader.isNullOrBlank() && keys.none { it.equals("Cookie", true) }) {
+            put("Cookie", cookiesHeader)
+        }
+    }
+
     fun resolveRedirects(
         client: OkHttpClient,
         url: String,
@@ -111,13 +165,15 @@ object ResolverHttpUtils {
         var current = url.trim()
         var hops = 0
         while (hops < maxHops) {
+            val ua = if (requiresSocialCdnHeaders(current)) PIXEL8_ANDROID14_CHROME128_UA else DESKTOP_UA
             val req = Request.Builder()
                 .url(current)
                 .get()
-                .header("User-Agent", DESKTOP_UA)
+                .header("User-Agent", ua)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "ar,en-US;q=0.9,en;q=0.8")
                 .apply {
+                    defaultRefererForUrl(current)?.let { header("Referer", it) }
                     if (!cookiesHeader.isNullOrBlank()) header("Cookie", cookiesHeader)
                 }
                 .build()
@@ -197,6 +253,9 @@ object ResolverHttpUtils {
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("Accept-Language", "ar,en-US;q=0.9,en;q=0.8")
             .apply {
+                if (extraHeaders.keys.none { it.equals("Referer", true) }) {
+                    defaultRefererForUrl(url)?.let { header("Referer", it) }
+                }
                 if (!cookiesHeader.isNullOrBlank()) header("Cookie", cookiesHeader)
                 extraHeaders.forEach { (k, v) -> header(k, v) }
             }
@@ -228,16 +287,14 @@ object ResolverHttpUtils {
         if (!url.startsWith("http", ignoreCase = true)) {
             return StreamProbeOutcome(reachable = false)
         }
+        val effectiveHeaders = defaultHeadersForUrl(url, headers)
         return runCatching {
             val req = Request.Builder()
                 .url(url)
                 .get()
                 .header("Range", "bytes=0-511")
                 .apply {
-                    if (headers.keys.none { it.equals("User-Agent", true) }) {
-                        header("User-Agent", DESKTOP_UA)
-                    }
-                    headers.forEach { (k, v) ->
+                    effectiveHeaders.forEach { (k, v) ->
                         if (!k.equals("Range", true)) header(k, v)
                     }
                 }
@@ -277,15 +334,13 @@ object ResolverHttpUtils {
         headers: Map<String, String> = emptyMap()
     ): Long {
         if (!url.startsWith("http", ignoreCase = true)) return -1L
+        val effectiveHeaders = defaultHeadersForUrl(url, headers)
         return runCatching {
             val req = Request.Builder()
                 .url(url)
                 .head()
                 .apply {
-                    if (headers.keys.none { it.equals("User-Agent", true) }) {
-                        header("User-Agent", DESKTOP_UA)
-                    }
-                    headers.forEach { (k, v) -> header(k, v) }
+                    effectiveHeaders.forEach { (k, v) -> header(k, v) }
                 }
                 .build()
             client.newCall(req).execute().use { resp ->

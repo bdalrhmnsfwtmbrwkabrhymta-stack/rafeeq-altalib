@@ -5,6 +5,7 @@ import com.example.download.core.model.DownloadError
 import com.example.download.core.model.DownloadErrorMapper
 import com.example.download.core.model.EngineDownloadState
 import com.example.download.core.model.HttpProbeInfo
+import com.example.download.core.resolver.ResolverHttpUtils
 import com.example.download.data.LiveProgressSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -149,12 +150,12 @@ class SegmentedDownloadEngine(
 
     suspend fun download(spec: DownloadJobSpec): File = withContext(Dispatchers.IO) {
         var activeUrl = spec.url
-        var activeHeaders = spec.headers
+        var activeHeaders = ResolverHttpUtils.defaultHeadersForUrl(activeUrl, spec.headers)
         val partFile = spec.targetPartFile.apply { parentFile?.mkdirs() }
 
         var probe = probeServerWithRefresh(activeUrl, activeHeaders, spec.onRefreshExpiredUrl) { freshUrl, freshHeaders ->
             activeUrl = freshUrl
-            activeHeaders = freshHeaders
+            activeHeaders = ResolverHttpUtils.defaultHeadersForUrl(freshUrl, freshHeaders)
         }
 
         if (probe.isHtmlPage) {
@@ -282,7 +283,7 @@ class SegmentedDownloadEngine(
                 if (now - lastRefreshMs < 4000L) return@withLock true
                 val refreshed = spec.onRefreshExpiredUrl() ?: return@withLock false
                 activeUrl = refreshed.first
-                activeHeaders = refreshed.second
+                activeHeaders = ResolverHttpUtils.defaultHeadersForUrl(refreshed.first, refreshed.second)
                 lastRefreshMs = System.currentTimeMillis()
                 chunkStore.updateServerMetadata(spec.downloadId, activeUrl, probe.etag, probe.lastModified)
                 true
@@ -469,8 +470,8 @@ class SegmentedDownloadEngine(
                         reqBuilder.header("If-Range", ifRangeValue)
                     }
                 }
-                headersProvider().forEach { (k, v) ->
-                    if (!k.equals("Range", true) && !k.equals("Accept-Encoding", true)) {
+                ResolverHttpUtils.defaultHeadersForUrl(effectiveUrl, headersProvider()).forEach { (k, v) ->
+                    if (!k.equals("Range", true) && (!k.equals("Accept-Encoding", true) || v.equals("identity", true))) {
                         reqBuilder.header(k, v)
                     }
                 }
@@ -626,21 +627,25 @@ class SegmentedDownloadEngine(
         val backoffMs = longArrayOf(600L, 1200L, 2500L, 5000L, 10000L)
         val speedBucket = SharedSpeedBucket(spec.speedLimitKBps)
         var activeUrl = initialUrl
-        var activeHeaders = initialHeaders
+        var activeHeaders = ResolverHttpUtils.defaultHeadersForUrl(initialUrl, initialHeaders)
         var attempt = 0
         var urlRefreshed = false
 
         while (isActive && !spec.isPausedOrCanceled()) {
             try {
                 val reqBuilder = Request.Builder().url(activeUrl)
-                activeHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
+                activeHeaders.forEach { (k, v) ->
+                    if (!k.equals("Accept-Encoding", true) || v.equals("identity", true)) {
+                        reqBuilder.header(k, v)
+                    }
+                }
                 httpClient.newCall(reqBuilder.build()).execute().use { resp ->
                     if ((resp.code == 403 || resp.code == 410) && !urlRefreshed) {
                         urlRefreshed = true
                         val fresh = spec.onRefreshExpiredUrl()
                         if (fresh != null) {
                             activeUrl = fresh.first
-                            activeHeaders = fresh.second
+                            activeHeaders = ResolverHttpUtils.defaultHeadersForUrl(fresh.first, fresh.second)
                             return@use
                         }
                         throw DownloadEngineException(DownloadError.ExpiredMediaURL(resp.code))
@@ -655,7 +660,7 @@ class SegmentedDownloadEngine(
                             val fresh = spec.onRefreshExpiredUrl()
                             if (fresh != null) {
                                 activeUrl = fresh.first
-                                activeHeaders = fresh.second
+                                activeHeaders = ResolverHttpUtils.defaultHeadersForUrl(fresh.first, fresh.second)
                                 return@use
                             }
                         }
@@ -764,12 +769,13 @@ class SegmentedDownloadEngine(
     }
 
     fun probeServer(url: String, headers: Map<String, String> = emptyMap()): HttpProbeInfo {
+        val effectiveHeaders = ResolverHttpUtils.defaultHeadersForUrl(url, headers)
         val isGoogleVideo = isGoogleVideoUrl(url)
         val clenFromQuery = url.toHttpUrlOrNull()?.queryParameter("clen")?.toLongOrNull() ?: -1L
         var headProbe: HttpProbeInfo? = null
         runCatching {
             val headReq = Request.Builder().url(url).head()
-            headers.forEach { (k, v) -> headReq.header(k, v) }
+            effectiveHeaders.forEach { (k, v) -> headReq.header(k, v) }
             httpClient.newCall(headReq.build()).execute().use { resp ->
                 val contentType = resp.header("Content-Type").orEmpty().lowercase(Locale.ROOT)
                 val headerLen = resp.header("Content-Length")?.toLongOrNull() ?: -1L
@@ -810,8 +816,10 @@ class SegmentedDownloadEngine(
             if (!isGoogleVideo) {
                 rangeReq.header("Range", "bytes=0-0")
             }
-            headers.forEach { (k, v) ->
-                if (!k.equals("Range", true)) rangeReq.header(k, v)
+            effectiveHeaders.forEach { (k, v) ->
+                if (!k.equals("Range", true) && (!k.equals("Accept-Encoding", true) || v.equals("identity", true))) {
+                    rangeReq.header(k, v)
+                }
             }
             httpClient.newCall(rangeReq.build()).execute().use { resp ->
                 val contentType = resp.header("Content-Type").orEmpty().lowercase(Locale.ROOT)

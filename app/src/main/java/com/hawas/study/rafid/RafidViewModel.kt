@@ -197,7 +197,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
                     engineState = "QUEUED"
                 )
                 dao.upsertDownload(entity)
-                dispatchQueueSlots()
+                DownloadQueueManager.enqueueAndStart(appContext, entity.id)
             }
         }
     }
@@ -277,7 +277,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (entries.isNotEmpty()) {
             dao.upsertDownloads(entries)
-            DownloadQueueManager.triggerQueueProcessing(appContext)
+            DownloadQueueManager.enqueueAndStart(appContext, entries.first().id)
         }
     }
 
@@ -450,7 +450,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
     fun resumeDownload(downloadId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.updateDownloadStatus(downloadId, RafidDownloadStatus.QUEUED.name, null)
-            dispatchQueueSlots()
+            DownloadQueueManager.enqueueAndStart(appContext, downloadId)
         }
     }
 
@@ -470,7 +470,7 @@ class RafidViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dispatchQueueSlots() {
         viewModelScope.launch(Dispatchers.IO) {
-            DownloadQueueManager.triggerQueueProcessing(appContext)
+            DownloadQueueManager.enqueueAndStart(appContext)
         }
     }
 

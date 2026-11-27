@@ -228,7 +228,7 @@ class SmartDownloadManager private constructor(
             dao.upsertDownload(entity)
         }
 
-        DownloadForegroundService.startOrRefresh(appContext)
+        DownloadForegroundService.startQueue(appContext, id)
         scheduleNextQueued()
         return EnqueueOutcome.Enqueued(id)
     }
@@ -294,14 +294,14 @@ class SmartDownloadManager private constructor(
             addedCount++
         }
         if (addedCount > 0) {
-            DownloadForegroundService.startOrRefresh(appContext)
+            DownloadForegroundService.startQueue(appContext, null)
             scheduleNextQueued()
         }
         return addedCount
     }
 
     override suspend fun startOrSchedule(id: String) {
-        DownloadForegroundService.startOrRefresh(appContext)
+        DownloadForegroundService.startQueue(appContext, id)
         scheduleNextQueued()
     }
 
@@ -351,7 +351,7 @@ class SmartDownloadManager private constructor(
                 errorCode = null
             )
         }
-        DownloadForegroundService.startOrRefresh(appContext)
+        DownloadForegroundService.startQueue(appContext, id)
         scheduleNextQueued()
     }
 
@@ -396,7 +396,7 @@ class SmartDownloadManager private constructor(
                 errorCode = null
             )
         }
-        DownloadForegroundService.startOrRefresh(appContext)
+        DownloadForegroundService.startQueue(appContext, id)
         scheduleNextQueued()
     }
 
@@ -437,7 +437,7 @@ class SmartDownloadManager private constructor(
                 }
             }
             if (all.isNotEmpty()) {
-                DownloadForegroundService.startOrRefresh(appContext)
+                DownloadForegroundService.startQueue(appContext, all.first().id)
                 scheduleNextQueued()
             }
         }
@@ -457,7 +457,7 @@ class SmartDownloadManager private constructor(
                 dao.updateStatus(item.id, targetStatus, engineState = targetEngine.name)
             }
         }
-        DownloadForegroundService.startOrRefresh(appContext)
+        DownloadForegroundService.startQueue(appContext, resumable.first().id)
         scheduleNextQueued()
     }
 
@@ -522,7 +522,7 @@ class SmartDownloadManager private constructor(
                 pausedByNetworkIds.remove(item.id)
                 dao.updateStatus(item.id, DownloadStatus.QUEUED, engineState = EngineDownloadState.QUEUED.name, errorCode = null)
             }
-            DownloadForegroundService.startOrRefresh(appContext)
+            DownloadForegroundService.startQueue(appContext, waiting.first().id)
             scheduleNextQueued()
         }
     }
@@ -548,11 +548,15 @@ class SmartDownloadManager private constructor(
                     dao.updateStatus(it.id, DownloadStatus.QUEUED, engineState = EngineDownloadState.QUEUED.name, errorCode = null)
                 }
                 if (waiting.isNotEmpty()) {
-                    DownloadForegroundService.startOrRefresh(appContext)
+                    DownloadForegroundService.startQueue(appContext, waiting.first().id)
                     scheduleNextQueued()
                 }
             }
         }
+    }
+
+    fun ensureQueueRunning() {
+        scheduleNextQueued()
     }
 
     suspend fun cleanOrphanTempFiles(): Int {
@@ -693,7 +697,10 @@ class SmartDownloadManager private constructor(
             )
 
             val producedFile: File = if (useSegmentedHttp) {
-                val headers = decodeHeaders(entity.headersJson)
+                val headers = ResolverHttpUtils.defaultHeadersForUrl(
+                    entity.resolvedUrl,
+                    decodeHeaders(entity.headersJson)
+                )
                 chunkDownloader.download(
                     entity = entity,
                     headers = headers,
@@ -712,7 +719,9 @@ class SmartDownloadManager private constructor(
                     }
                 )
             } else if (useParallelMuxHttp) {
-                val headers = decodeHeaders(entity.headersJson)
+                val decodedHeaders = decodeHeaders(entity.headersJson)
+                val headers = ResolverHttpUtils.defaultHeadersForUrl(entity.resolvedUrl, decodedHeaders)
+                val audioHeaders = ResolverHttpUtils.defaultHeadersForUrl(entity.audioUrl!!, decodedHeaders)
                 val audioTempFile = File(File(entity.tempPartPath).parentFile, "${id}_audio.m4a.part")
                 val muxOutFile = File(File(entity.tempPartPath).parentFile, "${id}_muxed.${entity.fileName.substringAfterLast('.', "mp4")}")
                 val vDone = AtomicLong(0L)
@@ -762,7 +771,7 @@ class SmartDownloadManager private constructor(
                                 url = entity.audioUrl!!,
                                 targetFile = audioTempFile,
                                 expectedMimeType = "audio/mp4",
-                                headers = headers,
+                                headers = audioHeaders,
                                 requestedChunks = settings.chunkCount,
                                 speedLimitKBps = settings.speedLimitKBps,
                                 onRefreshDirectUrl = { null },

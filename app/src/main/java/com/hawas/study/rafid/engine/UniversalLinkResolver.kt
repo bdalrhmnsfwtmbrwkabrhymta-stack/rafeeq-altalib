@@ -1,5 +1,6 @@
 package com.hawas.study.rafid.engine
 
+import com.example.download.core.resolver.ResolverHttpUtils
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URI
@@ -15,8 +16,7 @@ class UniversalLinkResolver(
     private val httpClient: OkHttpClient = defaultClient()
 ) {
     companion object {
-        const val MOBILE_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+        const val MOBILE_USER_AGENT = ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA
 
         const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -44,12 +44,19 @@ class UniversalLinkResolver(
             .build()
 
         while (hops < maxHops) {
+            val ua = if (ResolverHttpUtils.requiresSocialCdnHeaders(currentUrl)) {
+                ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA
+            } else {
+                DESKTOP_USER_AGENT
+            }
             val reqBuilder = Request.Builder()
                 .url(currentUrl)
                 .get()
-                .header("User-Agent", DESKTOP_USER_AGENT)
+                .header("User-Agent", ua)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "ar,en-US;q=0.9,en;q=0.8")
+
+            ResolverHttpUtils.defaultRefererForUrl(currentUrl)?.let { reqBuilder.header("Referer", it) }
 
             if (!cookiesHeader.isNullOrBlank()) {
                 reqBuilder.header("Cookie", cookiesHeader)
@@ -79,14 +86,15 @@ class UniversalLinkResolver(
             hops++
         }
 
+        val normalizedFinal = UrlNormalizer.normalize(currentUrl)
         return ResolvedLinkResult(
             originalUrl = extracted,
-            resolvedUrl = currentUrl,
+            resolvedUrl = normalizedFinal,
             redirectHops = hops
         )
     }
 
     private fun normalizeShortDomain(url: String): String {
-        return url.trim()
+        return UrlNormalizer.normalize(url.trim())
     }
 }
