@@ -196,15 +196,21 @@ fun AutoAdhkarScreen(
 
     var playingResId by remember { mutableStateOf<Int?>(null) }
     var isAudioPaused by remember { mutableStateOf(false) }
+    var currentStageLabel by remember { mutableStateOf<String?>(null) }
+    var isAzkarSequenceActive by remember { mutableStateOf(false) }
 
     LaunchedEffect(azanAudioPlayer) {
         azanAudioPlayer.onCompletionCallback = {
             playingResId = null
             isAudioPaused = false
+            currentStageLabel = null
+            isAzkarSequenceActive = false
         }
         azanAudioPlayer.onStateChangedCallback = {
             isAudioPaused = azanAudioPlayer.isPaused
             playingResId = azanAudioPlayer.currentPlayingResId
+            currentStageLabel = azanAudioPlayer.currentAzkarStageLabel
+            isAzkarSequenceActive = azanAudioPlayer.isPlaying() || azanAudioPlayer.isPaused || azanAudioPlayer.currentAzkarStageLabel != null
         }
     }
 
@@ -214,7 +220,7 @@ fun AutoAdhkarScreen(
     val currentItem = items[safeIndex]
 
     val targetRes = if (isMorning) R.raw.azkar_sabah else R.raw.azkar_massa
-    val isCurrentPlaying = playingResId == targetRes || playingResId == R.raw.athkar_sabah
+    val isCurrentPlaying = isAzkarSequenceActive || playingResId == targetRes || playingResId == R.raw.athkar_sabah
     val isPlaying = isCurrentPlaying && !isAudioPaused
     val isPaused = isCurrentPlaying && isAudioPaused
 
@@ -311,17 +317,21 @@ fun AutoAdhkarScreen(
                                 isPlaying = isPlaying,
                                 isPaused = isPaused,
                                 isCurrentPlaying = isCurrentPlaying,
+                                stageLabel = currentStageLabel,
                                 onPlay = {
                                     if (isPaused) azanAudioPlayer.resumeAudio()
                                     else {
                                         if (isMorning) azanAudioPlayer.playMorningAzkar() else azanAudioPlayer.playEveningAzkar()
                                         playingResId = targetRes
+                                        isAzkarSequenceActive = true
                                     }
                                 },
                                 onPause = { if (isPlaying) azanAudioPlayer.pauseAudio() },
                                 onStop = {
                                     azanAudioPlayer.stopAudio()
                                     playingResId = null
+                                    currentStageLabel = null
+                                    isAzkarSequenceActive = false
                                 }
                             )
 
@@ -397,17 +407,21 @@ fun AutoAdhkarScreen(
                             isPlaying = isPlaying,
                             isPaused = isPaused,
                             isCurrentPlaying = isCurrentPlaying,
+                            stageLabel = currentStageLabel,
                             onPlay = {
                                 if (isPaused) azanAudioPlayer.resumeAudio()
                                 else {
                                     if (isMorning) azanAudioPlayer.playMorningAzkar() else azanAudioPlayer.playEveningAzkar()
                                     playingResId = targetRes
+                                    isAzkarSequenceActive = true
                                 }
                             },
                             onPause = { if (isPlaying) azanAudioPlayer.pauseAudio() },
                             onStop = {
                                 azanAudioPlayer.stopAudio()
                                 playingResId = null
+                                currentStageLabel = null
+                                isAzkarSequenceActive = false
                             }
                         )
 
@@ -836,6 +850,7 @@ private fun AdhkarAudioControlsCard(
     isPlaying: Boolean,
     isPaused: Boolean,
     isCurrentPlaying: Boolean,
+    stageLabel: String? = null,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onStop: () -> Unit
@@ -858,6 +873,33 @@ private fun AdhkarAudioControlsCard(
                 fontWeight = FontWeight.Bold,
                 color = AdhkarRoyalBlue
             )
+            Text(
+                text = if (isMorning) {
+                    "تبدأ بآية الكرسي مع نسيم الصباح وأصوات العصافير ثم أذكار الصباح كاملة"
+                } else {
+                    "تبدأ بآية الكرسي بتلاوة مسائية هادئة (بدون أصوات عصافير) ثم أذكار المساء كاملة"
+                },
+                fontFamily = DisplayArabicFontFamily,
+                fontSize = 11.5.sp,
+                color = Color(0xFF475569)
+            )
+            if (!stageLabel.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = AdhkarRoyalBlue.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, AdhkarRoyalBlue.copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = stageLabel,
+                        fontFamily = DisplayArabicFontFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AdhkarRoyalBlue,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

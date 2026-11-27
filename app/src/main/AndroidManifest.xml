@@ -82,6 +82,7 @@
         <!-- Fullscreen Adhan Activity for Lockscreen / Screen Wakeup -->
         <activity
             android:name=".ui.prayer.AdhanFullScreenActivity"
+            android:directBootAware="true"
             android:exported="true"
             android:excludeFromRecents="true"
             android:showOnLockScreen="true"
@@ -93,6 +94,7 @@
         <!-- Athkar Interactive Popup Activity -->
         <activity
             android:name=".ui.prayer.AthkarPopupActivity"
+            android:directBootAware="true"
             android:exported="false"
             android:showOnLockScreen="true"
             android:showWhenLocked="true"
@@ -136,18 +138,25 @@
         <!-- Receivers for Alarms and Boot -->
         <receiver
             android:name=".domain.prayer.PrayerAlarmReceiver"
+            android:directBootAware="true"
             android:exported="true"
             android:enabled="true">
             <intent-filter>
                 <action android:name="com.example.ACTION_PRAYER_ALARM" />
                 <action android:name="com.example.ACTION_SALAWAT_ALARM" />
+                <action android:name="com.example.ACTION_MORNING_AZKAR" />
+                <action android:name="com.example.ACTION_EVENING_AZKAR" />
                 <action android:name="com.example.ACTION_MORNING_AZKAR_ALARM" />
                 <action android:name="com.example.ACTION_EVENING_AZKAR_ALARM" />
                 <action android:name="com.example.ACTION_TEST_ALARM" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 
@@ -163,31 +172,43 @@
 
         <receiver
             android:name=".domain.prayer.BootReceiver"
+            android:directBootAware="true"
             android:exported="true"
             android:enabled="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.huawei.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 
         <receiver
             android:name=".domain.prayer.BootCompletedReceiver"
+            android:directBootAware="true"
             android:exported="true"
             android:enabled="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.huawei.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 
         <!-- Foreground Services -->
         <service
             android:name=".domain.prayer.PrayerForegroundService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -197,16 +218,19 @@
 
         <service
             android:name=".domain.prayer.AdhanPlaybackService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
         <service
             android:name=".domain.prayer.AzkarAudioService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
         <service
             android:name=".domain.prayer.SalawatPlaybackService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 

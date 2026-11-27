@@ -69,13 +69,13 @@ data class UserSettings(
     val muezzinVoice: String = "الأذان المصري الأصيل (MBC وإذاعة القرآن)",
     val mutedPrayers: Set<String> = emptySet(),
     val isMorningAzkarEnabled: Boolean = true,
-    val morningAzkarHour: Int = 6,
+    val morningAzkarHour: Int = 9,
     val morningAzkarMinute: Int = 0,
     val isEveningAzkarEnabled: Boolean = true,
     val eveningAzkarHour: Int = 17,
-    val eveningAzkarMinute: Int = 30,
+    val eveningAzkarMinute: Int = 0,
     val isSalawatEnabled: Boolean = true,
-    val salawatIntervalMinutes: Int = 30,
+    val salawatIntervalMinutes: Int = 60,
     val salawatVoiceId: Int = 1,
     val salawatAudioMode: String = "VOICE_FORMULA",
     val customSalawatAudioUri: String = "",
@@ -227,6 +227,7 @@ class UserPreferencesRepository(private val context: Context) {
         val KEY_COQUI_TTS_URL = stringPreferencesKey("coqui_tts_url")
         val KEY_VOICE_TTS_API_KEY = stringPreferencesKey("voice_tts_api_key")
         val KEY_FAHIM_DIALECT = stringPreferencesKey("fahim_dialect")
+        val KEY_PRAYER_DEFAULTS_MIGRATED_V2 = booleanPreferencesKey("prayer_defaults_migrated_v2")
     }
 
     val userSettingsFlow: Flow<UserSettings> = context.dataStore.data
@@ -284,13 +285,13 @@ class UserPreferencesRepository(private val context: Context) {
                 muezzinVoice = prefs[KEY_MUEZZIN_VOICE] ?: "الأذان المصري الأصيل (MBC وإذاعة القرآن)",
                 mutedPrayers = prefs[KEY_MUTED_PRAYERS] ?: emptySet(),
                 isMorningAzkarEnabled = prefs[KEY_IS_MORNING_AZKAR] ?: true,
-                morningAzkarHour = prefs[KEY_MORNING_AZKAR_HOUR] ?: 6,
+                morningAzkarHour = prefs[KEY_MORNING_AZKAR_HOUR] ?: 9,
                 morningAzkarMinute = prefs[KEY_MORNING_AZKAR_MINUTE] ?: 0,
                 isEveningAzkarEnabled = prefs[KEY_IS_EVENING_AZKAR] ?: true,
                 eveningAzkarHour = prefs[KEY_EVENING_AZKAR_HOUR] ?: 17,
-                eveningAzkarMinute = prefs[KEY_EVENING_AZKAR_MINUTE] ?: 30,
+                eveningAzkarMinute = prefs[KEY_EVENING_AZKAR_MINUTE] ?: 0,
                 isSalawatEnabled = prefs[KEY_IS_SALAWAT_ENABLED] ?: true,
-                salawatIntervalMinutes = prefs[KEY_SALAWAT_INTERVAL] ?: 30,
+                salawatIntervalMinutes = prefs[KEY_SALAWAT_INTERVAL] ?: 60,
                 salawatVoiceId = prefs[KEY_SALAWAT_VOICE_ID] ?: 1,
                 salawatAudioMode = prefs[KEY_SALAWAT_AUDIO_MODE] ?: "VOICE_FORMULA",
                 customSalawatAudioUri = prefs[KEY_CUSTOM_SALAWAT_URI] ?: "",
@@ -525,13 +526,46 @@ class UserPreferencesRepository(private val context: Context) {
         }
     }
 
+    /**
+     * One-time upgrade for existing installations:
+     * - Morning Azkar 6:00 -> 9:00 AM
+     * - Evening Azkar 17:30 -> 17:00 (5:00 PM)
+     * - High-frequency Salawat (<= 30m, e.g. 15m/30m) -> 60m (every 1 hour automatically, zero lag)
+     */
+    suspend fun migrateLegacyPrayerDefaultsIfNeeded() {
+        context.dataStore.edit { prefs ->
+            if (prefs[KEY_PRAYER_DEFAULTS_MIGRATED_V2] == true) return@edit
+
+            val currentMorningH = prefs[KEY_MORNING_AZKAR_HOUR]
+            val currentMorningM = prefs[KEY_MORNING_AZKAR_MINUTE]
+            if (currentMorningH == null || (currentMorningH == 6 && (currentMorningM == null || currentMorningM == 0))) {
+                prefs[KEY_MORNING_AZKAR_HOUR] = 9
+                prefs[KEY_MORNING_AZKAR_MINUTE] = 0
+            }
+
+            val currentEveningH = prefs[KEY_EVENING_AZKAR_HOUR]
+            val currentEveningM = prefs[KEY_EVENING_AZKAR_MINUTE]
+            if (currentEveningH == null || (currentEveningH == 17 && currentEveningM == 30)) {
+                prefs[KEY_EVENING_AZKAR_HOUR] = 17
+                prefs[KEY_EVENING_AZKAR_MINUTE] = 0
+            }
+
+            val currentSalawatInterval = prefs[KEY_SALAWAT_INTERVAL]
+            if (currentSalawatInterval == null || currentSalawatInterval <= 30) {
+                prefs[KEY_SALAWAT_INTERVAL] = 60
+            }
+
+            prefs[KEY_PRAYER_DEFAULTS_MIGRATED_V2] = true
+        }
+    }
+
     suspend fun setAzkarSettings(
         morningEnabled: Boolean,
         eveningEnabled: Boolean,
-        morningHour: Int = 6,
+        morningHour: Int = 9,
         morningMinute: Int = 0,
         eveningHour: Int = 17,
-        eveningMinute: Int = 30
+        eveningMinute: Int = 0
     ) {
         updateAzkarSettings(morningEnabled, morningHour, morningMinute, eveningEnabled, eveningHour, eveningMinute)
     }

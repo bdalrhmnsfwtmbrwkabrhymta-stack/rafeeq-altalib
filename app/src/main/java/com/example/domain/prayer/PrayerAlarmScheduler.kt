@@ -33,8 +33,22 @@ object PrayerAlarmScheduler {
 
     suspend fun rescheduleAllSuspending(context: Context) {
         try {
-            val prefsRepo = UserPreferencesRepository(context)
-            val settings = prefsRepo.userSettingsFlow.first()
+            val appCtx = context.applicationContext
+            val isUnlocked = PrayerDirectBootStore.isUserUnlocked(appCtx)
+
+            val settings: UserSettings = if (isUnlocked) {
+                runCatching {
+                    val prefsRepo = UserPreferencesRepository(appCtx)
+                    val loaded = prefsRepo.userSettingsFlow.first()
+                    PrayerDirectBootStore.saveFromSettings(appCtx, loaded)
+                    loaded
+                }.getOrElse {
+                    PrayerDirectBootStore.loadSnapshot(appCtx).toUserSettings()
+                }
+            } else {
+                // Direct Boot mode (device restarted and still locked): read immediately from Device-Protected Storage
+                PrayerDirectBootStore.loadSnapshot(appCtx).toUserSettings()
+            }
 
             val calcMethod = try {
                 CalculationMethod.valueOf(settings.calculationMethod.uppercase())
@@ -55,49 +69,63 @@ object PrayerAlarmScheduler {
             }
 
             // 1. Arm exact alarms IMMEDIATELY (0ms network block) from cached official timings or Adhan calculation
-            val cachedToday = AlAdhanRepository.getCachedDailyTimings(
-                context = context,
-                date = todayDate,
-                latitude = settings.latitude,
-                longitude = settings.longitude,
-                methodName = settings.calculationMethod,
-                madhabName = settings.madhab
-            )
-            val cachedTomorrow = AlAdhanRepository.getCachedDailyTimings(
-                context = context,
-                date = tomorrowCal.time,
-                latitude = settings.latitude,
-                longitude = settings.longitude,
-                methodName = settings.calculationMethod,
-                madhabName = settings.madhab
-            )
+            val cachedToday = if (isUnlocked) {
+                runCatching {
+                    AlAdhanRepository.getCachedDailyTimings(
+                        context = appCtx,
+                        date = todayDate,
+                        latitude = settings.latitude,
+                        longitude = settings.longitude,
+                        methodName = settings.calculationMethod,
+                        madhabName = settings.madhab
+                    )
+                }.getOrNull()
+            } else null
 
-            applySchedule(context, settings, calcMethod, todayDate, tomorrowCal.time, cachedToday, cachedTomorrow)
+            val cachedTomorrow = if (isUnlocked) {
+                runCatching {
+                    AlAdhanRepository.getCachedDailyTimings(
+                        context = appCtx,
+                        date = tomorrowCal.time,
+                        latitude = settings.latitude,
+                        longitude = settings.longitude,
+                        methodName = settings.calculationMethod,
+                        madhabName = settings.madhab
+                    )
+                }.getOrNull()
+            } else null
 
-            // 2. If online official timings aren't cached yet for today or tomorrow, fetch and re-arm if updated
-            if (cachedToday == null || cachedTomorrow == null) {
-                val fetchedToday = cachedToday ?: AlAdhanRepository.getOrFetchDailyTimings(
-                    context = context,
-                    city = settings.cityLocation,
-                    country = settings.countryLocation,
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    methodName = settings.calculationMethod,
-                    madhabName = settings.madhab,
-                    date = todayDate
-                )
-                val fetchedTomorrow = cachedTomorrow ?: AlAdhanRepository.getOrFetchDailyTimings(
-                    context = context,
-                    city = settings.cityLocation,
-                    country = settings.countryLocation,
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    methodName = settings.calculationMethod,
-                    madhabName = settings.madhab,
-                    date = tomorrowCal.time
-                )
+            applySchedule(appCtx, settings, calcMethod, todayDate, tomorrowCal.time, cachedToday, cachedTomorrow)
+            PrayerDirectBootStore.markRescheduledNow(appCtx)
+
+            // 2. If unlocked and online official timings aren't cached yet, fetch and re-arm if updated
+            if (isUnlocked && (cachedToday == null || cachedTomorrow == null)) {
+                val fetchedToday = cachedToday ?: runCatching {
+                    AlAdhanRepository.getOrFetchDailyTimings(
+                        context = appCtx,
+                        city = settings.cityLocation,
+                        country = settings.countryLocation,
+                        latitude = settings.latitude,
+                        longitude = settings.longitude,
+                        methodName = settings.calculationMethod,
+                        madhabName = settings.madhab,
+                        date = todayDate
+                    )
+                }.getOrNull()
+                val fetchedTomorrow = cachedTomorrow ?: runCatching {
+                    AlAdhanRepository.getOrFetchDailyTimings(
+                        context = appCtx,
+                        city = settings.cityLocation,
+                        country = settings.countryLocation,
+                        latitude = settings.latitude,
+                        longitude = settings.longitude,
+                        methodName = settings.calculationMethod,
+                        madhabName = settings.madhab,
+                        date = tomorrowCal.time
+                    )
+                }.getOrNull()
                 if ((cachedToday == null && fetchedToday != null) || (cachedTomorrow == null && fetchedTomorrow != null)) {
-                    applySchedule(context, settings, calcMethod, todayDate, tomorrowCal.time, fetchedToday, fetchedTomorrow)
+                    applySchedule(appCtx, settings, calcMethod, todayDate, tomorrowCal.time, fetchedToday, fetchedTomorrow)
                 }
             }
         } catch (e: Exception) {
@@ -148,18 +176,21 @@ object PrayerAlarmScheduler {
             isSunriseAlertEnabled = settings.isSunriseAlertEnabled
         )
 
-        AdhkarAutoTriggerManager.scheduleDynamicWindowAlarms(
+        AzkarScheduler.scheduleAzkar(
             context = context,
             morningEnabled = settings.isMorningAzkarEnabled,
             eveningEnabled = settings.isEveningAzkarEnabled,
-            todayResult = prayerResult,
-            tomorrowResult = tomorrowPrayerResult
+            morningHour = settings.morningAzkarHour,
+            morningMinute = settings.morningAzkarMinute,
+            eveningHour = settings.eveningAzkarHour,
+            eveningMinute = settings.eveningAzkarMinute
         )
 
         scheduleSalawatReminder(
             context = context,
             isSalawatEnabled = settings.isSalawatEnabled,
-            intervalMinutes = settings.salawatIntervalMinutes
+            intervalMinutes = settings.salawatIntervalMinutes,
+            forceReset = false
         )
     }
 
@@ -334,14 +365,10 @@ object PrayerAlarmScheduler {
     fun scheduleSalawatReminder(
         context: Context,
         isSalawatEnabled: Boolean,
-        intervalMinutes: Int
+        intervalMinutes: Int,
+        forceReset: Boolean = false
     ) {
-        val prefs = context.getSharedPreferences(PREFS_SALAWAT, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putBoolean(KEY_SALAWAT_ENABLED, isSalawatEnabled)
-            .putInt(KEY_SALAWAT_INTERVAL, intervalMinutes.coerceAtLeast(1))
-            .apply()
-
+        val safeIntervalMinutes = intervalMinutes.coerceAtLeast(1)
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
         val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
@@ -357,33 +384,42 @@ object PrayerAlarmScheduler {
 
         if (!isSalawatEnabled) {
             alarmManager.cancel(pendingIntent)
+            PrayerDirectBootStore.saveSalawatScheduleState(context, false, safeIntervalMinutes, 0L)
             return
         }
 
-        val safeIntervalMinutes = intervalMinutes.coerceAtLeast(1)
+        val now = System.currentTimeMillis()
         val intervalMs = safeIntervalMinutes * 60 * 1000L
-        val nextTriggerMs = System.currentTimeMillis() + intervalMs
+        val existingNextMs = PrayerDirectBootStore.getNextSalawatTriggerMs(context)
+        val existingInterval = PrayerDirectBootStore.getSavedSalawatIntervalMinutes(context)
 
-        val showIntent = Intent(context, com.example.ui.prayer.AthkarPopupActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(com.example.ui.prayer.AthkarPopupActivity.EXTRA_ATHKAR_TYPE, com.example.ui.prayer.AthkarPopupActivity.TYPE_SALAWAT)
+        // Preserve existing scheduled trigger across Watchdog/Boot reschedules so the 1-hour rhythm never drifts or resets!
+        val nextTriggerMs = if (
+            !forceReset &&
+            existingInterval == safeIntervalMinutes &&
+            existingNextMs > now + 5_000L &&
+            existingNextMs <= now + intervalMs + 60_000L
+        ) {
+            existingNextMs
+        } else {
+            now + intervalMs
         }
-        val showPendingIntent = PendingIntent.getActivity(
-            context,
-            REQ_SALAWAT + 500,
-            showIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
-        scheduleExactAlarmSafely(alarmManager, nextTriggerMs, pendingIntent, showPendingIntent)
+        PrayerDirectBootStore.saveSalawatScheduleState(context, true, safeIntervalMinutes, nextTriggerMs)
+
+        // Use lightweight setExactAndAllowWhileIdle (NOT setAlarmClock) so hourly Salawat never lags or spams alarm-clock icons
+        scheduleExactAlarmSafely(alarmManager, nextTriggerMs, pendingIntent, showIntent = null)
     }
 
     fun scheduleNextSalawatExactAlarm(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_SALAWAT, Context.MODE_PRIVATE)
-        val isEnabled = prefs.getBoolean(KEY_SALAWAT_ENABLED, true)
-        val intervalMinutes = prefs.getInt(KEY_SALAWAT_INTERVAL, 10).coerceAtLeast(1)
-        if (isEnabled) {
-            scheduleSalawatReminder(context, true, intervalMinutes)
+        val snapshot = PrayerDirectBootStore.loadSnapshot(context)
+        if (snapshot.isSalawatEnabled) {
+            scheduleSalawatReminder(
+                context = context,
+                isSalawatEnabled = true,
+                intervalMinutes = snapshot.salawatIntervalMinutes.coerceAtLeast(1),
+                forceReset = true
+            )
         }
     }
 

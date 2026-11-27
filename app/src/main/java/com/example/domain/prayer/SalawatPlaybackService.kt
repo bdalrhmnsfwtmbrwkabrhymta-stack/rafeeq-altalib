@@ -8,7 +8,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
-import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
@@ -18,11 +17,11 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.R
 import com.example.data.audio.AppAudioManager
-import com.example.ui.prayer.AthkarPopupActivity
+import com.example.data.notification.AzanNotificationHelper
 
 /**
- * Foreground Service for guaranteed Salawat playback even when the device
- * is in deep sleep, locked with a password/PIN, or in Doze mode.
+ * Lightweight Foreground Service for smooth, zero-lag hourly Salawat playback
+ * even when the device is in deep sleep, Direct Boot, or Doze mode.
  */
 class SalawatPlaybackService : Service() {
 
@@ -38,7 +37,7 @@ class SalawatPlaybackService : Service() {
                 "RafiqAlTalib:SalawatPlaybackServiceWakeLock"
             ).apply {
                 setReferenceCounted(false)
-                acquire(2 * 60 * 1000L) // 2 minutes max
+                acquire(45_000L) // Lightweight 45s max wake lock
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to acquire wakeLock", e)
@@ -50,6 +49,7 @@ class SalawatPlaybackService : Service() {
 
         if (action == ACTION_STOP_SALAWAT) {
             stopPlayback()
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
             stopSelf()
             return START_NOT_STICKY
         }
@@ -62,14 +62,42 @@ class SalawatPlaybackService : Service() {
         createChannel()
 
         val notification = buildForegroundNotification(voiceItem)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        val startedForeground = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground failed in SalawatPlaybackService; using notification fallback", e)
+            runCatching {
+                AzanNotificationHelper(applicationContext).showSalawatNotification(
+                    title = "صلِّ على النبي ﷺ 📿",
+                    message = "${voiceItem.fullText} ✨",
+                    rawAudioResId = if (voiceItem.rawResId != 0) voiceItem.rawResId else R.raw.salli_ala_muhammad
+                )
+            }
+            false
+        }
+
+        if (!startedForeground) {
+            stopPlayback()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        // Never interrupt an active Adhan or Azkar recitation
+        if (AdhanPlaybackService.isPlayingAdhan || AzkarAudioService.isPlayingAzkar) {
+            Log.i(TAG, "Skipping Salawat audio because Adhan or Azkar is actively playing.")
+            stopPlayback()
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         startAudioPlayback(voiceItem, audioMode, customUri)
@@ -79,37 +107,26 @@ class SalawatPlaybackService : Service() {
 
     private fun startAudioPlayback(voiceItem: SalawatVoiceItem, audioMode: String, customUri: String) {
         try {
-            AppAudioManager.stopAllNonAdhanAudio(this)
             AppAudioManager.requestAudioFocus(this, isAdhan = false)
 
+            val speechAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+
             if (audioMode == "CUSTOM_FILE" && customUri.isNotBlank()) {
-                mediaPlayer?.release()
+                SalawatAudioData.stopPlayer(mediaPlayer)
                 mediaPlayer = MediaPlayer().apply {
-                    setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build()
-                    )
+                    setAudioAttributes(speechAttributes)
                     setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                     setDataSource(applicationContext, Uri.parse(customUri))
                     setOnPreparedListener { player ->
-                        try {
-                            player.start()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error starting custom audio", e)
-                            stopPlayback()
-                            stopSelf()
-                        }
+                        runCatching { player.start() }.onFailure { finishService() }
                     }
-                    setOnCompletionListener {
-                        stopPlayback()
-                        stopSelf()
-                    }
+                    setOnCompletionListener { finishService() }
                     setOnErrorListener { _, what, extra ->
                         Log.e(TAG, "Custom Salawat MediaPlayer error: $what, $extra")
-                        stopPlayback()
-                        stopSelf()
+                        finishService()
                         true
                     }
                     prepareAsync()
@@ -119,35 +136,22 @@ class SalawatPlaybackService : Service() {
 
             // Check if user selected a downloaded online voice
             if (!voiceItem.isBuiltIn) {
-                val downloadedFile = SalawatAudioData.getDownloadedVoiceFile(this, voiceItem.id)
-                if (downloadedFile.exists() && downloadedFile.length() > 1024) {
+                val downloadedFile = runCatching {
+                    SalawatAudioData.getDownloadedVoiceFile(this, voiceItem.id)
+                }.getOrNull()
+                if (downloadedFile != null && downloadedFile.exists() && downloadedFile.length() > 1024) {
                     SalawatAudioData.stopPlayer(mediaPlayer)
                     mediaPlayer = MediaPlayer().apply {
-                        setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ALARM)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                                .build()
-                        )
+                        setAudioAttributes(speechAttributes)
                         setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                         setDataSource(downloadedFile.absolutePath)
                         setOnPreparedListener { player ->
-                            try {
-                                player.start()
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error starting downloaded audio", e)
-                                stopPlayback()
-                                stopSelf()
-                            }
+                            runCatching { player.start() }.onFailure { finishService() }
                         }
-                        setOnCompletionListener {
-                            stopPlayback()
-                            stopSelf()
-                        }
+                        setOnCompletionListener { finishService() }
                         setOnErrorListener { _, what, extra ->
                             Log.e(TAG, "Downloaded Salawat MediaPlayer error: $what, $extra")
-                            stopPlayback()
-                            stopSelf()
+                            finishService()
                             true
                         }
                         prepareAsync()
@@ -156,38 +160,40 @@ class SalawatPlaybackService : Service() {
                 }
             }
 
-            // Fixed built-in voices (or fallback)
+            // Built-in raw voice prepared asynchronously so the main thread never lags
             val rawResId = if (voiceItem.rawResId != 0) voiceItem.rawResId else R.raw.salli_ala_muhammad
             SalawatAudioData.stopPlayer(mediaPlayer)
-            val mp = MediaPlayer.create(applicationContext, rawResId)
-            if (mp != null) {
-                mediaPlayer = mp
-                mp.setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
-                mp.isLooping = false
-                mp.setOnCompletionListener {
-                    stopPlayback()
-                    stopSelf()
+            val afd = resources.openRawResourceFd(rawResId)
+            mediaPlayer = MediaPlayer().apply {
+                setAudioAttributes(speechAttributes)
+                setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                isLooping = false
+                setOnPreparedListener { player ->
+                    runCatching { player.start() }.onFailure { finishService() }
                 }
-                mp.setOnErrorListener { _, what, extra ->
+                setOnCompletionListener { finishService() }
+                setOnErrorListener { _, what, extra ->
                     Log.e(TAG, "Salawat MediaPlayer error: $what, $extra")
-                    stopPlayback()
-                    stopSelf()
+                    finishService()
                     true
                 }
-                mp.start()
-            } else {
-                stopPlayback()
-                stopSelf()
+                prepareAsync()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error starting Salawat audio playback", e)
-            stopPlayback()
-            stopSelf()
+            finishService()
         }
     }
 
+    private fun finishService() {
+        stopPlayback()
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+        stopSelf()
+    }
+
     private fun buildForegroundNotification(voiceItem: SalawatVoiceItem): Notification {
-        // Standard App Open Intent (Optional click to open main app without interrupting user)
         val openIntent = packageManager.getLaunchIntentForPackage(packageName)
         val openPendingIntent = if (openIntent != null) {
             PendingIntent.getActivity(
@@ -198,7 +204,6 @@ class SalawatPlaybackService : Service() {
             )
         } else null
 
-        // Stop Action Intent
         val stopIntent = Intent(this, SalawatPlaybackService::class.java).apply {
             action = ACTION_STOP_SALAWAT
         }
@@ -242,8 +247,8 @@ class SalawatPlaybackService : Service() {
                 "الصلاة على النبي ﷺ 📿",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "تشغيل صوت الصلاة على النبي في الخلفية بصوت نقي بدون إزعاج الشاشة"
-                setSound(null, null) // Handled by MediaPlayer directly for pure volume control
+                description = "تشغيل صوت الصلاة على النبي تلقائياً كل ساعة بدون لاج أو إزعاج"
+                setSound(null, null)
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -260,12 +265,11 @@ class SalawatPlaybackService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping media player", e)
         }
-        try {
+        runCatching { AppAudioManager.abandonAudioFocus() }
+        runCatching {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing wakeLock", e)
         }
     }
 
@@ -307,16 +311,21 @@ class SalawatPlaybackService : Service() {
                     context.startService(intent)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start SalawatPlaybackService", e)
+                Log.e(TAG, "Failed to start SalawatPlaybackService; using notification fallback", e)
+                runCatching {
+                    val voiceItem = SalawatAudioData.getVoiceById(voiceId)
+                    AzanNotificationHelper(context.applicationContext).showSalawatNotification(
+                        title = "صلِّ على النبي ﷺ 📿",
+                        message = "${voiceItem.fullText} ✨",
+                        rawAudioResId = if (voiceItem.rawResId != 0) voiceItem.rawResId else R.raw.salli_ala_muhammad
+                    )
+                }
             }
         }
 
         fun stop(context: Context) {
             try {
-                val intent = Intent(context, SalawatPlaybackService::class.java).apply {
-                    action = ACTION_STOP_SALAWAT
-                }
-                context.startService(intent)
+                context.stopService(Intent(context, SalawatPlaybackService::class.java))
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to stop SalawatPlaybackService", e)
             }

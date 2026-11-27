@@ -50,7 +50,7 @@ class AdhanFullScreenActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        volumeControlStream = android.media.AudioManager.STREAM_MUSIC
+        volumeControlStream = android.media.AudioManager.STREAM_ALARM
         runCatching { enableEdgeToEdge() }
 
         // Allow showing over lockscreen & turn screen on across all Android versions (8.0 - 16+)

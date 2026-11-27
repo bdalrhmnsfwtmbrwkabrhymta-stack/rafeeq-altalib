@@ -106,26 +106,27 @@ class AthkarPopupActivity : ComponentActivity() {
     private fun startAthkarAudio(athkarType: String) {
         when (athkarType) {
             TYPE_MORNING -> {
-                AzkarAudioService.startMorning(this)
+                if (!AzkarAudioService.isPlayingAzkar ||
+                    AzkarAudioService.currentAzkarType != AzkarAudioService.ACTION_PLAY_MORNING
+                ) {
+                    AzkarAudioService.startMorning(this)
+                }
             }
             TYPE_EVENING -> {
-                AzkarAudioService.startEvening(this)
+                if (!AzkarAudioService.isPlayingAzkar ||
+                    AzkarAudioService.currentAzkarType != AzkarAudioService.ACTION_PLAY_EVENING
+                ) {
+                    AzkarAudioService.startEvening(this)
+                }
             }
             TYPE_SALAWAT -> {
-                val appContext = applicationContext
-                var voiceId = 1
-                var audioMode = "VOICE_FORMULA"
-                var customUri = ""
-                try {
-                    kotlinx.coroutines.runBlocking {
-                        val repo = com.example.data.preferences.UserPreferencesRepository(appContext)
-                        val settings = repo.userSettingsFlow.first()
-                        voiceId = settings.salawatVoiceId
-                        audioMode = settings.salawatAudioMode
-                        customUri = settings.customSalawatAudioUri
-                    }
-                } catch (_: Exception) {}
-                SalawatPlaybackService.start(this, voiceId, audioMode, customUri)
+                val snapshot = com.example.domain.prayer.PrayerDirectBootStore.loadSnapshot(applicationContext)
+                SalawatPlaybackService.start(
+                    context = this,
+                    voiceId = snapshot.salawatVoiceId,
+                    audioMode = snapshot.salawatAudioMode,
+                    customUri = snapshot.customSalawatAudioUri
+                )
             }
         }
     }

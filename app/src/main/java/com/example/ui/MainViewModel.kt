@@ -2175,59 +2175,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateMorningAzkarTime(hour: Int, minute: Int) {
         viewModelScope.launch {
             prefsRepo.updateMorningAzkarTime(hour, minute)
+            com.example.domain.prayer.AzkarScheduler.rescheduleAzkarSuspending(getApplication())
         }
     }
 
     fun updateEveningAzkarTime(hour: Int, minute: Int) {
         viewModelScope.launch {
             prefsRepo.updateEveningAzkarTime(hour, minute)
+            com.example.domain.prayer.AzkarScheduler.rescheduleAzkarSuspending(getApplication())
         }
     }
 
     fun updateAzkarSettings(
         morningEnabled: Boolean,
-        morningHour: Int = 6,
+        morningHour: Int = 9,
         morningMinute: Int = 0,
         eveningEnabled: Boolean = true,
         eveningHour: Int = 17,
-        eveningMinute: Int = 30
+        eveningMinute: Int = 0
     ) {
         viewModelScope.launch {
             prefsRepo.updateAzkarSettings(
                 morningEnabled, morningHour, morningMinute,
                 eveningEnabled, eveningHour, eveningMinute
             )
+            com.example.domain.prayer.AzkarScheduler.rescheduleAzkarSuspending(getApplication())
         }
     }
 
     fun updateSalawatSettings(
         enabled: Boolean,
         interval: Int,
-        voiceId: Int = 1,
-        audioMode: String = "VOICE_FORMULA",
-        uri: String = "",
-        name: String = ""
+        voiceId: Int = userSettings.value.salawatVoiceId,
+        audioMode: String = userSettings.value.salawatAudioMode,
+        uri: String = userSettings.value.customSalawatAudioUri,
+        name: String = userSettings.value.customSalawatAudioName
     ) {
         viewModelScope.launch {
             prefsRepo.updateSalawatSettings(enabled, interval, voiceId, audioMode, uri, name)
+            val appCtx = getApplication<Application>()
+            runCatching { prefsRepo.userSettingsFlow.first() }.getOrNull()?.let { latest ->
+                com.example.domain.prayer.PrayerDirectBootStore.saveFromSettings(appCtx, latest)
+            }
+            PrayerAlarmScheduler.scheduleSalawatReminder(
+                context = appCtx,
+                isSalawatEnabled = enabled,
+                intervalMinutes = interval,
+                forceReset = true
+            )
         }
     }
 
     fun updateSalawatVoiceId(voiceId: Int, audioMode: String = "VOICE_FORMULA") {
         viewModelScope.launch {
             prefsRepo.updateSalawatVoiceId(voiceId)
+            val appCtx = getApplication<Application>()
+            runCatching { prefsRepo.userSettingsFlow.first() }.getOrNull()?.let { latest ->
+                com.example.domain.prayer.PrayerDirectBootStore.saveFromSettings(appCtx, latest)
+            }
         }
     }
 
     fun updateSalawatAudioMode(audioMode: String, voiceId: Int = 1) {
         viewModelScope.launch {
             prefsRepo.updateSalawatAudioMode(audioMode)
+            val appCtx = getApplication<Application>()
+            runCatching { prefsRepo.userSettingsFlow.first() }.getOrNull()?.let { latest ->
+                com.example.domain.prayer.PrayerDirectBootStore.saveFromSettings(appCtx, latest)
+            }
         }
     }
 
     fun updateCustomSalawatAudio(uri: String, name: String) {
         viewModelScope.launch {
             prefsRepo.updateCustomSalawatAudio(uri, name)
+            val appCtx = getApplication<Application>()
+            runCatching { prefsRepo.userSettingsFlow.first() }.getOrNull()?.let { latest ->
+                com.example.domain.prayer.PrayerDirectBootStore.saveFromSettings(appCtx, latest)
+            }
         }
     }
 

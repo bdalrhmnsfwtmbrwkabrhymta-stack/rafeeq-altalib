@@ -10,7 +10,6 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -18,16 +17,18 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.R
 import com.example.data.audio.AppAudioManager
+import com.example.data.notification.AzanNotificationHelper
 import com.example.ui.prayer.AdhanFullScreenActivity
 
 /**
  * Foreground Service for robust, guaranteed Adhan playback even when the device
- * is in deep sleep, doze mode, or has the screen completely locked.
+ * is in deep sleep, doze mode, Direct Boot, or has the screen completely locked.
  */
 class AdhanPlaybackService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var screenWakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -61,17 +62,45 @@ class AdhanPlaybackService : Service() {
         val shouldPlayAudio = intent?.getBooleanExtra(EXTRA_SHOULD_PLAY_AUDIO, true) ?: true
         val scheduledTimeMs = intent?.getLongExtra(EXTRA_SCHEDULED_TIME_MS, 0L) ?: 0L
 
+        acquireBriefScreenWakeLock()
         createChannel()
 
         val notification = buildForegroundNotification(prayerName, cityName, muezzinVoice, scheduledTimeMs)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        val startedForeground = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground failed in AdhanPlaybackService, using full-screen fallback", e)
+            runCatching {
+                AzanNotificationHelper(applicationContext).showFullScreenAdhanFallbackNotification(
+                    prayerName = prayerName,
+                    cityName = cityName,
+                    muezzinVoice = muezzinVoice,
+                    rawAudioResId = rawResId,
+                    scheduledTimeMs = scheduledTimeMs
+                )
+            }
+            false
+        }
+
+        if (!startedForeground) {
+            stopPlayback()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        // Reinforce lockscreen FullScreenIntent delivery on Honor/Huawei/MIUI OEMs
+        runCatching {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NOTIFICATION_ID, notification)
         }
 
         if (shouldPlayAudio) {
@@ -102,13 +131,38 @@ class AdhanPlaybackService : Service() {
         return START_NOT_STICKY
     }
 
+    @Suppress("DEPRECATION")
+    private fun acquireBriefScreenWakeLock() {
+        runCatching {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+            if (screenWakeLock?.isHeld == true) {
+                screenWakeLock?.release()
+            }
+            screenWakeLock = powerManager.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    PowerManager.ON_AFTER_RELEASE,
+                "RafiqAlTalib:AdhanScreenWakeLock"
+            ).apply {
+                setReferenceCounted(false)
+                acquire(12_000L)
+            }
+        }
+    }
+
     private fun startAudioPlayback(muezzinVoice: String, rawResId: Int) {
         try {
             AppAudioManager.stopAllNonAdhanAudio(this)
             AppAudioManager.requestAudioFocus(this, isAdhan = true)
 
-            val downloadedFile1 = com.example.domain.prayer.AdhanAudioDownloaderManager.getDownloadedVoiceFile(this, muezzinVoice)
-            val fileToPlay = if (downloadedFile1.exists() && downloadedFile1.length() > 1024) downloadedFile1 else null
+            val downloadedFile1 = runCatching {
+                AdhanAudioDownloaderManager.getDownloadedVoiceFile(this, muezzinVoice)
+            }.getOrNull()
+            val fileToPlay = if (downloadedFile1 != null && downloadedFile1.exists() && downloadedFile1.length() > 1024) {
+                downloadedFile1
+            } else {
+                null
+            }
 
             mediaPlayer?.release()
             mediaPlayer = MediaPlayer().apply {
@@ -118,6 +172,7 @@ class AdhanPlaybackService : Service() {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
+                @Suppress("DEPRECATION")
                 setAudioStreamType(AudioManager.STREAM_ALARM)
                 setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
 
@@ -157,7 +212,6 @@ class AdhanPlaybackService : Service() {
         muezzinVoice: String,
         scheduledTimeMs: Long = 0L
     ): Notification {
-        // Fullscreen Activity Intent (opens directly over lockscreen)
         val fullScreenIntent = Intent(this, AdhanFullScreenActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -165,19 +219,19 @@ class AdhanPlaybackService : Service() {
             putExtra(AdhanFullScreenActivity.EXTRA_PRAYER_NAME, prayerName)
             putExtra(AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
             putExtra(AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
-            putExtra(AdhanFullScreenActivity.EXTRA_AUTO_PLAY, false) // already playing in this service
+            putExtra(AdhanFullScreenActivity.EXTRA_AUTO_PLAY, false)
             if (scheduledTimeMs > 0L) {
                 putExtra(AdhanFullScreenActivity.EXTRA_SCHEDULED_TIME_MS, scheduledTimeMs)
             }
         }
+        val requestCode = 101 + (System.currentTimeMillis() % 500).toInt()
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
-            101,
+            requestCode,
             fullScreenIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Stop Action Intent
         val stopIntent = Intent(this, AdhanPlaybackService::class.java).apply {
             action = ACTION_STOP_ADHAN
         }
@@ -213,11 +267,6 @@ class AdhanPlaybackService : Service() {
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val audioAttributes = AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .build()
-
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "صوت الأذان والتنبيه المباشر 🕌",
@@ -253,12 +302,16 @@ class AdhanPlaybackService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping media player", e)
         }
-        try {
+        runCatching { AppAudioManager.abandonAudioFocus() }
+        runCatching {
+            if (screenWakeLock?.isHeld == true) {
+                screenWakeLock?.release()
+            }
+        }
+        runCatching {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing wakeLock", e)
         }
     }
 
@@ -314,16 +367,23 @@ class AdhanPlaybackService : Service() {
                     context.startService(intent)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start AdhanPlaybackService", e)
+                Log.e(TAG, "Failed to start AdhanPlaybackService; posting full-screen fallback notification", e)
+                runCatching {
+                    AzanNotificationHelper(context.applicationContext).showFullScreenAdhanFallbackNotification(
+                        prayerName = prayerName,
+                        cityName = cityName,
+                        muezzinVoice = muezzinVoice,
+                        rawAudioResId = rawResId,
+                        scheduledTimeMs = scheduledTimeMs
+                    )
+                }
             }
         }
 
         fun stop(context: Context) {
             try {
-                val intent = Intent(context, AdhanPlaybackService::class.java).apply {
-                    action = ACTION_STOP_ADHAN
-                }
-                context.startService(intent)
+                isPlayingAdhan = false
+                context.stopService(Intent(context, AdhanPlaybackService::class.java))
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to stop AdhanPlaybackService", e)
             }

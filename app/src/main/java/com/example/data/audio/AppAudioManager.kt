@@ -48,13 +48,13 @@ object AppAudioManager {
             }
         }
 
-        // Stop Azkar service only if requested (e.g. when Adhan has top priority)
+        // Stop Azkar service safely without startService() (safe from background on Android 8-16)
         if (includeAzkar && context != null) {
             try {
-                val serviceIntent = android.content.Intent(context, com.example.domain.prayer.AzkarAudioService::class.java).apply {
-                    action = com.example.domain.prayer.AzkarAudioService.ACTION_STOP
-                }
-                context.startService(serviceIntent)
+                com.example.domain.prayer.AzkarAudioService.isPlayingAzkar = false
+                context.stopService(
+                    android.content.Intent(context, com.example.domain.prayer.AzkarAudioService::class.java)
+                )
             } catch (e: Exception) {
                 e.printStackTrace()
             }

@@ -4,19 +4,18 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.example.data.audio.AzkarRecitationEngine
 import com.example.data.database.AppDatabase
-import com.example.domain.prayer.AzkarScheduler
 import com.example.domain.prayer.PrayerAlarmScheduler
+import com.example.domain.prayer.PrayerDirectBootStore
 import com.example.domain.prayer.PrayerForegroundService
 import com.example.domain.schedule.StudyReminderScheduler
 import com.example.domain.whatsapp.DailyWhatsAppReminderScheduler
 
 /**
  * High-reliability watchdog worker that runs periodically (every 15 minutes)
- * to verify and reinforce all alarm schedules across the app.
- *
- * This guards against aggressive OEM background task killers (Xiaomi MIUI,
- * Samsung OneUI, Huawei EMUI, Oppo ColorOS) and deep battery saver modes.
+ * to verify and reinforce all alarm schedules across the app without resetting
+ * active hourly Salawat schedules.
  */
 class NotificationWatchdogWorker(
     appContext: Context,
@@ -28,35 +27,43 @@ class NotificationWatchdogWorker(
         val context = applicationContext
 
         try {
-            // 1. Reschedule Prayer Times & Salawat exact alarms
+            // 1. Reinforce Prayer Times, Morning/Evening Azkar, and Hourly Salawat (preserves future Salawat trigger!)
             PrayerAlarmScheduler.rescheduleAllSuspending(context)
 
-            // 2. Reschedule Morning & Evening Azkar alarms
-            AzkarScheduler.rescheduleAzkar(context)
+            if (PrayerDirectBootStore.isUserUnlocked(context)) {
+                // 2. Ensure Ayat Al-Kursi & morning birdsong assets stay cached locally
+                runCatching {
+                    AzkarRecitationEngine.warmUpAssetsAsync(context)
+                }
 
-            // 3. Reschedule Daily WhatsApp reports
-            DailyWhatsAppReminderScheduler.scheduleDailyReminder(context)
+                // 3. Reschedule Daily WhatsApp reports
+                runCatching {
+                    DailyWhatsAppReminderScheduler.scheduleDailyReminder(context)
+                }.onFailure {
+                    Log.w(TAG, "Watchdog: error rescheduling WhatsApp reminder", it)
+                }
 
-            // 4. Reschedule Study Sessions / Lectures from Room DB
-            try {
-                val db = AppDatabase.getInstance(context)
-                val sessions = db.scheduleDao().getAllSessionsList()
-                val subjects = db.subjectDao().getAllSubjectsList().associateBy { it.id }
-                StudyReminderScheduler.rescheduleAll(
-                    context = context,
-                    sessions = sessions,
-                    subjects = subjects,
-                    isEnabled = true
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "Watchdog: error rescheduling study sessions", e)
+                // 4. Reschedule Study Sessions / Lectures from Room DB
+                runCatching {
+                    val db = AppDatabase.getInstance(context)
+                    val sessions = db.scheduleDao().getAllSessionsList()
+                    val subjects = db.subjectDao().getAllSubjectsList().associateBy { it.id }
+                    StudyReminderScheduler.rescheduleAll(
+                        context = context,
+                        sessions = sessions,
+                        subjects = subjects,
+                        isEnabled = true
+                    )
+                }.onFailure {
+                    Log.w(TAG, "Watchdog: error rescheduling study sessions", it)
+                }
             }
 
-            // 5. Ensure Prayer Foreground Service is alive if active
-            try {
+            // 5. Best-effort start of Prayer Foreground Service if OS permits
+            runCatching {
                 PrayerForegroundService.start(context)
-            } catch (e: Exception) {
-                Log.w(TAG, "Watchdog: foreground service start deferred", e)
+            }.onFailure {
+                Log.w(TAG, "Watchdog: foreground service start deferred: ${it.message}")
             }
 
             Log.i(TAG, "NotificationWatchdogWorker alarm health check completed successfully.")

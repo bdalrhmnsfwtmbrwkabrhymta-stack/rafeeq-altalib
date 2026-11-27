@@ -60,7 +60,8 @@ class PrayerForegroundService : Service() {
             }
             startPeriodicUpdates()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("PrayerForegroundService", "startForeground failed onCreate; stopping cleanly", e)
+            stopSelf()
         }
     }
 
@@ -82,26 +83,38 @@ class PrayerForegroundService : Service() {
     private fun updatePrayerNotification() {
         serviceScope.launch {
             try {
-                val prefsRepo = UserPreferencesRepository(applicationContext)
-                val settings = prefsRepo.userSettingsFlow.first()
-                val isEnglish = settings.appLanguage == "en"
+                val snapshot = if (PrayerDirectBootStore.isUserUnlocked(applicationContext)) {
+                    runCatching {
+                        val settings = UserPreferencesRepository(applicationContext).userSettingsFlow.first()
+                        PrayerDirectBootStore.saveFromSettings(applicationContext, settings)
+                        PrayerDirectBootStore.loadSnapshot(applicationContext)
+                    }.getOrElse { PrayerDirectBootStore.loadSnapshot(applicationContext) }
+                } else {
+                    PrayerDirectBootStore.loadSnapshot(applicationContext)
+                }
 
-                val cachedOnline = AlAdhanRepository.getCachedDailyTimings(
-                    context = applicationContext,
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    methodName = settings.calculationMethod,
-                    madhabName = settings.madhab
-                )
+                val isEnglish = snapshot.appLanguage == "en"
+
+                val cachedOnline = if (PrayerDirectBootStore.isUserUnlocked(applicationContext)) {
+                    runCatching {
+                        AlAdhanRepository.getCachedDailyTimings(
+                            context = applicationContext,
+                            latitude = snapshot.latitude,
+                            longitude = snapshot.longitude,
+                            methodName = snapshot.calculationMethod,
+                            madhabName = snapshot.madhab
+                        )
+                    }.getOrNull()
+                } else null
 
                 val schedule = AdhanPrayerService.calculateDailySchedule(
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    cityName = settings.cityLocation.ifEmpty { "القاهرة" },
-                    countryName = settings.countryLocation.ifEmpty { "مصر" },
-                    methodName = settings.calculationMethod,
-                    madhabName = settings.madhab,
-                    dstMode = settings.dstMode,
+                    latitude = snapshot.latitude,
+                    longitude = snapshot.longitude,
+                    cityName = snapshot.cityLocation.ifEmpty { "القاهرة" },
+                    countryName = snapshot.countryLocation.ifEmpty { "مصر" },
+                    methodName = snapshot.calculationMethod,
+                    madhabName = snapshot.madhab,
+                    dstMode = snapshot.dstMode,
                     isEnglish = isEnglish,
                     onlineResult = cachedOnline
                 )
@@ -235,33 +248,9 @@ class PrayerForegroundService : Service() {
         Log.i("PrayerForegroundService", "onTaskRemoved triggered: app swiped from recents. Reinforcing alarms & watchdog...")
         try {
             PrayerAlarmScheduler.rescheduleAll(applicationContext)
-            AzkarScheduler.rescheduleAzkar(applicationContext)
-
-            val restartIntent = Intent(applicationContext, PrayerAlarmReceiver::class.java).apply {
-                action = PrayerAlarmReceiver.ACTION_RESTART_SERVICE
-            }
-            val pendingIntent = PendingIntent.getBroadcast(
-                applicationContext,
-                8899,
-                restartIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager?.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    System.currentTimeMillis() + 2000L,
-                    pendingIntent
-                )
-            } else {
-                alarmManager?.set(
-                    AlarmManager.RTC_WAKEUP,
-                    System.currentTimeMillis() + 2000L,
-                    pendingIntent
-                )
-            }
+            com.example.domain.notification.NotificationReliabilityManager.scheduleWatchdog(applicationContext)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w("PrayerForegroundService", "Error reinforcing alarms onTaskRemoved", e)
         }
     }
 

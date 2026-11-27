@@ -11,8 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Reschedules exact Prayer & Adhan alarms automatically upon device reboot
- * or app update using the saved persistent geolocation coordinates.
+ * Reschedules exact Prayer, Azkar & Salawat alarms automatically upon device reboot
+ * (including Direct Boot & OEM quickboot) or app update, delegating to BootReceiver's
+ * synchronized pipeline so simultaneous boot broadcasts never conflict.
  */
 class BootCompletedReceiver : BroadcastReceiver() {
 
@@ -20,13 +21,18 @@ class BootCompletedReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         if (action != Intent.ACTION_BOOT_COMPLETED &&
             action != Intent.ACTION_LOCKED_BOOT_COMPLETED &&
-            action != Intent.ACTION_MY_PACKAGE_REPLACED
+            action != Intent.ACTION_USER_UNLOCKED &&
+            action != Intent.ACTION_MY_PACKAGE_REPLACED &&
+            action != "android.intent.action.QUICKBOOT_POWERON" &&
+            action != "com.htc.intent.action.QUICKBOOT_POWERON" &&
+            action != "com.huawei.intent.action.QUICKBOOT_POWERON"
         ) {
             return
         }
 
         val pendingResult = goAsync()
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val appContext = context.applicationContext
+        val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = runCatching {
             powerManager?.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK,
@@ -39,13 +45,18 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val appContext = context.applicationContext
-                LocationPrayerManager.syncSavedLocationSilently(
-                    appContext,
-                    UserPreferencesRepository(appContext)
-                )
-                PrayerAlarmScheduler.rescheduleAllSuspending(appContext)
-                Log.i(TAG, "Rescheduled prayer alarms after $action using saved location.")
+                if (PrayerDirectBootStore.isUserUnlocked(appContext)) {
+                    runCatching {
+                        LocationPrayerManager.syncSavedLocationSilently(
+                            appContext,
+                            UserPreferencesRepository(appContext)
+                        )
+                    }.onFailure {
+                        Log.w(TAG, "Silent location sync skipped on $action: ${it.message}")
+                    }
+                }
+                BootReceiver.runSynchronizedReschedule(appContext, action)
+                Log.i(TAG, "Delegated prayer alarm recovery after $action.")
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed rescheduling prayer alarms in BootCompletedReceiver", t)
             } finally {

@@ -897,7 +897,7 @@ fun SalawatAndAzkarTabContent(
                         10 to if (isEnglish) "Every 10 mins" else "كل 10 دقائق",
                         15 to if (isEnglish) "Every 15 mins" else "كل 15 دقيقة",
                         30 to if (isEnglish) "Every 30 mins" else "كل نصف ساعة",
-                        60 to if (isEnglish) "Every 1 Hour" else "كل ساعة كاملة",
+                        60 to if (isEnglish) "Every 1 Hour (Auto)" else "كل ساعة (تلقائي)",
                         120 to if (isEnglish) "Every 2 Hours" else "كل ساعتين"
                     )
 
@@ -1451,18 +1451,33 @@ fun SalawatAndAzkarTabContent(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = if (isEnglish) "Morning Azkar 🌅" else "أذكار الصباح المباركة 🌅",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
-                                val formattedMorningTime = String.format(Locale.US, "%02d:%02d", userSettings.morningAzkarHour, userSettings.morningAzkarMinute)
+                                val morningHour12 = when {
+                                    userSettings.morningAzkarHour == 0 -> 12
+                                    userSettings.morningAzkarHour > 12 -> userSettings.morningAzkarHour - 12
+                                    else -> userSettings.morningAzkarHour
+                                }
+                                val morningAmPm = if (userSettings.morningAzkarHour < 12) "ص" else "م"
+                                val formattedMorningTime = String.format(Locale.US, "%02d:%02d", morningHour12, userSettings.morningAzkarMinute)
                                 Text(
-                                    text = if (userSettings.isMorningAzkarEnabled) "⏰ التوقيت المضبوط: $formattedMorningTime ص (افتراضي 09:00 ص)"
+                                    text = if (userSettings.isMorningAzkarEnabled) "⏰ التوقيت المضبوط: $formattedMorningTime $morningAmPm (افتراضي 09:00 ص)"
                                     else "🔕 التذكير مكتوم",
                                     fontSize = 11.sp,
                                     color = if (userSettings.isMorningAzkarEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = if (isEnglish) {
+                                        "Starts with dawn birdsong & Ayat Al-Kursi, followed by Morning Azkar"
+                                    } else {
+                                        "تبدأ بأصوات العصافير الصباحية وآية الكرسي ثم أذكار الصباح كاملة"
+                                    },
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
 
@@ -1471,7 +1486,11 @@ fun SalawatAndAzkarTabContent(
                                 onCheckedChange = { isEnabled ->
                                     viewModel.updateAzkarSettings(
                                         morningEnabled = isEnabled,
-                                        eveningEnabled = userSettings.isEveningAzkarEnabled
+                                        morningHour = userSettings.morningAzkarHour,
+                                        morningMinute = userSettings.morningAzkarMinute,
+                                        eveningEnabled = userSettings.isEveningAzkarEnabled,
+                                        eveningHour = userSettings.eveningAzkarHour,
+                                        eveningMinute = userSettings.eveningAzkarMinute
                                     )
                                 }
                             )
@@ -1530,19 +1549,33 @@ fun SalawatAndAzkarTabContent(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = if (isEnglish) "Evening Azkar 🌇" else "أذكار المساء المباركة 🌇",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
-                                val eveningHour12 = if (userSettings.eveningAzkarHour > 12) userSettings.eveningAzkarHour - 12 else userSettings.eveningAzkarHour
+                                val eveningHour12 = when {
+                                    userSettings.eveningAzkarHour == 0 -> 12
+                                    userSettings.eveningAzkarHour > 12 -> userSettings.eveningAzkarHour - 12
+                                    else -> userSettings.eveningAzkarHour
+                                }
+                                val eveningAmPm = if (userSettings.eveningAzkarHour < 12) "ص" else "م"
                                 val formattedEveningTime = String.format(Locale.US, "%02d:%02d", eveningHour12, userSettings.eveningAzkarMinute)
                                 Text(
-                                    text = if (userSettings.isEveningAzkarEnabled) "⏰ التوقيت المضبوط: $formattedEveningTime م (افتراضي 05:00 م)"
+                                    text = if (userSettings.isEveningAzkarEnabled) "⏰ التوقيت المضبوط: $formattedEveningTime $eveningAmPm (افتراضي 05:00 م)"
                                     else "🔕 التذكير مكتوم",
                                     fontSize = 11.sp,
                                     color = if (userSettings.isEveningAzkarEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = if (isEnglish) {
+                                        "Starts with serene Ayat Al-Kursi (no birdsong), followed by Evening Azkar"
+                                    } else {
+                                        "تبدأ بآية الكرسي بتلاوة مسائية هادئة (بدون عصافير) ثم أذكار المساء كاملة"
+                                    },
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
 
@@ -1551,7 +1584,11 @@ fun SalawatAndAzkarTabContent(
                                 onCheckedChange = { isEnabled ->
                                     viewModel.updateAzkarSettings(
                                         morningEnabled = userSettings.isMorningAzkarEnabled,
-                                        eveningEnabled = isEnabled
+                                        morningHour = userSettings.morningAzkarHour,
+                                        morningMinute = userSettings.morningAzkarMinute,
+                                        eveningEnabled = isEnabled,
+                                        eveningHour = userSettings.eveningAzkarHour,
+                                        eveningMinute = userSettings.eveningAzkarMinute
                                     )
                                 }
                             )

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.preferences.UserPreferencesRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -13,7 +14,7 @@ import kotlinx.coroutines.launch
 class AzkarSettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefsRepo = UserPreferencesRepository(application)
-    
+
     val isMorningAzkarEnabled: StateFlow<Boolean> = prefsRepo.userSettingsFlow
         .map { it.isMorningAzkarEnabled }
         .stateIn(
@@ -32,29 +33,31 @@ class AzkarSettingsViewModel(application: Application) : AndroidViewModel(applic
 
     fun toggleMorningAzkar(enabled: Boolean) {
         viewModelScope.launch {
-            prefsRepo.setAzkarSettings(
+            val current = prefsRepo.userSettingsFlow.first()
+            prefsRepo.updateAzkarSettings(
                 morningEnabled = enabled,
-                eveningEnabled = isEveningAzkarEnabled.value
+                morningHour = current.morningAzkarHour,
+                morningMinute = current.morningAzkarMinute,
+                eveningEnabled = current.isEveningAzkarEnabled,
+                eveningHour = current.eveningAzkarHour,
+                eveningMinute = current.eveningAzkarMinute
             )
-            updateScheduling(enabled, isEveningAzkarEnabled.value)
+            AzkarScheduler.rescheduleAzkarSuspending(getApplication())
         }
     }
 
     fun toggleEveningAzkar(enabled: Boolean) {
         viewModelScope.launch {
-            prefsRepo.setAzkarSettings(
-                morningEnabled = isMorningAzkarEnabled.value,
-                eveningEnabled = enabled
+            val current = prefsRepo.userSettingsFlow.first()
+            prefsRepo.updateAzkarSettings(
+                morningEnabled = current.isMorningAzkarEnabled,
+                morningHour = current.morningAzkarHour,
+                morningMinute = current.morningAzkarMinute,
+                eveningEnabled = enabled,
+                eveningHour = current.eveningAzkarHour,
+                eveningMinute = current.eveningAzkarMinute
             )
-            updateScheduling(isMorningAzkarEnabled.value, enabled)
+            AzkarScheduler.rescheduleAzkarSuspending(getApplication())
         }
-    }
-    
-    private fun updateScheduling(morningEnabled: Boolean, eveningEnabled: Boolean) {
-        PrayerAlarmScheduler.scheduleAzkarAlarms(
-            context = getApplication(),
-            morningEnabled = morningEnabled,
-            eveningEnabled = eveningEnabled
-        )
     }
 }

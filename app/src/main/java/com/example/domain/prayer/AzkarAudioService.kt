@@ -13,14 +13,15 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
-import com.example.R
 import com.example.data.audio.AppAudioManager
 import com.example.data.audio.AzanAudioPlayer
+import com.example.data.notification.AzanNotificationHelper
+import com.example.ui.prayer.AthkarPopupActivity
 
 /**
- * Foreground Service for playing Morning/Evening Azkar audio.
- * Returns START_STICKY to guarantee continuous playback in the background.
- * Manages partial WakeLock and Transient Audio Focus to prevent overlap with other audio.
+ * Foreground Service for playing Morning/Evening Azkar audio:
+ * - Morning: Dawn birdsong -> Ayat Al-Kursi -> Full Morning Azkar
+ * - Evening: Quiet Ayat Al-Kursi (no birdsong) -> Full Evening Azkar
  */
 class AzkarAudioService : Service() {
 
@@ -46,9 +47,10 @@ class AzkarAudioService : Service() {
         azkarPlayer = AzanAudioPlayer(this).apply {
             onCompletionCallback = {
                 Log.d(TAG, "Azkar audio playback completed.")
+                isPlayingAzkar = false
                 AppAudioManager.abandonAudioFocus()
                 releaseWakeLock()
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
                 stopSelf()
             }
         }
@@ -59,10 +61,19 @@ class AzkarAudioService : Service() {
         val action = intent?.action ?: ACTION_PLAY_MORNING
         Log.i(TAG, "AzkarAudioService onStartCommand with action: $action")
 
+        if (action == ACTION_STOP) {
+            isPlayingAzkar = false
+            azkarPlayer?.stopAudio()
+            AppAudioManager.abandonAudioFocus()
+            releaseWakeLock()
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         acquireWakeLock()
 
-        // Start as foreground service to prevent OS termination
-        try {
+        val startedForeground = try {
             val notification = createNotification(action)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -73,13 +84,22 @@ class AzkarAudioService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting foreground service", e)
+            Log.e(TAG, "Error starting Azkar foreground service; posting fallback notification", e)
+            postFallbackNotification(action == ACTION_PLAY_MORNING)
+            false
+        }
+
+        if (!startedForeground) {
+            isPlayingAzkar = false
+            releaseWakeLock()
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         when (action) {
             ACTION_PLAY_MORNING -> {
-                // Stop other media, but DO NOT stop Azkar service itself
                 AppAudioManager.stopQuranAndSalawatOnly(this)
                 AppAudioManager.requestAudioFocus(this, isAdhan = false)
                 isPlayingAzkar = true
@@ -89,7 +109,7 @@ class AzkarAudioService : Service() {
                     isPlayingAzkar = false
                     AppAudioManager.abandonAudioFocus()
                     releaseWakeLock()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
                     stopSelf()
                 }
             }
@@ -103,7 +123,7 @@ class AzkarAudioService : Service() {
                     isPlayingAzkar = false
                     AppAudioManager.abandonAudioFocus()
                     releaseWakeLock()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
                     stopSelf()
                 }
             }
@@ -113,18 +133,38 @@ class AzkarAudioService : Service() {
             ACTION_RESUME -> {
                 azkarPlayer?.resumeAudio()
             }
-            ACTION_STOP -> {
-                isPlayingAzkar = false
-                azkarPlayer?.stopAudio()
-                AppAudioManager.abandonAudioFocus()
-                releaseWakeLock()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }
         }
 
-        // Return START_STICKY to guarantee recovery and persistence
-        return START_STICKY
+        return START_NOT_STICKY
+    }
+
+    private fun postFallbackNotification(isMorning: Boolean) {
+        runCatching {
+            val popupIntent = Intent(this, AthkarPopupActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(
+                    AthkarPopupActivity.EXTRA_ATHKAR_TYPE,
+                    if (isMorning) AthkarPopupActivity.TYPE_MORNING else AthkarPopupActivity.TYPE_EVENING
+                )
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                if (isMorning) 202 else 203,
+                popupIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            AzanNotificationHelper(applicationContext).showAzkarNotification(
+                title = if (isMorning) "أذكار الصباح المباركة 🌅" else "أذكار المساء المباركة 🌇",
+                message = if (isMorning) {
+                    "آية الكرسي بصوت العصافير الصباحية ثم أذكار الصباح كاملة — اضغط للاستماع"
+                } else {
+                    "آية الكرسي بتلاوة هادئة ثم أذكار المساء كاملة — اضغط للاستماع"
+                },
+                contentIntent = pendingIntent
+            )
+        }
     }
 
     private fun acquireWakeLock() {
@@ -170,23 +210,23 @@ class AzkarAudioService : Service() {
         val isMorning = (action == ACTION_PLAY_MORNING)
         val title = if (isMorning) "أذكار الصباح المباركة 🌅" else "أذكار المساء المباركة 🌇"
         val message = if (isMorning) {
-            "جاري تلاوة أذكار الصباح لحفظك وتحصينك بذكر الله..."
+            "آية الكرسي مع نسيم الصباح وأصوات العصافير ثم أذكار الصباح كاملة..."
         } else {
-            "جاري تلاوة أذكار المساء لختام يومك بحفظ الله وذكره..."
+            "آية الكرسي بتلاوة هادئة ثم أذكار المساء كاملة..."
         }
 
-        val fullScreenPopupIntent = Intent(this, com.example.ui.prayer.AthkarPopupActivity::class.java).apply {
+        val fullScreenPopupIntent = Intent(this, AthkarPopupActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(
-                com.example.ui.prayer.AthkarPopupActivity.EXTRA_ATHKAR_TYPE,
-                if (isMorning) com.example.ui.prayer.AthkarPopupActivity.TYPE_MORNING else com.example.ui.prayer.AthkarPopupActivity.TYPE_EVENING
+                AthkarPopupActivity.EXTRA_ATHKAR_TYPE,
+                if (isMorning) AthkarPopupActivity.TYPE_MORNING else AthkarPopupActivity.TYPE_EVENING
             )
         }
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
-            201,
+            if (isMorning) 201 else 204,
             fullScreenPopupIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -252,8 +292,11 @@ class AzkarAudioService : Service() {
         const val CHANNEL_ID = "azkar_channel"
         private const val NOTIFICATION_ID = 2002
 
+        @Volatile
         var isPlayingAzkar: Boolean = false
             internal set
+
+        @Volatile
         var currentAzkarType: String = ACTION_PLAY_MORNING
             internal set
 
@@ -268,7 +311,22 @@ class AzkarAudioService : Service() {
                     context.startService(serviceIntent)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start Morning Azkar service", e)
+                Log.e(TAG, "Failed to start Morning Azkar service; posting fallback notification", e)
+                runCatching {
+                    val popupIntent = Intent(context, AthkarPopupActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_MORNING)
+                    }
+                    val pi = PendingIntent.getActivity(
+                        context, 202, popupIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    AzanNotificationHelper(context.applicationContext).showAzkarNotification(
+                        title = "أذكار الصباح المباركة 🌅",
+                        message = "آية الكرسي بصوت العصافير الصباحية ثم أذكار الصباح كاملة",
+                        contentIntent = pi
+                    )
+                }
             }
         }
 
@@ -283,17 +341,29 @@ class AzkarAudioService : Service() {
                     context.startService(serviceIntent)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start Evening Azkar service", e)
+                Log.e(TAG, "Failed to start Evening Azkar service; posting fallback notification", e)
+                runCatching {
+                    val popupIntent = Intent(context, AthkarPopupActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_EVENING)
+                    }
+                    val pi = PendingIntent.getActivity(
+                        context, 203, popupIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    AzanNotificationHelper(context.applicationContext).showAzkarNotification(
+                        title = "أذكار المساء المباركة 🌇",
+                        message = "آية الكرسي بتلاوة هادئة ثم أذكار المساء كاملة",
+                        contentIntent = pi
+                    )
+                }
             }
         }
 
         fun stop(context: Context) {
             try {
                 isPlayingAzkar = false
-                val serviceIntent = Intent(context, AzkarAudioService::class.java).apply {
-                    action = ACTION_STOP
-                }
-                context.startService(serviceIntent)
+                context.stopService(Intent(context, AzkarAudioService::class.java))
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to stop Azkar service", e)
             }

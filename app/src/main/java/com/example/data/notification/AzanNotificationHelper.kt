@@ -273,4 +273,64 @@ class AzanNotificationHelper(private val context: Context) {
         val notifId = NOTIFICATION_ID + (System.currentTimeMillis() % 1000).toInt()
         notificationManager.notify(notifId, notificationBuilder.build())
     }
+
+    /**
+     * Fallback high-priority full-screen Adhan notification used when an OEM restricts
+     * starting AdhanPlaybackService from the background after reboot/deep sleep.
+     */
+    fun showFullScreenAdhanFallbackNotification(
+        prayerName: String,
+        cityName: String,
+        muezzinVoice: String,
+        rawAudioResId: Int = R.raw.adhan_egypt_mbc_hq,
+        scheduledTimeMs: Long = 0L
+    ) {
+        createAllNotificationChannels()
+
+        val channelId = when (rawAudioResId) {
+            R.raw.adhan_makkah_hq -> CHANNEL_MAKKAH_ID
+            R.raw.adhan_madinah_hq -> CHANNEL_MOROCCO_ID
+            else -> CHANNEL_CAIRO_ID
+        }
+        val soundUri = Uri.parse("android.resource://" + context.packageName + "/" + rawAudioResId)
+
+        val fullScreenIntent = Intent(context, com.example.ui.prayer.AdhanFullScreenActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_PRAYER_NAME, prayerName)
+            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_CITY_NAME, cityName)
+            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_MUEZZIN, muezzinVoice)
+            putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_AUTO_PLAY, true)
+            if (scheduledTimeMs > 0L) {
+                putExtra(com.example.ui.prayer.AdhanFullScreenActivity.EXTRA_SCHEDULED_TIME_MS, scheduledTimeMs)
+            }
+        }
+        val requestCode = 9001 + (System.currentTimeMillis() % 500).toInt()
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            fullScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = "حان الآن موعد صلاة $prayerName 🕌"
+        val message = "الله أكبر.. حان وقت الصلاة حسب توقيت $cityName ($muezzinVoice)"
+
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSound(soundUri)
+            .setAutoCancel(true)
+            .setContentIntent(fullScreenPendingIntent)
+            .setFullScreenIntent(fullScreenPendingIntent, true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID + 55, notification)
+    }
 }

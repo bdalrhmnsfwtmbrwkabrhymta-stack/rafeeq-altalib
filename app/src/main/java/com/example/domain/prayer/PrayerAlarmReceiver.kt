@@ -52,11 +52,22 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                     // Reject stale or misfired alarms (more than 15 minutes drift)
                     if (scheduledTimeMs > 0L && Math.abs(now - scheduledTimeMs) > 15 * 60 * 1000L) {
                         Log.w(TAG, "Ignoring stale prayer alarm: scheduled at $scheduledTimeMs, current time is $now")
-                        PrayerAlarmScheduler.rescheduleAll(context)
+                        val pendingResult = goAsync()
+                        val appCtx = context.applicationContext
+                        val heldWakeLock = wakeLock
+                        wakeLock = null
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                PrayerAlarmScheduler.rescheduleAllSuspending(appCtx)
+                            } finally {
+                                runCatching { if (heldWakeLock?.isHeld == true) heldWakeLock.release() }
+                                pendingResult.finish()
+                            }
+                        }
                         return
                     }
 
-                    // 1. STOP any other audio playing (Athkar, Quran, Salawat) before Adhan
+                    // 1. STOP any other audio playing (Athkar, Quran, Salawat) safely before Adhan
                     AppAudioManager.stopAllNonAdhanAudio(context)
                     AppAudioManager.requestAudioFocus(context, isAdhan = true)
 
@@ -68,7 +79,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                     val player = AzanAudioPlayer(context)
                     val soundResId = player.getRawResForMuezzin(muezzinVoice, muezzinVoice)
 
-                    // Start Foreground Service that holds WakeLock, plays audio via STREAM_ALARM, and triggers FullScreenIntent on lockscreen
+                    // 2. Start Foreground Service (with automatic fallback notification if OEM restricts FGS)
                     AdhanPlaybackService.start(
                         context = context,
                         prayerName = prayerName,
@@ -79,7 +90,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                         scheduledTimeMs = scheduledTimeMs
                     )
 
-                    // Direct Activity launch paired with setFullScreenIntent guarantees instant popup across OEMs
+                    // 3. Direct Activity launch paired with setFullScreenIntent guarantees instant popup across OEMs
                     try {
                         val directAdhanIntent = Intent(context, com.example.ui.prayer.AdhanFullScreenActivity::class.java).apply {
                             addFlags(
@@ -100,124 +111,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                         Log.w(TAG, "Direct startActivity blocked by background launch policy; relying on FullScreenIntent: ${e.message}")
                     }
 
-                    // Auto-reschedule next prayer alarms and start foreground service
-                    PrayerAlarmScheduler.rescheduleAll(context)
-                    PrayerForegroundService.start(context)
-                }
-
-                ACTION_SALAWAT_ALARM -> {
-                    val appContext = context.applicationContext
-                    var voiceId = 1
-                    var audioMode = "VOICE_FORMULA"
-                    var customUri = ""
-
-                    try {
-                        kotlinx.coroutines.runBlocking {
-                            val repo = com.example.data.preferences.UserPreferencesRepository(appContext)
-                            val settings = repo.userSettingsFlow.first()
-                            voiceId = settings.salawatVoiceId
-                            audioMode = settings.salawatAudioMode
-                            customUri = settings.customSalawatAudioUri
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error reading Salawat preferences", e)
-                    }
-
-                    // Start foreground service that handles wake lock, notification and pure audio playback in background
-                    SalawatPlaybackService.start(context, voiceId, audioMode, customUri)
-
-                    try {
-                        PrayerAlarmScheduler.scheduleNextSalawatExactAlarm(context)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error scheduling next Salawat alarm", e)
-                    }
-                }
-
-                ACTION_MORNING_AZKAR, AzkarScheduler.ACTION_MORNING_AZKAR -> {
-                    AzkarScheduler.rescheduleAzkar(context)
-                    val activeWindow = AdhkarAutoTriggerManager.detectCurrentWindowForContext(context)
-                    if (activeWindow != AdhkarWindow.MORNING) {
-                        Log.i(TAG, "Suppressing out-of-window Morning Adhkar trigger (active=$activeWindow)")
-                        return
-                    }
-
-                    // 1. Immediately launch audio playback in foreground service so sound plays right away
-                    AzkarAudioService.startMorning(context)
-
-                    // 2. Prepare and launch full-screen athkar popup
-                    val popupIntent = Intent(context, AthkarPopupActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_MORNING)
-                    }
-                    val popupPendingIntent = android.app.PendingIntent.getActivity(
-                        context,
-                        401,
-                        popupIntent,
-                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-                    )
-
-                    val notifHelper = AzanNotificationHelper(context)
-                    notifHelper.showAzkarNotification(
-                        title = "أذكار الصباح المباركة 🌅",
-                        message = "حان وقت أذكار الصباح لحفظك وتحصينك اليوم بذكر الله.",
-                        contentIntent = popupPendingIntent
-                    )
-
-                    try {
-                        context.startActivity(popupIntent)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error starting AthkarPopupActivity for morning", e)
-                    }
-                }
-
-                ACTION_EVENING_AZKAR, AzkarScheduler.ACTION_EVENING_AZKAR -> {
-                    AzkarScheduler.rescheduleAzkar(context)
-                    val activeWindow = AdhkarAutoTriggerManager.detectCurrentWindowForContext(context)
-                    if (activeWindow != AdhkarWindow.EVENING) {
-                        Log.i(TAG, "Suppressing out-of-window Evening Adhkar trigger (active=$activeWindow)")
-                        return
-                    }
-
-                    // 1. Immediately launch audio playback in foreground service so sound plays right away
-                    AzkarAudioService.startEvening(context)
-
-                    // 2. Prepare and launch full-screen athkar popup
-                    val popupIntent = Intent(context, AthkarPopupActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_EVENING)
-                    }
-                    val popupPendingIntent = android.app.PendingIntent.getActivity(
-                        context,
-                        402,
-                        popupIntent,
-                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-                    )
-
-                    val notifHelper = AzanNotificationHelper(context)
-                    notifHelper.showAzkarNotification(
-                        title = "أذكار المساء المباركة 🌇",
-                        message = "حان وقت أذكار المساء لختام يومك بحفظ الله وذكره.",
-                        contentIntent = popupPendingIntent
-                    )
-
-                    try {
-                        context.startActivity(popupIntent)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error starting AthkarPopupActivity for evening", e)
-                    }
-                }
-
-                ACTION_RESTART_SERVICE -> {
-                    Log.i(TAG, "Watchdog restart triggered: Ensuring ForegroundService & alarms are active")
-                    try {
-                        PrayerForegroundService.start(context)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not start foreground service from watchdog", e)
-                    }
+                    // 4. Reliably reschedule next prayer alarms via goAsync() so OS never kills process before re-arming
                     val pendingResult = goAsync()
                     val appCtx = context.applicationContext
                     val heldWakeLock = wakeLock
@@ -225,11 +119,159 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
                             PrayerAlarmScheduler.rescheduleAllSuspending(appCtx)
-                            AzkarScheduler.rescheduleAzkar(appCtx)
+                            PrayerForegroundService.start(appCtx)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error rescheduling after prayer alarm: ${e.message}")
                         } finally {
-                            try {
-                                if (heldWakeLock?.isHeld == true) heldWakeLock.release()
-                            } catch (_: Exception) {}
+                            runCatching { if (heldWakeLock?.isHeld == true) heldWakeLock.release() }
+                            pendingResult.finish()
+                        }
+                    }
+                }
+
+                ACTION_SALAWAT_ALARM -> {
+                    // Zero-lag synchronous read from Device-Protected Storage (never blocks main thread with DataStore!)
+                    val snapshot = PrayerDirectBootStore.loadSnapshot(context)
+
+                    // Immediately arm the next hourly exact alarm first so timing stays rock-solid
+                    try {
+                        PrayerAlarmScheduler.scheduleNextSalawatExactAlarm(context)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error scheduling next Salawat alarm", e)
+                    }
+
+                    if (!snapshot.isSalawatEnabled) {
+                        return
+                    }
+
+                    // Do not interrupt an active Adhan or Azkar recitation
+                    if (AdhanPlaybackService.isPlayingAdhan || AzkarAudioService.isPlayingAzkar) {
+                        Log.i(TAG, "Skipping Salawat audio because Adhan or Azkar is currently playing")
+                        return
+                    }
+
+                    SalawatPlaybackService.start(
+                        context = context,
+                        voiceId = snapshot.salawatVoiceId,
+                        audioMode = snapshot.salawatAudioMode,
+                        customUri = snapshot.customSalawatAudioUri
+                    )
+                }
+
+                ACTION_MORNING_AZKAR, AzkarScheduler.ACTION_MORNING_AZKAR -> {
+                    val scheduledTimeMs = intent.getLongExtra(EXTRA_SCHEDULED_TIME_MS, 0L)
+                    val now = System.currentTimeMillis()
+                    val snapshot = PrayerDirectBootStore.loadSnapshot(context)
+
+                    // Re-arm tomorrow's Morning Azkar reliably via goAsync
+                    val pendingResult = goAsync()
+                    val appCtx = context.applicationContext
+                    val heldWakeLock = wakeLock
+                    wakeLock = null
+
+                    val isStale = scheduledTimeMs > 0L && Math.abs(now - scheduledTimeMs) > 30 * 60 * 1000L
+                    if (snapshot.isMorningAzkarEnabled && !isStale && !AdhanPlaybackService.isPlayingAdhan) {
+                        // 1. Launch Morning Azkar sequence (Dawn birdsong + Ayat Al-Kursi -> Morning Azkar)
+                        AzkarAudioService.startMorning(context)
+
+                        // 2. Notification + Full-Screen popup
+                        val popupIntent = Intent(context, AthkarPopupActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_MORNING)
+                        }
+                        val popupPendingIntent = android.app.PendingIntent.getActivity(
+                            context,
+                            401,
+                            popupIntent,
+                            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                        )
+                        AzanNotificationHelper(context).showAzkarNotification(
+                            title = "أذكار الصباح المباركة 🌅",
+                            message = "بدأت الآن تلاوة آية الكرسي وأذكار الصباح لحفظك وتحصينك بذكر الله.",
+                            contentIntent = popupPendingIntent
+                        )
+                        try {
+                            context.startActivity(popupIntent)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Morning Athkar popup deferred to FullScreenIntent: ${e.message}")
+                        }
+                    }
+
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            AzkarScheduler.rescheduleAzkarSuspending(appCtx)
+                        } finally {
+                            runCatching { if (heldWakeLock?.isHeld == true) heldWakeLock.release() }
+                            pendingResult.finish()
+                        }
+                    }
+                }
+
+                ACTION_EVENING_AZKAR, AzkarScheduler.ACTION_EVENING_AZKAR -> {
+                    val scheduledTimeMs = intent.getLongExtra(EXTRA_SCHEDULED_TIME_MS, 0L)
+                    val now = System.currentTimeMillis()
+                    val snapshot = PrayerDirectBootStore.loadSnapshot(context)
+
+                    val pendingResult = goAsync()
+                    val appCtx = context.applicationContext
+                    val heldWakeLock = wakeLock
+                    wakeLock = null
+
+                    val isStale = scheduledTimeMs > 0L && Math.abs(now - scheduledTimeMs) > 30 * 60 * 1000L
+                    if (snapshot.isEveningAzkarEnabled && !isStale && !AdhanPlaybackService.isPlayingAdhan) {
+                        // 1. Launch Evening Azkar sequence (Ayat Al-Kursi without birdsong -> Evening Azkar)
+                        AzkarAudioService.startEvening(context)
+
+                        // 2. Notification + Full-Screen popup
+                        val popupIntent = Intent(context, AthkarPopupActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            putExtra(AthkarPopupActivity.EXTRA_ATHKAR_TYPE, AthkarPopupActivity.TYPE_EVENING)
+                        }
+                        val popupPendingIntent = android.app.PendingIntent.getActivity(
+                            context,
+                            402,
+                            popupIntent,
+                            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                        )
+                        AzanNotificationHelper(context).showAzkarNotification(
+                            title = "أذكار المساء المباركة 🌇",
+                            message = "بدأت الآن تلاوة آية الكرسي وأذكار المساء لختام يومك بحفظ الله وذكره.",
+                            contentIntent = popupPendingIntent
+                        )
+                        try {
+                            context.startActivity(popupIntent)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Evening Athkar popup deferred to FullScreenIntent: ${e.message}")
+                        }
+                    }
+
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            AzkarScheduler.rescheduleAzkarSuspending(appCtx)
+                        } finally {
+                            runCatching { if (heldWakeLock?.isHeld == true) heldWakeLock.release() }
+                            pendingResult.finish()
+                        }
+                    }
+                }
+
+                ACTION_RESTART_SERVICE -> {
+                    Log.i(TAG, "Watchdog restart triggered: Ensuring exact alarms & watchdog are active")
+                    val pendingResult = goAsync()
+                    val appCtx = context.applicationContext
+                    val heldWakeLock = wakeLock
+                    wakeLock = null
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            PrayerAlarmScheduler.rescheduleAllSuspending(appCtx)
+                            com.example.domain.notification.NotificationReliabilityManager.scheduleWatchdog(appCtx)
+                            runCatching { PrayerForegroundService.start(appCtx) }
+                        } finally {
+                            runCatching { if (heldWakeLock?.isHeld == true) heldWakeLock.release() }
                             pendingResult.finish()
                         }
                     }
@@ -242,28 +284,25 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                 }
 
                 Intent.ACTION_BOOT_COMPLETED,
+                Intent.ACTION_LOCKED_BOOT_COMPLETED,
+                Intent.ACTION_USER_UNLOCKED,
                 Intent.ACTION_MY_PACKAGE_REPLACED,
                 Intent.ACTION_TIME_CHANGED,
                 Intent.ACTION_TIMEZONE_CHANGED,
+                Intent.ACTION_DATE_CHANGED,
                 "android.intent.action.TIME_SET",
                 "android.intent.action.QUICKBOOT_POWERON",
-                "com.htc.intent.action.QUICKBOOT_POWERON" -> {
-                    // Reschedule all alarms reliably via goAsync and start persistent service on clock/timezone/boot events
-                    try {
-                        PrayerForegroundService.start(context)
-                    } catch (_: Exception) {}
+                "com.htc.intent.action.QUICKBOOT_POWERON",
+                "com.huawei.intent.action.QUICKBOOT_POWERON" -> {
                     val pendingResult = goAsync()
                     val appCtx = context.applicationContext
                     val heldWakeLock = wakeLock
                     wakeLock = null
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            PrayerAlarmScheduler.rescheduleAllSuspending(appCtx)
-                            AzkarScheduler.rescheduleAzkar(appCtx)
+                            BootReceiver.runSynchronizedReschedule(appCtx, action)
                         } finally {
-                            try {
-                                if (heldWakeLock?.isHeld == true) heldWakeLock.release()
-                            } catch (_: Exception) {}
+                            runCatching { if (heldWakeLock?.isHeld == true) heldWakeLock.release() }
                             pendingResult.finish()
                         }
                     }

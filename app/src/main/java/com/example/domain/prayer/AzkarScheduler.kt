@@ -29,77 +29,40 @@ object AzkarScheduler {
     const val ACTION_EVENING_AZKAR = "com.example.ACTION_EVENING_AZKAR"
 
     /**
-     * Reschedules both Morning and Evening Azkar strictly anchored to calculated
-     * Fajr (+5m) and Asr (+5m) prayer times from user preferences.
+     * Reschedules both Morning (default 09:00 AM) and Evening (default 05:00 PM) Azkar
+     * from user preferences (or Device-Protected Storage when device is still locked after reboot).
      */
     fun rescheduleAzkar(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val appContext = context.applicationContext
-                val prefsRepo = UserPreferencesRepository(appContext)
-                val settings = prefsRepo.userSettingsFlow.first()
-                val calcMethod = try {
-                    CalculationMethod.valueOf(settings.calculationMethod.uppercase())
-                } catch (_: Exception) {
-                    CalculationMethod.EGYPTIAN
-                }
-                val todayDate = java.util.Date()
-                val targetTz = com.example.data.prayer.PrayerTimeCalculator.getTargetTimeZone(
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    dstMode = settings.dstMode,
-                    date = todayDate
-                )
-                val todayOnline = AlAdhanRepository.getCachedDailyTimings(
-                    context = appContext,
-                    date = todayDate,
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    methodName = settings.calculationMethod,
-                    madhabName = settings.madhab
-                )
-                val todayResult = PrayerTimesCalculator.calculatePrayerTimes(
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    date = todayDate,
-                    method = calcMethod,
-                    onlineResult = todayOnline,
-                    isEnglish = settings.appLanguage != "ar",
-                    dstMode = settings.dstMode,
-                    madhabName = settings.madhab
-                )
-                val tomorrowCal = Calendar.getInstance(targetTz).apply {
-                    time = todayDate
-                    add(Calendar.DAY_OF_YEAR, 1)
-                }
-                val tomorrowOnline = AlAdhanRepository.getCachedDailyTimings(
-                    context = appContext,
-                    date = tomorrowCal.time,
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    methodName = settings.calculationMethod,
-                    madhabName = settings.madhab
-                )
-                val tomorrowResult = PrayerTimesCalculator.calculatePrayerTimes(
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    date = tomorrowCal.time,
-                    method = calcMethod,
-                    onlineResult = tomorrowOnline,
-                    isEnglish = settings.appLanguage != "ar",
-                    dstMode = settings.dstMode,
-                    madhabName = settings.madhab
-                )
-                AdhkarAutoTriggerManager.scheduleDynamicWindowAlarms(
-                    context = appContext,
-                    morningEnabled = settings.isMorningAzkarEnabled,
-                    eveningEnabled = settings.isEveningAzkarEnabled,
-                    todayResult = todayResult,
-                    tomorrowResult = tomorrowResult
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to reschedule Azkar dynamically from prayer times", e)
+            rescheduleAzkarSuspending(context)
+        }
+    }
+
+    suspend fun rescheduleAzkarSuspending(context: Context) {
+        try {
+            val appContext = context.applicationContext
+            val snapshot = if (PrayerDirectBootStore.isUserUnlocked(appContext)) {
+                runCatching {
+                    val prefsRepo = UserPreferencesRepository(appContext)
+                    val settings = prefsRepo.userSettingsFlow.first()
+                    PrayerDirectBootStore.saveFromSettings(appContext, settings)
+                    PrayerDirectBootStore.loadSnapshot(appContext)
+                }.getOrElse { PrayerDirectBootStore.loadSnapshot(appContext) }
+            } else {
+                PrayerDirectBootStore.loadSnapshot(appContext)
             }
+
+            scheduleAzkar(
+                context = appContext,
+                morningEnabled = snapshot.isMorningAzkarEnabled,
+                eveningEnabled = snapshot.isEveningAzkarEnabled,
+                morningHour = snapshot.morningAzkarHour,
+                morningMinute = snapshot.morningAzkarMinute,
+                eveningHour = snapshot.eveningAzkarHour,
+                eveningMinute = snapshot.eveningAzkarMinute
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to reschedule Azkar", e)
         }
     }
 
@@ -167,6 +130,7 @@ object AzkarScheduler {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
             action = ACTION_MORNING_AZKAR
+            putExtra(PrayerAlarmReceiver.EXTRA_SCHEDULED_TIME_MS, triggerTimeMs)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -182,26 +146,14 @@ object AzkarScheduler {
      * If the time today has already passed, schedules for tomorrow (+1 day).
      */
     fun scheduleEveningAzkar(context: Context, hour: Int = 17, minute: Int = 0) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-
-        val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
-            action = ACTION_EVENING_AZKAR
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            REQ_EVENING_AZKAR,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
         val targetCalendar = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, hour)
             set(Calendar.MINUTE, minute)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
 
-            // If time has already passed today, advance to next day
-            if (timeInMillis <= System.currentTimeMillis()) {
+            // If time has already passed today (or is within 5s of now), advance to next day
+            if (timeInMillis <= System.currentTimeMillis() + 5_000L) {
                 add(Calendar.DAY_OF_YEAR, 1)
             }
         }
@@ -216,6 +168,7 @@ object AzkarScheduler {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
             action = ACTION_EVENING_AZKAR
+            putExtra(PrayerAlarmReceiver.EXTRA_SCHEDULED_TIME_MS, triggerTimeMs)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,

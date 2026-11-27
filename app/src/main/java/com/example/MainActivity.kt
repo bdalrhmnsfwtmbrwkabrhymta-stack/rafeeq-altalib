@@ -190,9 +190,22 @@ class MainActivity : FragmentActivity() {
                     } catch (_: Throwable) {}
 
                     try {
-                        com.example.domain.prayer.PrayerAlarmScheduler.rescheduleAll(applicationContext)
+                        com.example.data.preferences.UserPreferencesRepository(applicationContext)
+                            .migrateLegacyPrayerDefaultsIfNeeded()
                     } catch (t: Throwable) {
-                        android.util.Log.e("MainActivity", "PrayerAlarmScheduler.rescheduleAll failed", t)
+                        android.util.Log.w("MainActivity", "migrateLegacyPrayerDefaultsIfNeeded skipped", t)
+                    }
+
+                    try {
+                        com.example.domain.prayer.PrayerAlarmScheduler.rescheduleAllSuspending(applicationContext)
+                    } catch (t: Throwable) {
+                        android.util.Log.e("MainActivity", "PrayerAlarmScheduler.rescheduleAllSuspending failed", t)
+                    }
+
+                    try {
+                        com.example.data.audio.AzkarRecitationEngine.warmUpAssetsAsync(applicationContext)
+                    } catch (t: Throwable) {
+                        android.util.Log.w("MainActivity", "AzkarRecitationEngine.warmUpAssetsAsync skipped", t)
                     }
 
                     try {
