@@ -66,6 +66,14 @@ class HawasApplication : Application() {
                 )
                 return@setDefaultUncaughtExceptionHandler
             }
+            runCatching {
+                com.example.ui.components.StartupCrashStore.recordCrash(
+                    context = applicationContext,
+                    threadName = thread.name,
+                    throwable = throwable,
+                    stage = "MainThread"
+                )
+            }
             previousHandler?.uncaughtException(thread, throwable)
         }
     }

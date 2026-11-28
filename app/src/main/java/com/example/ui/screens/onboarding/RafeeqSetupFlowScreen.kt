@@ -441,7 +441,9 @@ fun RafeeqSetupFlowScreen(
                             Button(
                                 onClick = {
                                     viewModel.completeOnboarding()
-                                    val firebaseUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+                                    val firebaseUid = runCatching {
+                                        com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                                    }.getOrNull() ?: ""
                                     if (studentTelegramInput.isNotBlank()) {
                                         DailyTelegramReportHelper.openTelegramBotForAccountLinking(
                                             context = context,
@@ -555,7 +557,9 @@ fun RafeeqSetupFlowScreen(
                     telegram = studentTelegramInput,
                     onStart = {
                         viewModel.completeOnboarding()
-                        val firebaseUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+                        val firebaseUid = runCatching {
+                            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                        }.getOrNull() ?: ""
                         if (studentTelegramInput.isNotBlank()) {
                             DailyTelegramReportHelper.openTelegramBotForAccountLinking(
                                 context = context,
@@ -1008,7 +1012,11 @@ private fun StudentAccountGamificationStep(
     val lifecycleOwner = LocalLifecycleOwner.current
     val telegramLinkState by viewModel.telegramLinkVerificationState.collectAsState()
     val isTelegramLinked = userSettings.isTelegramLinked || telegramLinkState is TelegramLinkState.Linked
-    val firebaseUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    val firebaseUid = remember {
+        runCatching {
+            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        }.getOrNull() ?: ""
+    }
 
     var hasAttemptedOpenBot by remember { mutableStateOf(false) }
 

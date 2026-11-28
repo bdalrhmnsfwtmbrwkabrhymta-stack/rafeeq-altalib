@@ -424,20 +424,20 @@ object NotificationReliabilityManager {
                 periodicRequest
             )
 
-            // 2. Immediate expedited one-time worker to re-arm alarms right now
+            // 2. One-time worker shortly after launch to reinforce alarms without colliding with cold startup
             val oneTimeRequest = OneTimeWorkRequestBuilder<NotificationWatchdogWorker>()
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setInitialDelay(5, TimeUnit.SECONDS)
                 .build()
 
             workManager.enqueueUniqueWork(
                 ONE_TIME_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 oneTimeRequest
             )
 
             Log.i(TAG, "Notification watchdog successfully registered.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to schedule notification watchdog", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to schedule notification watchdog", t)
         }
     }
 

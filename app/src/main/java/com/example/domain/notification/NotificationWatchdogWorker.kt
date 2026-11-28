@@ -1,8 +1,14 @@
 package com.example.domain.notification
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.example.data.audio.AzkarRecitationEngine
 import com.example.data.database.AppDatabase
@@ -21,6 +27,35 @@ class NotificationWatchdogWorker(
     appContext: Context,
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
+
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val context = applicationContext
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            val channel = NotificationChannel(
+                PrayerForegroundService.CHANNEL_ID,
+                "مواقيت الصلاة الدائمة",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            manager?.createNotificationChannel(channel)
+        }
+        val notification = NotificationCompat.Builder(context, PrayerForegroundService.CHANNEL_ID)
+            .setContentTitle("تحديث تنبيهات رفيق الطالب")
+            .setContentText("جاري التحقق من مواقيت الصلاة والتنبيهات...")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+            .build()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ForegroundInfo(
+                WATCHDOG_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            ForegroundInfo(WATCHDOG_NOTIFICATION_ID, notification)
+        }
+    }
 
     override suspend fun doWork(): Result {
         Log.i(TAG, "NotificationWatchdogWorker executing alarm health check...")
@@ -59,22 +94,21 @@ class NotificationWatchdogWorker(
                 }
             }
 
-            // 5. Best-effort start of Prayer Foreground Service if OS permits
-            runCatching {
-                PrayerForegroundService.start(context)
-            }.onFailure {
-                Log.w(TAG, "Watchdog: foreground service start deferred: ${it.message}")
-            }
+            // Note: Do NOT call PrayerForegroundService.start(context) from a background WorkManager thread.
+            // On Android 12–16 (targetSdk 36), starting a foreground service from the background triggers
+            // ForegroundServiceStartNotAllowedException / RemoteServiceException and kills the app process.
+            // PrayerForegroundService is safely started when MainActivity is resumed in the foreground.
 
             Log.i(TAG, "NotificationWatchdogWorker alarm health check completed successfully.")
             return Result.success()
-        } catch (e: Exception) {
-            Log.e(TAG, "NotificationWatchdogWorker encountered error during check", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "NotificationWatchdogWorker encountered error during check", t)
             return Result.retry()
         }
     }
 
     companion object {
         private const val TAG = "WatchdogWorker"
+        private const val WATCHDOG_NOTIFICATION_ID = 2009
     }
 }

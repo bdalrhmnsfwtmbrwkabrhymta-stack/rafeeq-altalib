@@ -33,22 +33,30 @@ object AppLanguageManager {
 
     fun applyLocale(context: android.content.Context, langCode: String) {
         try {
-            val locale = java.util.Locale(langCode)
+            val normalizedCode = langCode.ifBlank { "ar" }
+            val currentLang = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                context.resources.configuration.locales.get(0)?.language
+            } else {
+                @Suppress("DEPRECATION")
+                context.resources.configuration.locale?.language
+            }
+            val locale = java.util.Locale(normalizedCode)
             java.util.Locale.setDefault(locale)
+            if (currentLang.equals(normalizedCode, ignoreCase = true)) {
+                return
+            }
             val resources = context.resources
-            val configuration = resources.configuration
+            val configuration = android.content.res.Configuration(resources.configuration)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                 configuration.setLocales(android.os.LocaleList(locale))
             } else {
                 @Suppress("DEPRECATION")
                 configuration.locale = locale
             }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                context.createConfigurationContext(configuration)
-            }
+            @Suppress("DEPRECATION")
             resources.updateConfiguration(configuration, resources.displayMetrics)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (t: Throwable) {
+            android.util.Log.w("AppLanguageManager", "applyLocale skipped safely: ${t.message}")
         }
     }
 

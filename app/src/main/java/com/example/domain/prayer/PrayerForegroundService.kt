@@ -268,14 +268,36 @@ class PrayerForegroundService : Service() {
 
         fun start(context: Context) {
             try {
-                val intent = Intent(context, PrayerForegroundService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
+                val appCtx = context.applicationContext
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val hasPostNotifications = androidx.core.content.ContextCompat.checkSelfPermission(
+                        appCtx,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (!hasPostNotifications) {
+                        Log.d("PrayerForegroundService", "Skipping startForegroundService until POST_NOTIFICATIONS is granted.")
+                        return
+                    }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val isAppInForeground = runCatching {
+                        val processInfo = android.app.ActivityManager.RunningAppProcessInfo()
+                        android.app.ActivityManager.getMyMemoryState(processInfo)
+                        processInfo.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+                    }.getOrDefault(false)
+                    if (!isAppInForeground) {
+                        Log.d("PrayerForegroundService", "Skipping startForegroundService while process is not in foreground.")
+                        return
+                    }
+                }
+                val intent = Intent(appCtx, PrayerForegroundService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    appCtx.startForegroundService(intent)
+                } else {
+                    appCtx.startService(intent)
+                }
+            } catch (t: Throwable) {
+                Log.w("PrayerForegroundService", "Deferred PrayerForegroundService start safely: ${t.message}")
             }
         }
     }

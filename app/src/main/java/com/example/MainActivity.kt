@@ -53,7 +53,7 @@ import com.example.ui.dialogs.UniversalNotificationPermissionDialog
 import android.Manifest
 import android.app.AlarmManager
 import android.content.pm.PackageManager
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -83,11 +83,17 @@ class MainActivity : FragmentActivity() {
     private var pendingRafidInitialTab by mutableStateOf<com.hawas.study.rafid.models.RafidScreenTab?>(null)
     private var pendingSmartDownloadUrl by mutableStateOf<String?>(null)
 
+    private var hasRequestedStartupNotificationPermission = false
+    private var hasStartedPrayerServiceThisSession = false
+    private var activityStartupError by mutableStateOf<com.example.ui.components.StartupCrashReport?>(null)
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { _: Boolean ->
+    ) { isGranted: Boolean ->
+        if (!isGranted) return@registerForActivityResult
         try {
-            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            if (!hasStartedPrayerServiceThisSession && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                hasStartedPrayerServiceThisSession = true
                 PrayerForegroundService.start(this@MainActivity)
             }
         } catch (t: Throwable) {
@@ -97,13 +103,22 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        com.example.domain.firebase.configureAppCheck(this, intent)
-        pendingIntent = intent
-        pendingDirectRoute = resolveDirectRouteFromIntent(intent)
-        pendingRafidInitialTab = resolveRafidInitialTabFromIntent(intent)
-        pendingSharedRafidUrl = intent?.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
-        pendingSmartDownloadUrl = intent?.getStringExtra(com.example.download.ui.DownloadShareReceiverActivity.EXTRA_SMART_DOWNLOAD_URL)
-        volumeControlStream = android.media.AudioManager.STREAM_MUSIC
+        try {
+            com.example.domain.firebase.configureAppCheck(this, intent)
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "configureAppCheck skipped safely", t)
+        }
+        try {
+            pendingIntent = intent
+            pendingDirectRoute = resolveDirectRouteFromIntent(intent)
+            pendingRafidInitialTab = resolveRafidInitialTabFromIntent(intent)
+            pendingSharedRafidUrl = intent?.getStringExtra(com.hawas.study.rafid.ShareReceiverActivity.EXTRA_RAFID_SHARED_URL)
+            pendingSmartDownloadUrl = intent?.getStringExtra(com.example.download.ui.DownloadShareReceiverActivity.EXTRA_SMART_DOWNLOAD_URL)
+            volumeControlStream = android.media.AudioManager.STREAM_MUSIC
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "Intent parsing failed during startup", t)
+            activityStartupError = com.example.ui.components.StartupCrashStore.buildReport("ActivityIntentInit", t)
+        }
         try {
             enableEdgeToEdge()
         } catch (t: Throwable) {
@@ -163,18 +178,30 @@ class MainActivity : FragmentActivity() {
             RafiqTheme(userSettings = userSettings, darkTheme = isDarkTheme) {
                 CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        MainAppContent(
-                            mainViewModel = mainViewModel,
-                            userSettings = userSettings,
-                            directRouteRequest = pendingDirectRoute,
-                            onDirectRouteConsumed = { pendingDirectRoute = null },
-                            initialRafidUrl = pendingSharedRafidUrl,
-                            onRafidUrlConsumed = { pendingSharedRafidUrl = null },
-                            initialRafidTab = pendingRafidInitialTab,
-                            onRafidTabConsumed = { pendingRafidInitialTab = null },
-                            initialSmartDownloadUrl = pendingSmartDownloadUrl,
-                            onSmartDownloadUrlConsumed = { pendingSmartDownloadUrl = null }
-                        )
+                        val activeStartupError = activityStartupError
+                        if (activeStartupError != null) {
+                            com.example.ui.components.StartupErrorFallbackScreen(
+                                report = activeStartupError,
+                                onRetry = { activityStartupError = null },
+                                onResetToHome = {
+                                    pendingDirectRoute = "home"
+                                    activityStartupError = null
+                                }
+                            )
+                        } else {
+                            MainAppContent(
+                                mainViewModel = mainViewModel,
+                                userSettings = userSettings,
+                                directRouteRequest = pendingDirectRoute,
+                                onDirectRouteConsumed = { pendingDirectRoute = null },
+                                initialRafidUrl = pendingSharedRafidUrl,
+                                onRafidUrlConsumed = { pendingSharedRafidUrl = null },
+                                initialRafidTab = pendingRafidInitialTab,
+                                onRafidTabConsumed = { pendingRafidInitialTab = null },
+                                initialSmartDownloadUrl = pendingSmartDownloadUrl,
+                                onSmartDownloadUrlConsumed = { pendingSmartDownloadUrl = null }
+                            )
+                        }
                     }
                 }
             }
@@ -239,6 +266,10 @@ class MainActivity : FragmentActivity() {
                 }
 
                 lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    // Wait until SplashScreen transition settles so system permission dialogs or FGS startup
+                    // never collide with the post-splash frame on Android 13–16.
+                    kotlinx.coroutines.delay(2200L)
+
                     val needsNotificationPrompt = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                         ContextCompat.checkSelfPermission(
                             this@MainActivity,
@@ -246,22 +277,27 @@ class MainActivity : FragmentActivity() {
                         ) != PackageManager.PERMISSION_GRANTED
 
                     if (needsNotificationPrompt) {
-                        try {
-                            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } catch (t: Throwable) {
-                            android.util.Log.w("MainActivity", "Notification permission request skipped: ${t.message}")
+                        if (!hasRequestedStartupNotificationPermission) {
+                            hasRequestedStartupNotificationPermission = true
+                            try {
+                                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } catch (t: Throwable) {
+                                android.util.Log.w("MainActivity", "Notification permission request skipped: ${t.message}")
+                            }
                         }
-                    } else {
+                    } else if (!hasStartedPrayerServiceThisSession) {
+                        hasStartedPrayerServiceThisSession = true
                         try {
                             PrayerForegroundService.start(this@MainActivity)
                         } catch (t: Throwable) {
                             android.util.Log.w("MainActivity", "PrayerForegroundService.start deferred: ${t.message}")
                         }
                     }
-                    // Only run once per resume cycle when launched
+                    // Stay suspended until Activity leaves RESUMED
                     kotlinx.coroutines.awaitCancellation()
                 }
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 android.util.Log.e("MainActivity", "Non-fatal startup background setup error", t)
             }
         }
@@ -369,18 +405,22 @@ fun PermissionOptimizationDialog() {
     var showUniversalNotificationDialog by remember { mutableStateOf(false) }
 
     fun checkAndMaybeShow() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val isIgnoringBattery = pm?.isIgnoringBatteryOptimizations(context.packageName) ?: true
-        val isNotificationsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        } else true
-        val isExactAlarmsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager)?.canScheduleExactAlarms() ?: true
-        } else true
-        // Do NOT force SYSTEM_ALERT_WINDOW on app startup; only request on-demand when student enables Focus Lock.
-        if (!isIgnoringBattery || !isNotificationsGranted || !isExactAlarmsGranted) {
-            showUniversalNotificationDialog = true
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val isIgnoringBattery = pm?.isIgnoringBatteryOptimizations(context.packageName) ?: true
+            val isNotificationsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            } else true
+            val isExactAlarmsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager)?.canScheduleExactAlarms() ?: true
+            } else true
+            // Do NOT force SYSTEM_ALERT_WINDOW on app startup; only request on-demand when student enables Focus Lock.
+            if (!isIgnoringBattery || !isNotificationsGranted || !isExactAlarmsGranted) {
+                showUniversalNotificationDialog = true
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("PermissionOptDialog", "Permission check skipped safely: ${t.message}")
         }
     }
 
@@ -480,10 +520,52 @@ fun MainAppContent(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    if (showSplash) {
+    val rootContext = LocalContext.current
+    var navigationErrorReport by remember { mutableStateOf<com.example.ui.components.StartupCrashReport?>(null) }
+    var previousCrashReport by remember {
+        mutableStateOf(
+            runCatching { com.example.ui.components.StartupCrashStore.getLastCrash(rootContext) }.getOrNull()
+        )
+    }
+
+    if (previousCrashReport != null) {
+        com.example.ui.components.PreviousCrashReportDialog(
+            report = previousCrashReport!!,
+            onDismiss = {
+                com.example.ui.components.StartupCrashStore.clearLastCrash(rootContext)
+                previousCrashReport = null
+            }
+        )
+    }
+
+    val safeSetRoute: (String) -> Unit = { target ->
+        try {
+            currentRoute = target.ifBlank { "home" }
+        } catch (t: Throwable) {
+            android.util.Log.e("MainAppContent", "Navigation transition error to $target", t)
+            navigationErrorReport = com.example.ui.components.StartupCrashStore.buildReport("Navigation($target)", t)
+        }
+    }
+
+    if (navigationErrorReport != null) {
+        com.example.ui.components.StartupErrorFallbackScreen(
+            report = navigationErrorReport!!,
+            onRetry = { navigationErrorReport = null },
+            onResetToHome = {
+                currentRoute = "home"
+                showSplash = false
+                navigationErrorReport = null
+            }
+        )
+    } else if (showSplash) {
         SplashScreen(
             onSplashFinished = {
-                showSplash = false
+                try {
+                    showSplash = false
+                } catch (t: Throwable) {
+                    android.util.Log.e("MainAppContent", "Splash transition error", t)
+                    navigationErrorReport = com.example.ui.components.StartupCrashStore.buildReport("SplashTransition", t)
+                }
             }
         )
     } else if (userSettings.isAppLockedByAdmin) {
@@ -511,20 +593,32 @@ fun MainAppContent(
             viewModel = mainViewModel,
             userSettings = userSettings,
             onFinishSetup = {
-                mainViewModel.completeOnboarding()
+                try {
+                    mainViewModel.completeOnboarding()
+                } catch (t: Throwable) {
+                    android.util.Log.e("MainAppContent", "Onboarding completion error", t)
+                    navigationErrorReport = com.example.ui.components.StartupCrashStore.buildReport("OnboardingFinish", t)
+                }
             }
         )
     } else {
         val localCtx = LocalContext.current
         var showFirstLaunchLocationSheet by remember {
-            mutableStateOf(!com.example.domain.prayer.LocationPrayerManager.isLocationConfigured(localCtx))
+            mutableStateOf(
+                runCatching { !com.example.domain.prayer.LocationPrayerManager.isLocationConfigured(localCtx) }
+                    .getOrDefault(false)
+            )
         }
         LaunchedEffect(showFirstLaunchLocationSheet) {
             if (!showFirstLaunchLocationSheet) {
-                com.example.domain.prayer.LocationPrayerManager.syncSavedLocationSilently(
-                    localCtx,
-                    com.example.data.preferences.UserPreferencesRepository(localCtx)
-                )
+                runCatching {
+                    com.example.domain.prayer.LocationPrayerManager.syncSavedLocationSilently(
+                        localCtx,
+                        com.example.data.preferences.UserPreferencesRepository(localCtx)
+                    )
+                }.onFailure { t ->
+                    android.util.Log.w("MainAppContent", "syncSavedLocationSilently skipped safely: ${t.message}")
+                }
             }
         }
         if (showFirstLaunchLocationSheet) {
@@ -539,7 +633,7 @@ fun MainAppContent(
         }
         // Safe hardware/gesture back handler: return to home before exiting
         BackHandler(enabled = currentRoute != "home") {
-            currentRoute = "home"
+            safeSetRoute("home")
         }
 
         CompositionLocalProvider(LocalLayoutDirection provides (if (isEnglish) LayoutDirection.Ltr else LayoutDirection.Rtl)) {
@@ -549,7 +643,7 @@ fun MainAppContent(
                     com.example.ui.components.AppDrawerContent(
                         userSettings = userSettings,
                         currentRoute = currentRoute,
-                        onNavigate = { route -> currentRoute = route },
+                        onNavigate = { route -> safeSetRoute(route) },
                         onCloseDrawer = {
                             coroutineScope.launch { drawerState.close() }
                         }
@@ -573,7 +667,7 @@ fun MainAppContent(
                                 com.example.ui.components.RafiqBottomBar(
                                     currentRoute = currentRoute,
                                     onTabSelected = { tab ->
-                                        currentRoute = tab.route
+                                        safeSetRoute(tab.route)
                                     }
                                 )
                             }
@@ -596,7 +690,7 @@ fun MainAppContent(
                                 com.example.ui.components.RafiqNavigationRail(
                                     currentRoute = currentRoute,
                                     onTabSelected = { tab ->
-                                        currentRoute = tab.route
+                                        safeSetRoute(tab.route)
                                     }
                                 )
                             }

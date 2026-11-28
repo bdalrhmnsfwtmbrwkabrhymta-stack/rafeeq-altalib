@@ -232,11 +232,11 @@ class UserPreferencesRepository(private val context: Context) {
 
     val userSettingsFlow: Flow<UserSettings> = context.dataStore.data
         .catch { exception ->
-            if (exception is IOException) {
-                emit(emptyPreferences())
-            } else {
+            if (exception is kotlinx.coroutines.CancellationException) {
                 throw exception
             }
+            android.util.Log.w("UserPreferencesRepo", "DataStore read fallback to defaults: ${exception.message}")
+            emit(emptyPreferences())
         }
         .map { prefs ->
             UserSettings(
