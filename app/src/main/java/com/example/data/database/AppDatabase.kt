@@ -271,6 +271,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_9_10,
                     MIGRATION_10_11
                 )
+                .fallbackToDestructiveMigration(dropAllTables = true)
+                .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                 .addCallback(DatabaseCallback(context))
                 .build()
                 INSTANCE = instance
@@ -279,19 +281,20 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         private class DatabaseCallback(private val context: Context) : RoomDatabase.Callback() {
-            override fun onCreate(db: SupportSQLiteDatabase) {
-                super.onCreate(db)
-                CoroutineScope(Dispatchers.IO).launch {
-                    val instance = getInstance(context)
-                    seedInitialData(instance)
-                }
-            }
+            @Volatile
+            private var hasSeeded = false
 
             override fun onOpen(db: SupportSQLiteDatabase) {
                 super.onOpen(db)
+                if (hasSeeded) return
+                hasSeeded = true
                 CoroutineScope(Dispatchers.IO).launch {
-                    val instance = getInstance(context)
-                    seedInitialData(instance)
+                    try {
+                        val instance = getInstance(context)
+                        seedInitialData(instance)
+                    } catch (t: Throwable) {
+                        t.printStackTrace()
+                    }
                 }
             }
 

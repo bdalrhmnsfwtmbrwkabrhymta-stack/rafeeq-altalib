@@ -85,8 +85,14 @@ class MainActivity : FragmentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        // Permission handled
+    ) { _: Boolean ->
+        try {
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                PrayerForegroundService.start(this@MainActivity)
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("MainActivity", "PrayerForegroundService after permission skipped: ${t.message}")
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -233,23 +239,24 @@ class MainActivity : FragmentActivity() {
                 }
 
                 lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                    try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            ContextCompat.checkSelfPermission(
-                                this@MainActivity,
-                                Manifest.permission.POST_NOTIFICATIONS
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                    } catch (t: Throwable) {
-                        android.util.Log.w("MainActivity", "Notification permission request skipped: ${t.message}")
-                    }
+                    val needsNotificationPrompt = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) != PackageManager.PERMISSION_GRANTED
 
-                    try {
-                        PrayerForegroundService.start(this@MainActivity)
-                    } catch (t: Throwable) {
-                        android.util.Log.w("MainActivity", "PrayerForegroundService.start deferred: ${t.message}")
+                    if (needsNotificationPrompt) {
+                        try {
+                            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } catch (t: Throwable) {
+                            android.util.Log.w("MainActivity", "Notification permission request skipped: ${t.message}")
+                        }
+                    } else {
+                        try {
+                            PrayerForegroundService.start(this@MainActivity)
+                        } catch (t: Throwable) {
+                            android.util.Log.w("MainActivity", "PrayerForegroundService.start deferred: ${t.message}")
+                        }
                     }
                     // Only run once per resume cycle when launched
                     kotlinx.coroutines.awaitCancellation()

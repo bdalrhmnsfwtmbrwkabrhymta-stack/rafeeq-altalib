@@ -58,6 +58,8 @@ abstract class DownloadDatabase : RoomDatabase() {
                     "hawas_smart_downloads.db"
                 )
                     .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
             }

@@ -275,18 +275,13 @@ abstract class RafidDatabase : RoomDatabase() {
                     "rafid_media_db"
                 )
                     .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                     .addCallback(object : Callback() {
-                        override fun onCreate(db: SupportSQLiteDatabase) {
-                            super.onCreate(db)
-                            CoroutineScope(Dispatchers.IO).launch {
-                                ensureDefaultsSeeded(getInstance(context).rafidDao())
-                            }
-                        }
-
                         override fun onOpen(db: SupportSQLiteDatabase) {
                             super.onOpen(db)
                             CoroutineScope(Dispatchers.IO).launch {
-                                ensureDefaultsSeeded(getInstance(context).rafidDao())
+                                runCatching { ensureDefaultsSeeded(getInstance(context).rafidDao()) }
                             }
                         }
                     })
@@ -297,8 +292,10 @@ abstract class RafidDatabase : RoomDatabase() {
         }
 
         suspend fun ensureDefaultsSeeded(dao: RafidDao) {
-            if (dao.countBookmarks() == 0) {
-                dao.insertBookmarksIfAbsent(DEFAULT_PLATFORM_BOOKMARKS)
+            runCatching {
+                if (dao.countBookmarks() == 0) {
+                    dao.insertBookmarksIfAbsent(DEFAULT_PLATFORM_BOOKMARKS)
+                }
             }
         }
     }

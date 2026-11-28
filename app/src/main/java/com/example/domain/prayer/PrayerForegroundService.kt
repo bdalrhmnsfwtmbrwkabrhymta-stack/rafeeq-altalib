@@ -37,37 +37,43 @@ class PrayerForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        promoteToForegroundSafely()
+        startPeriodicUpdates()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        promoteToForegroundSafely()
+        updatePrayerNotification()
+        return START_STICKY
+    }
+
+    private fun promoteToForegroundSafely() {
         try {
             createNotificationChannel()
+            val initialNotification = buildInitialNotification()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(
                     NOTIFICATION_ID,
-                    buildInitialNotification(),
+                    initialNotification,
                     android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                 )
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     startForeground(
                         NOTIFICATION_ID,
-                        buildInitialNotification(),
+                        initialNotification,
                         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                     )
-                } catch (e: Exception) {
-                    startForeground(NOTIFICATION_ID, buildInitialNotification())
+                } catch (_: Throwable) {
+                    startForeground(NOTIFICATION_ID, initialNotification)
                 }
             } else {
-                startForeground(NOTIFICATION_ID, buildInitialNotification())
+                startForeground(NOTIFICATION_ID, initialNotification)
             }
-            startPeriodicUpdates()
-        } catch (e: Exception) {
-            Log.e("PrayerForegroundService", "startForeground failed onCreate; stopping cleanly", e)
-            stopSelf()
+        } catch (t: Throwable) {
+            Log.e("PrayerForegroundService", "startForeground failed; stopping cleanly", t)
+            runCatching { stopSelf() }
         }
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        updatePrayerNotification()
-        return START_STICKY
     }
 
     private fun startPeriodicUpdates() {

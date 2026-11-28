@@ -283,10 +283,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            checkAndSeedCollections()
-            loadQuranData()
+            try {
+                checkAndSeedCollections()
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+            try {
+                loadQuranData()
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
         }
-        syncDailyPrayerTimes(forceReschedule = true)
+        try {
+            syncDailyPrayerTimes(forceReschedule = true)
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
     }
 
     // App Unlock & Security

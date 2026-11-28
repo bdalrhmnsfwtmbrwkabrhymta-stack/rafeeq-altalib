@@ -58,7 +58,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.RafiqAlTalib"
-        tools:remove="android:testOnly"
         tools:targetApi="36">
 
         <!-- Google Mobile Ads (AdMob) App ID -->

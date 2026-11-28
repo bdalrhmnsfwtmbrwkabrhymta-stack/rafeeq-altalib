@@ -28,10 +28,13 @@ object SoundEffectsManager {
     private var toneGenerator: ToneGenerator? = null
     private var applicationContext: Context? = null
 
-    init {
-        try {
-            toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 85)
-        } catch (_: Exception) {}
+    private fun getOrCreateToneGenerator(): ToneGenerator? {
+        toneGenerator?.let { return it }
+        return try {
+            ToneGenerator(AudioManager.STREAM_MUSIC, 85).also { toneGenerator = it }
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     fun getInstance(context: Context? = null): SoundEffectsManager {
@@ -123,18 +126,19 @@ object SoundEffectsManager {
                         playSynthesizedTones(listOf(330, 260), listOf(120, 200))
                     }
                     SoundType.BUTTON_CLICK -> {
-                        toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 40)
+                        getOrCreateToneGenerator()?.startTone(ToneGenerator.TONE_PROP_BEEP, 40)
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 // Fallback to ToneGenerator if audio track generation fails
                 try {
+                    val tg = getOrCreateToneGenerator()
                     when (type) {
-                        SoundType.ERROR -> toneGenerator?.startTone(ToneGenerator.TONE_PROP_NACK, 150)
-                        SoundType.LEVEL_UP, SoundType.RANK_UP -> toneGenerator?.startTone(ToneGenerator.TONE_CDMA_HIGH_L, 250)
-                        else -> toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 100)
+                        SoundType.ERROR -> tg?.startTone(ToneGenerator.TONE_PROP_NACK, 150)
+                        SoundType.LEVEL_UP, SoundType.RANK_UP -> tg?.startTone(ToneGenerator.TONE_CDMA_HIGH_L, 250)
+                        else -> tg?.startTone(ToneGenerator.TONE_PROP_ACK, 100)
                     }
-                } catch (_: Exception) {}
+                } catch (_: Throwable) {}
             }
         }
     }

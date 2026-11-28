@@ -7,9 +7,10 @@ import androidx.work.WorkManager
 import com.example.download.core.downloader.DownloadJobSpec
 import com.example.download.core.downloader.InMemoryChunkMetadataStore
 import com.example.download.core.downloader.SegmentedDownloadEngine
+import com.example.download.core.model.ResolveRequest
+import com.example.download.core.model.ResolvedMediaResult
 import com.example.download.core.resolver.FacebookProviderAdapter
 import com.example.download.core.resolver.InstagramProviderAdapter
-import com.example.download.core.resolver.MediaResolveRequest
 import com.example.download.core.resolver.PinterestProviderAdapter
 import com.example.download.core.resolver.ResolverHttpUtils
 import com.example.download.core.resolver.YouTubeProviderAdapter
@@ -139,20 +140,20 @@ class DownloaderUnfreezeAndPlatformTest {
             }
             .build()
 
-        val adapter = YouTubeProviderAdapter()
+        val adapter = YouTubeProviderAdapter(client)
         val res = adapter.resolve(
-            MediaResolveRequest(rawUrl = "https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share"),
-            client
+            "https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share",
+            ResolveRequest(rawUrl = "https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share")
         )
-        assertTrue(res is com.example.download.core.resolver.MediaResolveResult.SingleMedia)
-        val single = res as com.example.download.core.resolver.MediaResolveResult.SingleMedia
+        assertTrue(res is ResolvedMediaResult.SingleMedia)
+        val single = res as ResolvedMediaResult.SingleMedia
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", single.canonicalUrl)
         assertTrue(seenClientHeaders.contains("3"))
         assertTrue(seenClientHeaders.contains("5"))
         val fmt = single.formats.first()
-        assertEquals("identity", fmt.headers["Accept-Encoding"])
-        assertEquals("*/*", fmt.headers["Accept"])
-        assertTrue(fmt.headers["Referer"]?.contains("youtube.com") == true)
+        assertEquals("identity", (single.headers + fmt.headers)["Accept-Encoding"])
+        assertEquals("*/*", (single.headers + fmt.headers)["Accept"])
+        assertTrue((single.headers + fmt.headers)["Referer"]?.contains("youtube.com") == true)
     }
 
     @Test
@@ -214,21 +215,21 @@ class DownloaderUnfreezeAndPlatformTest {
             }
             .build()
 
-        val fbRes = FacebookProviderAdapter().resolve(MediaResolveRequest("https://www.facebook.com/reel/123"), client)
-        assertTrue(fbRes is com.example.download.core.resolver.MediaResolveResult.SingleMedia)
-        val fbSingle = fbRes as com.example.download.core.resolver.MediaResolveResult.SingleMedia
+        val fbRes = FacebookProviderAdapter(client).resolve("https://www.facebook.com/reel/123", ResolveRequest("https://www.facebook.com/reel/123"))
+        assertTrue(fbRes is ResolvedMediaResult.SingleMedia)
+        val fbSingle = fbRes as ResolvedMediaResult.SingleMedia
         assertEquals(ResolverHttpUtils.PIXEL8_ANDROID14_CHROME128_UA, fbSingle.headers["User-Agent"])
         assertEquals("https://www.facebook.com/", fbSingle.headers["Referer"])
         assertEquals("identity", fbSingle.headers["Accept-Encoding"])
 
-        val igRes = InstagramProviderAdapter().resolve(MediaResolveRequest("https://www.instagram.com/reel/C9123/"), client)
-        assertTrue(igRes is com.example.download.core.resolver.MediaResolveResult.SingleMedia)
-        val igSingle = igRes as com.example.download.core.resolver.MediaResolveResult.SingleMedia
+        val igRes = InstagramProviderAdapter(client).resolve("https://www.instagram.com/reel/C9123/", ResolveRequest("https://www.instagram.com/reel/C9123/"))
+        assertTrue(igRes is ResolvedMediaResult.SingleMedia)
+        val igSingle = igRes as ResolvedMediaResult.SingleMedia
         assertEquals("https://www.instagram.com/", igSingle.headers["Referer"])
 
-        val pinRes = PinterestProviderAdapter().resolve(MediaResolveRequest("https://www.pinterest.com/pin/555/"), client)
-        assertTrue(pinRes is com.example.download.core.resolver.MediaResolveResult.SingleMedia)
-        val pinSingle = pinRes as com.example.download.core.resolver.MediaResolveResult.SingleMedia
+        val pinRes = PinterestProviderAdapter(client).resolve("https://www.pinterest.com/pin/555/", ResolveRequest("https://www.pinterest.com/pin/555/"))
+        assertTrue(pinRes is ResolvedMediaResult.SingleMedia)
+        val pinSingle = pinRes as ResolvedMediaResult.SingleMedia
         assertEquals("https://www.pinterest.com/", pinSingle.headers["Referer"])
 
         // Download fbcdn stream via SegmentedDownloadEngine and verify exact outbound headers
@@ -239,7 +240,7 @@ class DownloaderUnfreezeAndPlatformTest {
             val downloaded = engine.download(
                 DownloadJobSpec(
                     downloadId = "fb_cdn_1",
-                    url = fbSingle.formats.first().directUrl,
+                    url = fbSingle.formats.first().streamUrl,
                     headers = emptyMap(), // rely on automatic defaultHeadersForUrl injection
                     targetPartFile = outPart,
                     expectedMimeType = "video/mp4"

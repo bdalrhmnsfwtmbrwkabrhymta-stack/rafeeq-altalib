@@ -723,6 +723,7 @@ abstract class DofaatiDatabase : RoomDatabase() {
                     "dofaati_isolated_db"
                 )
                     .fallbackToDestructiveMigration(dropAllTables = true)
+                    .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
             }
