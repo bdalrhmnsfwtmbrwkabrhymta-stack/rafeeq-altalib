@@ -66,8 +66,11 @@ jobs:
           set -euo pipefail
           KEYSTORE_PATH="./debug.keystore"
 
-          if [ -f "$KEYSTORE_PATH" ]; then
+          if [ -f "$KEYSTORE_PATH" ] && [ -s "$KEYSTORE_PATH" ]; then
             echo "Existing ./debug.keystore found; skipping generation."
+          elif [ -f "./debug.keystore.base64" ] && [ -s "./debug.keystore.base64" ]; then
+            base64 -d "./debug.keystore.base64" > "$KEYSTORE_PATH" 2>/dev/null || base64 --decode "./debug.keystore.base64" > "$KEYSTORE_PATH"
+            echo "Restored ./debug.keystore from ./debug.keystore.base64 for consistent update signing."
           else
             KEYTOOL_BIN="keytool"
             if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/keytool" ]; then
@@ -131,6 +134,23 @@ jobs:
           if [ "$EXPECTED_APK" != "app/build/outputs/apk/debug/app-debug.apk" ]; then
             echo "ERROR: APK path mismatch: '$EXPECTED_APK'." >&2
             exit 1
+          fi
+
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -n "$SDK_DIR" ] && [ -d "$SDK_DIR/build-tools" ] && [ -f "./debug.keystore" ]; then
+            APKSIGNER_BIN="$(find "$SDK_DIR/build-tools" -name apksigner -type f | sort -V | tail -n 1 || true)"
+            if [ -n "$APKSIGNER_BIN" ] && [ -x "$APKSIGNER_BIN" ]; then
+              "$APKSIGNER_BIN" sign \
+                --ks "./debug.keystore" \
+                --ks-pass pass:android \
+                --ks-key-alias androiddebugkey \
+                --key-pass pass:android \
+                --v1-signing-enabled true \
+                --v2-signing-enabled true \
+                --v3-signing-enabled true \
+                "$EXPECTED_APK"
+              "$APKSIGNER_BIN" verify "$EXPECTED_APK"
+            fi
           fi
 
           echo "Verified debug APK at: $EXPECTED_APK"
