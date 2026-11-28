@@ -37,6 +37,14 @@ fun GamesScreen(
 ) {
     val games = listOf(
         GameCardItem(
+            title = "مركز الألعاب التعليمية • ركض المتفوقين 🏆",
+            description = "لعبة جري ثلاثية المسارات بـ 12 مرحلة متدرجة وزعماء وصناديق كنز ومتجر 6 شخصيات ومناهج الثانوية",
+            icon = Icons.Default.SportsEsports,
+            route = "educational_games_hub",
+            badge = "12 مرحلة",
+            pastelColor = PastelBlue
+        ),
+        GameCardItem(
             title = "الشطرنج الذكي ضد الـ AI ♟️",
             description = "مباراة شطرنج تفاعلية بمستويات متعددة لتنمية مهارات التفكير والتخطيط",
             icon = Icons.Default.SportsEsports,

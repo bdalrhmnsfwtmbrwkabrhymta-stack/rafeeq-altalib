@@ -45,6 +45,7 @@ fun AppDrawerContent(
     val menuItems = listOf(
         DrawerMenuItem("home", "الرئيسية", Icons.Default.Home, null, EmeraldPrimary),
         DrawerMenuItem("library", "المكتبة الدراسية", Icons.Default.LocalLibrary, "جديد", LibraryBluePrimary),
+        DrawerMenuItem("educational_games_hub", "مركز الألعاب التعليمية", Icons.Default.SportsEsports, "12 مرحلة", AccentRoyalBlue),
         DrawerMenuItem("games", "ألعاب المذاكرة", Icons.Default.SportsEsports, null, GamesCrimsonPrimary),
         DrawerMenuItem("plans", "خطتي والجداول", Icons.Default.CalendarMonth, null, PlansTealPrimary),
         DrawerMenuItem("tools", "أدوات المذاكرة", Icons.Default.Construction, null, ToolsOrangePrimary),

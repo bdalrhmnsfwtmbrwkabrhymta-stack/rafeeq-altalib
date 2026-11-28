@@ -2,12 +2,13 @@ package com.example.ui.screens.ai
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +41,18 @@ import androidx.compose.ui.unit.sp
 import com.example.domain.ai.FahimStudyTableData
 import com.example.ui.theme.ReadexProFontFamily
 
+private val TableHeaderBlue = Color(0xFF1A6FE3)
+private val TableBorderGray = Color(0xFFCBD5E1)
+private val TableAltRowBg = Color(0xFFF8FAFC)
+private val TableInk = Color(0xFF1E1B18)
+private val TableEmerald = Color(0xFF10B981)
+
+/**
+ * بطاقة الجداول الموحدة والمنظمة في «فهيم»:
+ * - حدود ناعمة 1.dp (#CBD5E1)
+ * - رأس أزرق ملكي (#1A6FE3) بنص أبيض 15.sp Bold
+ * - صفوف متبادلة (#FFFFFF / #F8FAFC) بنص 14.5.sp وحشوة 12.dp بدون اقتطاع
+ */
 @Composable
 fun FahimSmartTableCard(
     table: FahimStudyTableData,
@@ -53,15 +67,15 @@ fun FahimSmartTableCard(
         modifier = modifier
             .fillMaxWidth()
             .testTag("fahim_study_table_card"),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         color = Color.White,
-        border = BorderStroke(1.2.dp, Color(0xFFE2E8F0)),
+        border = BorderStroke(1.dp, TableBorderGray),
         shadowElevation = 2.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(12.dp)
         ) {
             // Card Header
             Row(
@@ -70,14 +84,14 @@ fun FahimSmartTableCard(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = if (table.isComparisonOnly) Color(0xFFF3E8FF) else Color(0xFFEFF6FF),
+                    color = Color(0xFFEFF6FF),
                     modifier = Modifier.size(34.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = if (table.isComparisonOnly) Icons.Default.CompareArrows else Icons.Default.CalendarMonth,
                             contentDescription = table.title,
-                            tint = if (table.isComparisonOnly) Color(0xFF7C3AED) else Color(0xFF1A6FE3),
+                            tint = TableHeaderBlue,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -86,103 +100,166 @@ fun FahimSmartTableCard(
                 Text(
                     text = table.title,
                     fontFamily = ReadexProFontFamily,
-                    fontSize = 18.sp,
+                    fontSize = 16.5.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF1E1B18),
-                    lineHeight = 24.sp
+                    color = TableInk,
+                    lineHeight = 23.sp
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Colored Table Body
+            // Unified Bordered Table Body
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFF8FAFC))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White)
             ) {
-                // Header Strip
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (table.isComparisonOnly) Color(0xFF1E1B18) else Color(0xFF1A6FE3)
-                        )
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, TableBorderGray),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = headers.getOrElse(0) { "الوقت" },
-                        fontFamily = ReadexProFontFamily,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.weight(0.95f)
-                    )
-                    Text(
-                        text = headers.getOrElse(1) { "المهمة" },
-                        fontFamily = ReadexProFontFamily,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.weight(1.45f)
-                    )
-                    Text(
-                        text = headers.getOrElse(2) { "المدة" },
-                        fontFamily = ReadexProFontFamily,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        textAlign = TextAlign.End,
-                        modifier = Modifier.weight(0.8f)
-                    )
-                }
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Royal Blue Header Row (#1A6FE3, White 15.sp Bold)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min)
+                                .background(TableHeaderBlue),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.95f)
+                                    .padding(horizontal = 10.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = headers.getOrElse(0) { "الوقت" },
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                            VerticalDivider(
+                                modifier = Modifier.fillMaxHeight(),
+                                thickness = 1.dp,
+                                color = Color.White.copy(alpha = 0.25f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.45f)
+                                    .padding(horizontal = 10.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = headers.getOrElse(1) { "المهمة" },
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                            VerticalDivider(
+                                modifier = Modifier.fillMaxHeight(),
+                                thickness = 1.dp,
+                                color = Color.White.copy(alpha = 0.25f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.85f)
+                                    .padding(horizontal = 10.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = headers.getOrElse(2) { "المدة" },
+                                    fontFamily = ReadexProFontFamily,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
 
-                // Tinted Rows
-                table.rows.forEachIndexed { index, row ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(row.tintHex))
-                            .padding(horizontal = 10.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = row.timeOrDay,
-                            fontFamily = ReadexProFontFamily,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1A6FE3),
-                            lineHeight = 19.sp,
-                            modifier = Modifier
-                                .weight(0.95f)
-                                .padding(end = 6.dp)
-                        )
-                        Text(
-                            text = row.taskOrSubject,
-                            fontFamily = ReadexProFontFamily,
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF1E1B18),
-                            lineHeight = 21.sp,
-                            modifier = Modifier
-                                .weight(1.45f)
-                                .padding(end = 6.dp)
-                        )
-                        Text(
-                            text = row.durationOrDetail,
-                            fontFamily = ReadexProFontFamily,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF475569),
-                            textAlign = TextAlign.End,
-                            lineHeight = 19.sp,
-                            modifier = Modifier.weight(0.8f)
-                        )
-                    }
-                    if (index < table.rows.lastIndex) {
-                        HorizontalDivider(thickness = 0.8.dp, color = Color(0xFFE2E8F0))
+                        // Alternating Clean Rows (#FFFFFF / #F8FAFC, 14.5.sp, 12.dp padding)
+                        table.rows.forEachIndexed { index, row ->
+                            val rowBg = if (index % 2 == 0) Color.White else TableAltRowBg
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(IntrinsicSize.Min)
+                                    .background(rowBg),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(0.95f)
+                                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = row.timeOrDay,
+                                        fontFamily = ReadexProFontFamily,
+                                        fontSize = 14.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TableHeaderBlue,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 20.sp
+                                    )
+                                }
+                                VerticalDivider(
+                                    modifier = Modifier.fillMaxHeight(),
+                                    thickness = 1.dp,
+                                    color = TableBorderGray.copy(alpha = 0.7f)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1.45f)
+                                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Text(
+                                        text = row.taskOrSubject,
+                                        fontFamily = ReadexProFontFamily,
+                                        fontSize = 14.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TableInk,
+                                        lineHeight = 21.sp
+                                    )
+                                }
+                                VerticalDivider(
+                                    modifier = Modifier.fillMaxHeight(),
+                                    thickness = 1.dp,
+                                    color = TableBorderGray.copy(alpha = 0.7f)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(0.85f)
+                                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = row.durationOrDetail,
+                                        fontFamily = ReadexProFontFamily,
+                                        fontSize = 14.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF475569),
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 20.sp
+                                    )
+                                }
+                            }
+                            if (index < table.rows.lastIndex) {
+                                HorizontalDivider(thickness = 1.dp, color = TableBorderGray.copy(alpha = 0.75f))
+                            }
+                        }
                     }
                 }
             }
@@ -193,12 +270,12 @@ fun FahimSmartTableCard(
                 if (isAddedToSchedule) {
                     Button(
                         onClick = onOpenTasks,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF10B981),
+                            containerColor = TableEmerald,
                             contentColor = Color.White
                         ),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 11.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("fahim_table_added_badge")
@@ -210,21 +287,21 @@ fun FahimSmartTableCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "تمت إضافة الجدول تلقائياً لقسم مهامي ✓",
+                            text = "تمت إضافة الجدول لقسم مهامي ✓",
                             fontFamily = ReadexProFontFamily,
-                            fontSize = 14.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 } else {
                     Button(
                         onClick = onAddToSchedule,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1A6FE3),
+                            containerColor = TableHeaderBlue,
                             contentColor = Color.White
                         ),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 11.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("fahim_add_table_button")
@@ -236,9 +313,9 @@ fun FahimSmartTableCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "إضافة الجدول لمهامي بضغطة واحدة +",
+                            text = "إضافة الجدول لمهامي بضغطة واحدة",
                             fontFamily = ReadexProFontFamily,
-                            fontSize = 14.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }

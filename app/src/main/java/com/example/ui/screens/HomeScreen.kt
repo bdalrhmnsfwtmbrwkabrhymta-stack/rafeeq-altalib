@@ -206,6 +206,7 @@ fun HomeScreen(
     // Preserved Additional Existing Features in matching vibrant style
     val extraFeatureCards = remember {
         listOf(
+            HomeToolCardSpec("مركز الألعاب التعليمية", "ركض المتفوقين • 12 مرحلة ومتجر", Icons.Default.SportsEsports, "educational_games_hub", VibrantRoyalBlue),
             HomeToolCardSpec("التحميل الذكي السريع", "يوتيوب، تيك توك، بنترست، فيسبوك وإنستغرام", Icons.Default.CloudDownload, "smart_download", VibrantRoyalBlue),
             HomeToolCardSpec("الرسالة • تحميل المحاضرات", "يوتيوب، بينتيريست، تيك توك وPDF", Icons.Default.CloudDownload, "rafid", VibrantRoyalBlue),
             HomeToolCardSpec("القرآن الكريم", "المصحف والتلاوة", Icons.Default.AutoStories, "quran", VibrantEmerald),
@@ -809,6 +810,107 @@ fun HomeScreen(
                                             color = Color.White
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ----------------------------------------------------------
+                // 5C. EDUCATIONAL GAMES HUB ENTRY CARD («مركز الألعاب التعليمية»)
+                // ----------------------------------------------------------
+                Surface(
+                    onClick = { onNavigate("educational_games_hub") },
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFF1A6FE3),
+                    shadowElevation = 6.dp,
+                    border = BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_educational_games_hub_card")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color(0xFF1557B8),
+                                        Color(0xFF1A6FE3),
+                                        Color(0xFF2563EB)
+                                    )
+                                )
+                            )
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFFFFD54F).copy(alpha = 0.22f))
+                                        .border(
+                                            1.dp,
+                                            Color(0xFFFFD54F).copy(alpha = 0.55f),
+                                            RoundedCornerShape(16.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SportsEsports,
+                                        contentDescription = "مركز الألعاب التعليمية",
+                                        tint = Color(0xFFFFD54F),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "مركز الألعاب التعليمية",
+                                        fontFamily = DisplayArabicFontFamily,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "ركض المتفوقين • 12 مرحلة ومتجر الشخصيات",
+                                        fontFamily = DisplayArabicFontFamily,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White.copy(alpha = 0.9f)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color(0xFFFFD54F)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "العب الآن",
+                                        color = Color(0xFF1E293B),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "فتح مركز الألعاب التعليمية",
+                                        tint = Color(0xFF1E293B),
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
                         }

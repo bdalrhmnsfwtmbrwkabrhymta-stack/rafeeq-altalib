@@ -1,6 +1,7 @@
 package com.example.domain.ai
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -23,6 +25,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
 
 enum class FahimVoiceGender(val labelAr: String, val pitch: Float) {
     MALE("معلم", 0.94f),
@@ -35,11 +38,11 @@ enum class FahimVoiceGender(val labelAr: String, val pitch: Float) {
 }
 
 /**
- * محرك الصوت الثنائي للسبورة الذكية (FahimAudioEngine):
+ * محرك الصوت العصبي الثنائي للسبورة الذكية (FahimAudioEngine):
  * - يقتصر حصراً على لهجتين: «مصري» (ar-EG) و«فصحى» (ar).
- * - يدعم اختيار صوت «معلم» / «معلمة» والتحكم في سرعة النطق (0.75x - 1.5x).
- * - يدعم نقاط نهاية Piper TTS / Coqui TTS مع بديل فوري عبر Android TextToSpeech.
- * - يزامن رقم الخطوة النشطة (activeStepIndex) وموجة الصوت الحية (isSpeaking) مع الرسم الحي.
+ * - يستخدم أصواتاً عصبية طبيعية حقيقية مفتوحة المصدر (Edge-TTS Neural: ShakirNeural / SalmaNeural للمصري
+ *   و HamedNeural / ZariyahNeural للفصحى) بالإضافة لدعم Piper / Coqui TTS وبديل Android TTS عند انقطاع الإنترنت.
+ * - يزامن رقم الخطوة النشطة (activeStepIndex) وموجة الصوت الحية (isSpeaking) مع الكتابة والرسم الحي على السبورة.
  */
 open class FahimAudioEngine(private val context: Context) {
 
@@ -48,6 +51,7 @@ open class FahimAudioEngine(private val context: Context) {
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
+    private val neuralTtsClient by lazy { EdgeNeuralTtsClient(context.applicationContext, httpClient) }
 
     private var tts: TextToSpeech? = null
     private var isTtsReady = false
@@ -60,7 +64,7 @@ open class FahimAudioEngine(private val context: Context) {
     private val _activeStepIndex = MutableStateFlow(-1)
     val activeStepIndex: StateFlow<Int> = _activeStepIndex.asStateFlow()
 
-    private val _activeEngineLabel = MutableStateFlow("Android TTS")
+    private val _activeEngineLabel = MutableStateFlow("صوت عصبي طبيعي (مصري)")
     val activeEngineLabel: StateFlow<String> = _activeEngineLabel.asStateFlow()
 
     private val _voiceGender = MutableStateFlow(FahimVoiceGender.MALE)
@@ -97,18 +101,6 @@ open class FahimAudioEngine(private val context: Context) {
             tts = TextToSpeech(context.applicationContext) { status ->
                 if (status == TextToSpeech.SUCCESS) {
                     isTtsReady = true
-                    tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) {
-                            _isSpeaking.value = true
-                        }
-
-                        override fun onDone(utteranceId: String?) = Unit
-
-                        @Deprecated("Deprecated in Java")
-                        override fun onError(utteranceId: String?) {
-                            _isSpeaking.value = false
-                        }
-                    })
                 }
             }
         }
@@ -136,18 +128,19 @@ open class FahimAudioEngine(private val context: Context) {
             _isSpeaking.value = true
             for ((idx, step) in steps.withIndex()) {
                 _activeStepIndex.value = idx
-                val spoken = cleanMathForArabicSpeech(step.speechLine)
+                val rawSpeech = step.speechLine.ifBlank { step.displayArabicTitle() }
+                val spoken = cleanMathForArabicSpeech(rawSpeech)
                 if (spoken.isBlank()) {
-                    delay(1100L)
+                    delay(1000L)
                     continue
                 }
 
-                // 1. Try optional Piper or Coqui open-source TTS server if configured
+                // 1. Optional Custom Piper / Coqui TTS Server (from Developer Panel PIN 2026)
                 val endpoint = effectivePiper.ifBlank { effectiveCoqui }
-                var playedRemote = false
+                var played = false
                 if (endpoint.isNotBlank()) {
                     _activeEngineLabel.value = if (effectivePiper.isNotBlank()) "Piper TTS" else "Coqui TTS"
-                    playedRemote = playRemoteTtsAndAwait(
+                    played = playRemoteTtsAndAwait(
                         endpoint = endpoint,
                         text = spoken,
                         dialect = dialect,
@@ -157,16 +150,47 @@ open class FahimAudioEngine(private val context: Context) {
                     )
                 }
 
-                // 2. Instant fallback to Built-in Android TextToSpeech (مصري ar-EG / فصحى ar)
-                if (!playedRemote) {
-                    _activeEngineLabel.value = "Android TTS (${dialect.labelAr} • ${gender.labelAr})"
+                // 2. Primary Built-In Open-Source Neural Arabic Voices (ar-EG-ShakirNeural / SalmaNeural / ar-SA-HamedNeural / ZariyahNeural)
+                if (!played) {
+                    val neuralResult = neuralTtsClient.synthesizeToMp3File(
+                        text = spoken,
+                        dialect = dialect,
+                        gender = gender,
+                        speed = _speechRate.value
+                    )
+                    if (neuralResult != null) {
+                        val (audioFile, label) = neuralResult
+                        _activeEngineLabel.value = label
+                        played = playAudioFileAndAwait(audioFile)
+                    }
+                }
+
+                // 3. Offline Fallback: Best available Android TextToSpeech Arabic voice
+                if (!played) {
+                    _activeEngineLabel.value = "صوت الجهاز (${dialect.labelAr} • ${gender.labelAr})"
                     speakViaAndroidTtsAndAwait(spoken, dialect, gender, _speechRate.value, idx)
                 }
 
-                delay((350L / _speechRate.value).toLong().coerceIn(180L, 500L))
+                delay((320L / _speechRate.value).toLong().coerceIn(180L, 480L))
             }
             _isSpeaking.value = false
         }
+    }
+
+    fun speakSingleText(
+        text: String,
+        dialect: FahimDialect = FahimDialect.EGYPTIAN,
+        gender: FahimVoiceGender = _voiceGender.value,
+        speed: Float = _speechRate.value
+    ) {
+        val clean = cleanMathForArabicSpeech(text)
+        if (clean.isBlank()) return
+        speakLessonSteps(
+            steps = listOf(WhiteboardStep(index = 0, speechLine = clean)),
+            dialect = dialect,
+            gender = gender,
+            speed = speed
+        )
     }
 
     private suspend fun playRemoteTtsAndAwait(
@@ -204,39 +228,52 @@ open class FahimAudioEngine(private val context: Context) {
             }.getOrNull()
         } ?: return false
 
-        return withContext(Dispatchers.Main) {
-            runCatching {
-                val player = MediaPlayer()
-                mediaPlayer = player
-                var completed = false
-                player.setDataSource(tempFile.absolutePath)
-                player.setOnCompletionListener { completed = true }
-                player.setOnErrorListener { _, _, _ -> completed = true; true }
-                player.prepare()
-                player.start()
-                while (!completed && _isSpeaking.value) {
-                    delay(120L)
+        val ok = playAudioFileAndAwait(tempFile)
+        runCatching { tempFile.delete() }
+        return ok
+    }
+
+    private suspend fun playAudioFileAndAwait(file: File): Boolean = suspendCancellableCoroutine { cont ->
+        runCatching {
+            releaseMediaPlayer()
+            val mp = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                setDataSource(file.absolutePath)
+                setOnCompletionListener {
+                    releaseMediaPlayer()
+                    if (cont.isActive) cont.resume(true)
                 }
-                player.release()
-                if (mediaPlayer === player) mediaPlayer = null
-                tempFile.delete()
-                true
-            }.getOrElse {
-                tempFile.delete()
-                false
+                setOnErrorListener { _, _, _ ->
+                    releaseMediaPlayer()
+                    if (cont.isActive) cont.resume(false)
+                    true
+                }
+                prepare()
+                start()
             }
+            mediaPlayer = mp
+            cont.invokeOnCancellation { releaseMediaPlayer() }
+        }.onFailure {
+            releaseMediaPlayer()
+            if (cont.isActive) cont.resume(false)
         }
     }
 
     private suspend fun speakViaAndroidTtsAndAwait(
-        spoken: String,
+        text: String,
         dialect: FahimDialect,
         gender: FahimVoiceGender,
         speed: Float,
-        stepIndex: Int
+        stepIdx: Int
     ) {
-        if (!isTtsReady || tts == null) {
-            delay((2100L / speed).toLong().coerceIn(900L, 3000L))
+        val engine = tts
+        if (engine == null || !isTtsReady) {
+            delay(((text.length * 60L) / speed).toLong().coerceIn(1400L, 4200L))
             return
         }
 
@@ -245,58 +282,98 @@ open class FahimAudioEngine(private val context: Context) {
         } else {
             Locale(dialect.localeLang)
         }
-        val langStatus = tts?.setLanguage(targetLocale) ?: TextToSpeech.LANG_NOT_SUPPORTED
-        if (langStatus == TextToSpeech.LANG_MISSING_DATA || langStatus == TextToSpeech.LANG_NOT_SUPPORTED) {
-            tts?.language = Locale("ar")
-        }
-        tts?.setPitch(gender.pitch)
-        tts?.setSpeechRate(speed)
 
-        val params = Bundle()
-        tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, params, "step_$stepIndex")
-
-        val baseMinWait = (spoken.length * 46L).coerceIn(1300L, 4200L)
-        val scaledWait = (baseMinWait / speed).toLong().coerceIn(900L, 5000L)
-        delay(400L)
-        var elapsed = 400L
-        while (elapsed < scaledWait && _isSpeaking.value) {
-            delay(200L)
-            elapsed += 200L
-            if (elapsed > 1400L && tts?.isSpeaking == false) {
-                break
+        runCatching {
+            val voices = engine.voices.orEmpty()
+            val matchingVoice = voices
+                .filter { v ->
+                    v.locale.language.equals("ar", ignoreCase = true) &&
+                        (dialect != FahimDialect.EGYPTIAN || v.locale.country.equals("EG", ignoreCase = true) || true)
+                }
+                .sortedByDescending { v ->
+                    var score = 0
+                    if (dialect == FahimDialect.EGYPTIAN && v.locale.country.equals("EG", ignoreCase = true)) score += 10
+                    if (!v.isNetworkConnectionRequired) score += 2
+                    if (v.quality >= 400) score += 4
+                    score
+                }
+                .firstOrNull()
+            if (matchingVoice != null) {
+                engine.voice = matchingVoice
+            } else {
+                val langRes = engine.setLanguage(targetLocale)
+                if (langRes == TextToSpeech.LANG_MISSING_DATA || langRes == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    engine.setLanguage(Locale("ar"))
+                }
             }
+            engine.setSpeechRate(speed.coerceIn(0.75f, 1.5f))
+            engine.setPitch(gender.pitch)
+        }
+
+        val utteranceId = "fahim_step_${stepIdx}_${System.currentTimeMillis()}"
+        suspendCancellableCoroutine<Unit> { cont ->
+            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(id: String?) = Unit
+                override fun onDone(id: String?) {
+                    if (id == utteranceId && cont.isActive) cont.resume(Unit)
+                }
+                @Deprecated("Deprecated in Java")
+                override fun onError(id: String?) {
+                    if (id == utteranceId && cont.isActive) cont.resume(Unit)
+                }
+            })
+            val params = Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }
+            val result = runCatching { engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId) }
+                .getOrDefault(TextToSpeech.ERROR)
+            if (result != TextToSpeech.SUCCESS && cont.isActive) {
+                cont.resume(Unit)
+            }
+            cont.invokeOnCancellation { runCatching { engine.stop() } }
         }
     }
 
-    fun stop() {
-        playbackJob?.cancel()
-        playbackJob = null
-        runCatching { tts?.stop() }
+    fun cleanMathForArabicSpeech(raw: String): String {
+        return raw
+            .replace("Area_shaded", "المساحة المظللة")
+            .replace("Area_rect", "مساحة المستطيل")
+            .replace("Area_circle", "مساحة الدائرة")
+            .replace("R_eq", "المقاومة المكافئة")
+            .replace("π", " باي ")
+            .replace("×", " ضرب ")
+            .replace("÷", " على ")
+            .replace("=", " يساوي ")
+            .replace("≈", " يساوي تقريباً ")
+            .replace("√", " الجذر التربيعي لـ ")
+            .replace("²", " تربيع ")
+            .replace("Ω", " أوم ")
+            .replace("→", " يؤدي إلى ")
+            .replace("←", " إذن ")
+            .replace("|", " ، ")
+            .replace(Regex("[*_`#]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun releaseMediaPlayer() {
         runCatching {
             mediaPlayer?.stop()
             mediaPlayer?.release()
         }
         mediaPlayer = null
+    }
+
+    fun stop() {
+        playbackJob?.cancel()
+        playbackJob = null
+        releaseMediaPlayer()
+        runCatching { tts?.stop() }
         _isSpeaking.value = false
+        _activeStepIndex.value = -1
     }
 
     fun shutdown() {
         stop()
         runCatching { tts?.shutdown() }
         tts = null
-        isTtsReady = false
-    }
-
-    internal fun cleanMathForArabicSpeech(raw: String): String {
-        return raw
-            .replace("Area_shaded", "المساحة المظللة")
-            .replace("Area_rect", "مساحة المستطيل")
-            .replace("Area_circle", "مساحة الدائرة")
-            .replace("π", " ط ")
-            .replace("×", " ضرب ")
-            .replace("=", " يساوي ")
-            .replace("≈", " تقريباً ")
-            .replace("√", " جذر ")
-            .trim()
     }
 }

@@ -140,6 +140,29 @@ class OpenMaicPdfBoardEngine(
             }
         }
 
+        if (FirebaseAiLogicClient.isAvailable()) {
+            val firebaseRaw = FirebaseAiLogicClient.generateText(
+                prompt = buildString {
+                    append("الموضوع / المطلوب شرحه: ").append(cleanTopic)
+                    if (pdfDoc != null) {
+                        append("\nالمصدر المرفوع: ").append(pdfDoc.displayName)
+                            .append(" — صفحة ").append(pdfDoc.currentPageIndex + 1)
+                    }
+                    if (pageContextText.isNotBlank()) {
+                        append("\n\nنص صفحة الكتاب:\n").append(pageContextText)
+                    }
+                },
+                systemInstruction = "أنت نظام OpenMAIC + Excalidraw. أرجع JSON صالحاً بالخطوات وعناصر الرسم excalidrawElements.",
+                imageBytesBase64 = pageImageBase64,
+                temperature = 0.3f,
+                responseMimeType = "application/json"
+            ).getOrNull()
+            if (!firebaseRaw.isNullOrBlank()) {
+                val parsed = parseOpenMaicSessionJson(firebaseRaw, cleanTopic, dialect, pdfDoc)
+                if (parsed != null) return@withContext parsed
+            }
+        }
+
         buildLocalOpenMaicSession(
             topic = cleanTopic,
             dialect = dialect,
@@ -276,10 +299,12 @@ class OpenMaicPdfBoardEngine(
             }
             val pageStep = WhiteboardStep(
                 index = 0,
-                rightGivenText = "ملزمة PDF: صفحة $pageNum",
-                leftOperationText = pdfDoc.displayName.take(18),
+                rightGivenText = "ملخص صفحة $pageNum من الكتاب",
+                leftOperationText = "PDF • P.$pageNum",
                 centerFormulaText = snippet,
-                speechLine = introSpeech
+                speechLine = introSpeech,
+                arabicTitle = "ملخص صفحة $pageNum — $snippet",
+                ltrFormula = "PDF Page $pageNum / ${pdfDoc.pageCount}"
             )
             val reindexed = listOf(pageStep) + baseLesson.steps.mapIndexed { idx, s ->
                 s.copy(index = idx + 1)
@@ -448,6 +473,8 @@ class OpenMaicPdfBoardEngine(
             } else null
         }
     }.getOrNull()
+
+    internal fun encodeBitmapForVision(bitmap: Bitmap): String? = encodeBitmapJpegBase64(bitmap)
 
     private fun encodeBitmapJpegBase64(bitmap: Bitmap): String? = runCatching {
         val out = ByteArrayOutputStream()

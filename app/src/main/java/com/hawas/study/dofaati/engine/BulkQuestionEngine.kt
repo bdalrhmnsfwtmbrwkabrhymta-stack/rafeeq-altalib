@@ -217,7 +217,7 @@ class DofaatiAiClient(private val context: Context) {
         if (FirebaseApp.getApps(context).isNotEmpty()) {
             return@withContext runCatching {
                 val model = Firebase.ai.generativeModel(
-                    modelName = "gemini-2.5-flash",
+                    modelName = "gemini-3.8-flash",
                     generationConfig = generationConfig {
                         this.temperature = temperature
                         responseMimeType = "application/json"

@@ -214,18 +214,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val fahimAiService by lazy { com.example.domain.ai.FahimAiService(aiRepository) }
     private val fahimBoardEngine by lazy { com.example.domain.ai.FahimBoardDrawingEngine() }
     private val openMaicEngine by lazy { com.example.domain.ai.OpenMaicPdfBoardEngine() }
+    private val openMaicSummarizer by lazy { com.example.domain.ai.OpenMaicPdfSummarizer(pdfBoardEngine = openMaicEngine) }
     val fahimVoiceEngine by lazy { com.example.domain.ai.FahimVoiceEngine(getApplication()) }
     val fahimMessages = MutableStateFlow<List<com.example.domain.ai.FahimChatMessage>>(emptyList())
     val isFahimLoading = MutableStateFlow(false)
     val isSuggestedWeeklyTableAdded = MutableStateFlow(false)
     val openMaicPdfDoc = MutableStateFlow<com.example.domain.ai.OpenMaicPdfDocument?>(null)
-    val openMaicSession = MutableStateFlow(
-        openMaicEngine.buildLocalOpenMaicSession(
-            topic = "مساحة الجزء المظلل",
-            dialect = com.example.domain.ai.FahimDialect.EGYPTIAN
-        )
-    )
-    val whiteboardLesson = MutableStateFlow(openMaicSession.value.lesson)
+    val whiteboardState = MutableStateFlow<com.example.domain.ai.WhiteboardState>(com.example.domain.ai.WhiteboardState.Empty)
+    val openMaicSession = MutableStateFlow<com.example.domain.ai.OpenMaicBoardSession?>(null)
+    val whiteboardLesson = MutableStateFlow<com.example.domain.ai.FahimWhiteboardLesson?>(null)
     val isWhiteboardLoading = MutableStateFlow(false)
     val pendingWhiteboardPrompt = MutableStateFlow<String?>(null)
 
@@ -2612,34 +2609,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pendingWhiteboardPrompt.value = prompt.trim()
     }
 
+    private var lastWhiteboardPrompt: String = ""
+
     fun loadWhiteboardLesson(
         prompt: String,
         dialect: com.example.domain.ai.FahimDialect = com.example.domain.ai.FahimDialect.fromName(userSettings.value.fahimDialect),
-        autoSpeak: Boolean = true
+        autoSpeak: Boolean = true,
+        preferMindMap: Boolean = false
     ) {
+        val trimmedPrompt = prompt.trim()
+        if (trimmedPrompt.isNotBlank()) {
+            lastWhiteboardPrompt = trimmedPrompt
+        }
         viewModelScope.launch {
             isWhiteboardLoading.value = true
-            val session = openMaicEngine.runMultiAgentClassroom(
-                topicOrQuestion = prompt,
+            fahimVoiceEngine.stop()
+            whiteboardState.value = com.example.domain.ai.WhiteboardState.Loading(
+                if (preferMindMap) "جارٍ إعداد خريطة ذهنية ورسم Excalidraw تفاعلي للدرس..."
+                else "فهيم يحلل سؤالك ويجهز الرسم والكتابة الحية على السبورة..."
+            )
+            val result = openMaicSummarizer.summarizeAndBuildSessionResult(
+                topicOrQuestion = trimmedPrompt,
                 dialect = dialect,
                 pdfDoc = openMaicPdfDoc.value,
-                customGeminiKey = userSettings.value.geminiApiKey
+                customGeminiKey = userSettings.value.geminiApiKey,
+                preferMindMap = preferMindMap
             )
-            openMaicSession.value = session
-            whiteboardLesson.value = session.lesson
+            result.fold(
+                onSuccess = { session ->
+                    openMaicSession.value = session
+                    whiteboardLesson.value = session.lesson
+                    whiteboardState.value = com.example.domain.ai.WhiteboardState.Active(session)
+                    if (autoSpeak) {
+                        val settings = userSettings.value
+                        fahimVoiceEngine.speakLessonSteps(
+                            steps = session.lesson.steps,
+                            dialect = dialect,
+                            piperUrl = settings.piperTtsUrl,
+                            coquiUrl = settings.coquiTtsUrl,
+                            voiceApiKey = settings.voiceTtsApiKey,
+                            gender = fahimVoiceEngine.voiceGender.value,
+                            speed = fahimVoiceEngine.speechRate.value
+                        )
+                    }
+                },
+                onFailure = { err ->
+                    whiteboardState.value = com.example.domain.ai.WhiteboardState.Error(
+                        message = err.localizedMessage ?: "تعذّر الاتصال بمحرك فهيم الذكي. تأكد من الإنترنت وحاول مرة أخرى.",
+                        retryPrompt = trimmedPrompt.ifBlank { lastWhiteboardPrompt }
+                    )
+                }
+            )
             isWhiteboardLoading.value = false
-            if (autoSpeak) {
-                val settings = userSettings.value
-                fahimVoiceEngine.speakLessonSteps(
-                    steps = session.lesson.steps,
-                    dialect = dialect,
-                    piperUrl = settings.piperTtsUrl,
-                    coquiUrl = settings.coquiTtsUrl,
-                    voiceApiKey = settings.voiceTtsApiKey,
-                    gender = fahimVoiceEngine.voiceGender.value,
-                    speed = fahimVoiceEngine.speechRate.value
-                )
-            }
         }
     }
 
@@ -2650,20 +2671,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             isWhiteboardLoading.value = true
-            val doc = openMaicEngine.inspectAndLoadPdfPage(getApplication(), uri, pageIndex)
+            fahimVoiceEngine.stop()
+            whiteboardState.value = com.example.domain.ai.WhiteboardState.Loading("جارٍ قراءة كتاب PDF واستخلاص النصوص...")
+            val doc = openMaicSummarizer.inspectPdfPage(getApplication(), uri, pageIndex)
             if (doc != null) {
                 openMaicPdfDoc.value = doc
                 val dialect = com.example.domain.ai.FahimDialect.fromName(userSettings.value.fahimDialect)
                 if (autoExplain) {
-                    val session = openMaicEngine.runMultiAgentClassroom(
-                        topicOrQuestion = "اشرح صفحة ${doc.currentPageIndex + 1} من ${doc.displayName}",
+                    val pdfPrompt = "لخّص واشرح صفحة ${doc.currentPageIndex + 1} من ${doc.displayName}"
+                    lastWhiteboardPrompt = pdfPrompt
+                    whiteboardState.value = com.example.domain.ai.WhiteboardState.Loading(
+                        "وكلاء OpenMAIC يلخصون صفحة ${doc.currentPageIndex + 1} من ${doc.displayName}..."
+                    )
+                    val result = openMaicSummarizer.summarizeAndBuildSessionResult(
+                        topicOrQuestion = pdfPrompt,
                         dialect = dialect,
                         pdfDoc = doc,
                         customGeminiKey = userSettings.value.geminiApiKey
                     )
-                    openMaicSession.value = session
-                    whiteboardLesson.value = session.lesson
+                    result.fold(
+                        onSuccess = { session ->
+                            openMaicSession.value = session
+                            whiteboardLesson.value = session.lesson
+                            whiteboardState.value = com.example.domain.ai.WhiteboardState.Active(session)
+                            val settings = userSettings.value
+                            fahimVoiceEngine.speakLessonSteps(
+                                steps = session.lesson.steps,
+                                dialect = dialect,
+                                piperUrl = settings.piperTtsUrl,
+                                coquiUrl = settings.coquiTtsUrl,
+                                voiceApiKey = settings.voiceTtsApiKey,
+                                gender = fahimVoiceEngine.voiceGender.value,
+                                speed = fahimVoiceEngine.speechRate.value
+                            )
+                        },
+                        onFailure = { err ->
+                            whiteboardState.value = com.example.domain.ai.WhiteboardState.Error(
+                                message = err.localizedMessage ?: "تعذّر تلخيص صفحة الـ PDF بالذكاء الاصطناعي. حاول مرة أخرى.",
+                                retryPrompt = pdfPrompt
+                            )
+                        }
+                    )
                 }
+            } else if (openMaicSession.value == null) {
+                whiteboardState.value = com.example.domain.ai.WhiteboardState.Empty
             }
             isWhiteboardLoading.value = false
         }
@@ -2679,12 +2730,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         openMaicPdfDoc.value = null
     }
 
+    fun resetWhiteboardToEmpty() {
+        fahimVoiceEngine.stop()
+        openMaicPdfDoc.value = null
+        openMaicSession.value = null
+        whiteboardLesson.value = null
+        lastWhiteboardPrompt = ""
+        whiteboardState.value = com.example.domain.ai.WhiteboardState.Empty
+    }
+
     fun saveOpenMaicScheduleToTasks(onComplete: (Int) -> Unit = {}) {
         viewModelScope.launch {
-            val session = openMaicSession.value
+            val session = openMaicSession.value ?: return@launch
             val inserted = persistFahimTableToRoom(session.studyTable)
             if (inserted > 0) {
-                openMaicSession.value = session.copy(isSavedToTasks = true)
+                val updated = session.copy(isSavedToTasks = true)
+                openMaicSession.value = updated
+                whiteboardState.value = com.example.domain.ai.WhiteboardState.Active(updated)
                 soundManager.playSuccess()
             }
             onComplete(inserted)
@@ -2700,32 +2762,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateFahimDialect(dialect: com.example.domain.ai.FahimDialect) {
         viewModelScope.launch {
             prefsRepo.updateFahimDialect(dialect.name)
-            val currentSession = openMaicSession.value
-            val updated = openMaicEngine.buildLocalOpenMaicSession(
-                topic = currentSession.topicTitle,
-                dialect = dialect,
-                pdfDoc = openMaicPdfDoc.value
-            )
-            if (updated.lesson.sceneType == currentSession.lesson.sceneType && openMaicPdfDoc.value == null) {
-                openMaicSession.value = updated.copy(
-                    mindMap = currentSession.mindMap,
-                    studyTable = currentSession.studyTable,
-                    isSavedToTasks = currentSession.isSavedToTasks
-                )
-                whiteboardLesson.value = updated.lesson
-                val settings = userSettings.value
-                fahimVoiceEngine.speakLessonSteps(
-                    steps = updated.lesson.steps,
-                    dialect = dialect,
-                    piperUrl = settings.piperTtsUrl,
-                    coquiUrl = settings.coquiTtsUrl,
-                    voiceApiKey = settings.voiceTtsApiKey,
-                    gender = fahimVoiceEngine.voiceGender.value,
-                    speed = fahimVoiceEngine.speechRate.value
-                )
-            } else {
-                loadWhiteboardLesson(currentSession.topicTitle, dialect, autoSpeak = true)
-            }
+            val currentSession = openMaicSession.value ?: return@launch
+            val topicToReExplain = lastWhiteboardPrompt.ifBlank { currentSession.topicTitle }
+            loadWhiteboardLesson(topicToReExplain, dialect, autoSpeak = true)
         }
     }
 

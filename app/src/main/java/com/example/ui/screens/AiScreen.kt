@@ -95,6 +95,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -152,10 +153,16 @@ fun AiScreen(
     var pdfExportStatus by remember { mutableStateOf<String?>(null) }
 
     val listState = rememberLazyListState()
-    val ttsManager = remember { AiChatStudyHelper.ArabicTtsManager(context) }
+    val isNeuralSpeaking by viewModel.fahimVoiceEngine.isSpeaking.collectAsState()
+
+    LaunchedEffect(isNeuralSpeaking) {
+        if (!isNeuralSpeaking) {
+            speakingMessageId = null
+        }
+    }
 
     DisposableEffect(Unit) {
-        onDispose { ttsManager.shutdown() }
+        onDispose { viewModel.fahimVoiceEngine.stop() }
     }
 
     LaunchedEffect(fahimMessages.size, isFahimLoading) {
@@ -164,19 +171,8 @@ fun AiScreen(
         }
     }
 
-    val suggestedWeeklyTable = remember {
-        FahimStudyTableData(
-            title = "جدول المذاكرة الأسبوعي المقترح",
-            columnHeaders = listOf("اليوم", "المهمة والمادة", "المدة"),
-            rows = listOf(
-                FahimStudyTableRow("السبت", "مراجعة الفصل الأول وحل أمثلة", "ساعتان", dayOfWeek = 6, startTime = "16:00", endTime = "18:00", tintHex = 0xFFFFFFFFL),
-                FahimStudyTableRow("الأحد", "تلخيص القوانين ورسم خريطة ذهنية", "ساعة ونصف", dayOfWeek = 7, startTime = "17:00", endTime = "18:30", tintHex = 0xFFEFF6FFL),
-                FahimStudyTableRow("الاثنين", "حل تمارين ومسائل امتحانات سابقة", "ساعتان", dayOfWeek = 1, startTime = "16:30", endTime = "18:30", tintHex = 0xFFECFDF5L),
-                FahimStudyTableRow("الثلاثاء", "مراجعة نقاط الصعوبة والأخطاء", "ساعة ونصف", dayOfWeek = 2, startTime = "18:00", endTime = "19:30", tintHex = 0xFFFEF3C7L),
-                FahimStudyTableRow("الأربعاء", "اختبار تجريبي شامل ومراجعة سريعة", "ساعة ونصف", dayOfWeek = 3, startTime = "17:00", endTime = "18:30", tintHex = 0xFFF1F5F9L)
-            ),
-            isComparisonOnly = false
-        )
+    val selectedDialect = remember(userSettings.fahimDialect) {
+        com.example.domain.ai.FahimDialect.fromName(userSettings.fahimDialect)
     }
 
     // Camera capture
@@ -241,7 +237,7 @@ fun AiScreen(
         if (granted) {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-SA")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedDialect.bcp47Tag)
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "تحدث بسؤالك لفهيم...")
             }
             runCatching {
@@ -617,7 +613,36 @@ fun AiScreen(
         ) {
             if (fahimMessages.isEmpty()) {
                 item {
-                    FahimInteractiveMascot(compactMode = false)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        com.example.ui.screens.ai.FahimMascot3D(
+                            compactMode = false,
+                            showIdleSpeechBubble = false,
+                            showStatusBadge = false,
+                            mascotSizeDp = 162.dp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "أهلاً بك مع فهيم!",
+                            fontFamily = ReadexProFontFamily,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = DaylightInk,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "اختر إجراءً سريعاً أو اكتب سؤالك بالأسفل للبدء فوراً",
+                            fontFamily = ReadexProFontFamily,
+                            fontSize = 14.sp,
+                            color = DaylightMuted,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
 
                 item {
@@ -639,26 +664,6 @@ fun AiScreen(
                         }
                     )
                 }
-
-                item {
-                    FahimSmartTableCard(
-                        table = suggestedWeeklyTable,
-                        isAddedToSchedule = isSuggestedWeeklyTableAdded,
-                        onAddToSchedule = {
-                            viewModel.insertFahimTableToApp(
-                                table = suggestedWeeklyTable,
-                                isSuggestedCard = true
-                            ) { count ->
-                                Toast.makeText(
-                                    context,
-                                    "تمت إضافة $count حصص تلقائياً لقسم مهامي ✓",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        },
-                        onOpenTasks = { onNavigate("tasks") }
-                    )
-                }
             } else {
                 item {
                     FahimInteractiveMascot(compactMode = true)
@@ -674,14 +679,15 @@ fun AiScreen(
                             Toast.makeText(context, "تم النسخ", Toast.LENGTH_SHORT).show()
                         },
                         onSpeakToggle = {
-                            if (speakingMessageId == msg.id) {
-                                ttsManager.stop()
+                            if (speakingMessageId == msg.id && isNeuralSpeaking) {
+                                viewModel.fahimVoiceEngine.stop()
                                 speakingMessageId = null
                             } else {
                                 speakingMessageId = msg.id
-                                ttsManager.speak(msg.text) { active ->
-                                    if (!active) speakingMessageId = null
-                                }
+                                viewModel.fahimVoiceEngine.speakSingleText(
+                                    text = msg.text,
+                                    dialect = selectedDialect
+                                )
                             }
                         },
                         onExportPdf = {
@@ -830,7 +836,7 @@ fun AiScreen(
                             if (hasAudioPerm) {
                                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-SA")
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedDialect.bcp47Tag)
                                     putExtra(RecognizerIntent.EXTRA_PROMPT, "تحدث بسؤالك لفهيم...")
                                 }
                                 runCatching {
@@ -921,57 +927,43 @@ private fun FahimQuickActionPillsGrid(
     onScanQuestionClick: () -> Unit,
     onWhiteboardClick: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            FahimActionPill(
-                label = "جدول امتحان الغد",
-                icon = Icons.Default.CalendarToday,
-                color = DaylightInk,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("pill_tomorrow_exam"),
-                onClick = onTomorrowExamClick
-            )
-            FahimActionPill(
-                label = "خريطة ذهنية",
-                icon = Icons.Default.AccountTree,
-                color = FahimAmber,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("pill_mind_map"),
-                onClick = onMindMapClick
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            FahimActionPill(
-                label = "تصميم جدول مقارنة +",
-                icon = Icons.Default.CompareArrows,
-                color = FahimBlue,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("pill_comparison_table"),
-                onClick = onCompareTableClick
-            )
-            FahimActionPill(
-                label = "مسح صورة مسألة",
-                icon = Icons.Default.CenterFocusStrong,
-                color = FahimTeal,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("pill_scan_question"),
-                onClick = onScanQuestionClick
-            )
-        }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
         FahimActionPill(
-            label = "سبورة فهيم الذكية • رسم حي وشرح صوتي",
+            label = "جدول امتحان الغد",
+            icon = Icons.Default.CalendarToday,
+            accentColor = FahimBlue,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("pill_tomorrow_exam"),
+            onClick = onTomorrowExamClick
+        )
+        FahimActionPill(
+            label = "خريطة ذهنية",
+            icon = Icons.Default.AccountTree,
+            accentColor = FahimAmber,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("pill_mind_map"),
+            onClick = onMindMapClick
+        )
+        FahimActionPill(
+            label = "تصميم جدول مقارنة",
+            icon = Icons.Default.CompareArrows,
+            accentColor = FahimTeal,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("pill_comparison_table"),
+            onClick = onCompareTableClick
+        )
+        FahimActionPill(
+            label = "سبورة الشرح الذكية",
             icon = Icons.Default.Brush,
-            color = FahimBlue,
+            accentColor = FahimBlue,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("pill_smart_whiteboard"),
@@ -984,39 +976,39 @@ private fun FahimQuickActionPillsGrid(
 private fun FahimActionPill(
     label: String,
     icon: ImageVector,
-    color: Color,
+    accentColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.height(50.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = color,
-        shadowElevation = 2.dp
+        modifier = modifier.height(54.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White,
+        border = BorderStroke(1.5.dp, Color(0xFF1E4E8C)),
+        shadowElevation = 1.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp)
+                tint = accentColor,
+                modifier = Modifier.size(20.dp)
             )
-            Spacer(modifier = Modifier.width(7.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
                 text = label,
                 fontFamily = ReadexProFontFamily,
-                fontSize = 13.5.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                color = DaylightInk,
+                maxLines = 1
             )
         }
     }

@@ -372,6 +372,15 @@ class GeminiAiRepository {
         }
 
         if (!hasGeminiKey) {
+            if (FirebaseAiLogicClient.isAvailable()) {
+                return@withContext FirebaseAiLogicClient.generateText(
+                    prompt = prompt,
+                    systemInstruction = systemInstruction,
+                    imageBytesBase64 = imageBytesBase64,
+                    chatHistory = chatHistory,
+                    temperature = 0.3f
+                )
+            }
             return@withContext Result.success(generateOfflineAcademicResponse(prompt))
         }
 

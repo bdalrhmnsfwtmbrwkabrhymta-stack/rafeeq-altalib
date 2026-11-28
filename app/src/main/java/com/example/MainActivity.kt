@@ -91,6 +91,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.domain.firebase.configureAppCheck(this, intent)
         pendingIntent = intent
         pendingDirectRoute = resolveDirectRouteFromIntent(intent)
         pendingRafidInitialTab = resolveRafidInitialTabFromIntent(intent)
@@ -262,6 +263,9 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.hasExtra("FIREBASE_APPCHECK_DEBUG_TOKEN")) {
+            com.example.domain.firebase.configureAppCheck(this, intent)
+        }
         pendingIntent = intent
         resolveDirectRouteFromIntent(intent)?.let { directRoute ->
             pendingDirectRoute = directRoute
@@ -548,7 +552,7 @@ fun MainAppContent(
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val isLandscape = maxWidth > maxHeight && maxWidth >= 480.dp
                     val isStudyToolsRoute = currentRoute == "study_tools" || currentRoute.startsWith("study_") && currentRoute != "study_schedule_ai"
-                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || currentRoute == "rafid" || currentRoute == "smart_download" || isStudyToolsRoute || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
+                    val isFullScreenPdfRoute = currentRoute == "pdf_studio" || currentRoute == "documents" || currentRoute == "calculator" || currentRoute == "rafid" || currentRoute == "smart_download" || currentRoute == "educational_games_hub" || isStudyToolsRoute || (isMushafFullScreen && (currentRoute == "quran" || currentRoute == "quran_audio")) || (isDofaatiFullScreen && currentRoute == "dofaati")
                     val showMainNav = currentRoute in listOf(
                         "home", "account", "quests", "quran", "quran_audio",
                         "dofaati", "zakat", "library", "community", "games", "plans", "tools",
@@ -626,6 +630,9 @@ fun MainAppContent(
                                     viewModel = mainViewModel,
                                     onNavigate = { currentRoute = it },
                                     onOpenDrawer = { coroutineScope.launch { drawerState.open() } }
+                                )
+                                "educational_games_hub" -> com.app.games.GamesHubNavigation(
+                                    onNavigateBackToApp = { currentRoute = "home" }
                                 )
                                 "plans" -> PlansScreen(
                                     viewModel = mainViewModel,

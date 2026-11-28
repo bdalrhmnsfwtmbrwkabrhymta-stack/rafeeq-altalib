@@ -21,7 +21,10 @@ class FirebaseStudyChatRepository(private val context: Context) {
     /**
      * Initializes a GenerativeModel using Firebase AI SDK if available.
      */
-    private fun getFirebaseGenerativeModel(modelName: String = "gemini-2.5-flash", systemPrompt: String): com.google.firebase.ai.GenerativeModel? {
+    private fun getFirebaseGenerativeModel(
+        modelName: String = FirebaseAiLogicClient.DEFAULT_MODEL,
+        systemPrompt: String
+    ): com.google.firebase.ai.GenerativeModel? {
         return try {
             if (FirebaseApp.getApps(context).isEmpty()) {
                 FirebaseApp.initializeApp(context)
@@ -64,7 +67,10 @@ class FirebaseStudyChatRepository(private val context: Context) {
 
         // 1. Attempt to generate via Firebase AI SDK
         try {
-            val generativeModel = getFirebaseGenerativeModel(modelName = "gemini-2.5-flash", systemPrompt = systemPrompt)
+            val generativeModel = getFirebaseGenerativeModel(
+                modelName = FirebaseAiLogicClient.DEFAULT_MODEL,
+                systemPrompt = systemPrompt
+            )
             if (generativeModel != null) {
                 val fullPrompt = if (studyPlanContext.isNotBlank()) {
                     "سياق خطتي الدراسية:\n$studyPlanContext\n\nسؤالي هو:\n$userMessage"

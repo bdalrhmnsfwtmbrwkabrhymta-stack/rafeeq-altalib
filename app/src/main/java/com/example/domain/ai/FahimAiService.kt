@@ -110,16 +110,18 @@ class FahimAiService(
             "جدول", "امتحان", "بكرة", "غد", "مراجعة", "خطة", "نظّم", "ظبط لي", "مذاكرة", "schedule"
         )
 
-        // 1. Primary Engine: Gemini API configured via FahimConfig / Developer Panel (PIN 2026) / BuildConfig
+        val augmentedPrompt = buildSystemAugmentedPrompt(
+            userPrompt = effectivePrompt,
+            wantsMindMap = wantsMindMap,
+            wantsStudySchedule = wantsStudySchedule,
+            wantsComparisonTable = wantsComparisonTable
+        )
+
+        // 1. Optional Custom Gemini Key (Developer Panel PIN 2026)
         val resolvedGeminiKey = FahimConfig.resolveGeminiApiKey(customGeminiKey)
         if (resolvedGeminiKey.isNotBlank()) {
             val geminiRes = geminiFallback.generateAiResponse(
-                prompt = buildSystemAugmentedPrompt(
-                    userPrompt = effectivePrompt,
-                    wantsMindMap = wantsMindMap,
-                    wantsStudySchedule = wantsStudySchedule,
-                    wantsComparisonTable = wantsComparisonTable
-                ),
+                prompt = augmentedPrompt,
                 systemInstruction = FAHIM_SYSTEM_PROMPT,
                 customApiKey = resolvedGeminiKey,
                 modelName = FahimConfig.PRIMARY_MODEL,
@@ -141,7 +143,37 @@ class FahimAiService(
             }
         }
 
-        // 2. Secondary DeepSeek Engine (if configured)
+        // 2. Primary Built-In Live AI Engine: Firebase AI Logic (gemini-3.8-flash, zero API key needed)
+        var firebaseErrorMessage: String? = null
+        if (FirebaseAiLogicClient.isAvailable()) {
+            val sysWithContext = buildString {
+                append(FAHIM_SYSTEM_PROMPT)
+                if (studentContextSummary.isNotBlank()) {
+                    append("\n\nبيانات الطالب:\n").append(studentContextSummary)
+                }
+            }
+            val firebaseRes = FirebaseAiLogicClient.generateText(
+                prompt = augmentedPrompt,
+                systemInstruction = sysWithContext,
+                imageBytesBase64 = imageBytesBase64,
+                chatHistory = history.takeLast(8).map { it.isUser to it.text },
+                temperature = 0.35f
+            )
+            val firebaseText = firebaseRes.getOrNull()
+            if (!firebaseText.isNullOrBlank()) {
+                return@withContext buildParsedFahimReply(
+                    rawText = firebaseText,
+                    prompt = cleanPrompt,
+                    wantsMindMap = wantsMindMap,
+                    wantsStudySchedule = wantsStudySchedule,
+                    wantsComparisonTable = wantsComparisonTable
+                )
+            } else {
+                firebaseErrorMessage = firebaseRes.exceptionOrNull()?.localizedMessage
+            }
+        }
+
+        // 3. Optional Secondary DeepSeek Engine (if configured)
         val deepSeekKey = FahimAiConfig.resolveEffectiveDeepSeekKey()
         if (deepSeekKey.isNotBlank()) {
             val deepSeekRaw = callDeepSeekApi(
@@ -165,7 +197,16 @@ class FahimAiService(
             }
         }
 
-        // 3. Always-Ready Smart Academic Engine (never blocks UI with key errors)
+        // 4. On real devices where Firebase AI Logic is configured but unreachable, report transparently
+        if (FirebaseAiLogicClient.isAvailable()) {
+            val detail = firebaseErrorMessage?.takeIf { it.isNotBlank() }?.let { "\n\nالسبب: $it" }.orEmpty()
+            return@withContext FahimChatMessage(
+                isUser = false,
+                text = "تعذّر الاتصال بمحرك فهيم الذكي الآن. يرجى التأكد من اتصالك بالإنترنت ثم إعادة المحاولة.$detail"
+            )
+        }
+
+        // 5. Offline JVM/test fallback (when FirebaseApp is unavailable in unit tests)
         buildSmartAcademicStructuredReply(
             prompt = cleanPrompt,
             ocrText = ocrExtractedFromImage,
